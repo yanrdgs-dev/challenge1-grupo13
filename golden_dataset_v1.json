@@ -1,0 +1,212 @@
+[
+  {
+    "id": 1,
+    "claim": "O portal Dados Abertos da Câmara dos Deputados registra gastos de cotas parlamentares para o exercício de mandato.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 2,
+    "claim": "A verba indenizatória do Senado Federal cobre despesas com locomoção e contratação de consultorias.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "GASTOS",
+    "target_entity": "Senado Federal"
+  },
+  {
+    "id": 3,
+    "claim": "O Portal da Transparência disponibiliza registros das despesas diretas do Poder Executivo Federal.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "GASTOS",
+    "target_entity": "Portal da Transparência"
+  },
+  {
+    "id": 4,
+    "claim": "O Projeto de Lei 2630/2020 teve sua urgência aprovada no Plenário da Câmara dos Deputados.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "VOTACOES",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 5,
+    "claim": "O Senado Federal registrou a votação nominal da Proposta de Emenda à Constituição da Reforma Tributária em 2023.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "VOTACOES",
+    "target_entity": "Senado Federal"
+  },
+  {
+    "id": 6,
+    "claim": "A cota para o exercício da atividade parlamentar possui limites mensais que variam de acordo com o estado do deputado.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 7,
+    "claim": "Os registros de presença em sessões deliberativas da Câmara ficam armazenados e públicos via API de dados abertos.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "VOTACOES",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 8,
+    "claim": "O orçamento secreto ou emendas de relator (RP9) tiveram repasses detalhados no Portal da Transparência.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "GASTOS",
+    "target_entity": "Portal da Transparência"
+  },
+  {
+    "id": 9,
+    "claim": "O Tribunal Superior Eleitoral disponibiliza os dados de prestação de contas de campanhas eleitorais em seu portal aberto.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "GASTOS",
+    "target_entity": "Dados Abertos - TSE"
+  },
+  {
+    "id": 10,
+    "claim": "O plenário do Senado Federal aprovou a indicação de ministros do Supremo Tribunal Federal por votação secreta.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "VOTACOES",
+    "target_entity": "Senado Federal"
+  },
+  {
+    "id": 11,
+    "claim": "Deputados federais registram o reembolso de despesas com alimentação durante o exercício do mandato parlamentar.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 12,
+    "claim": "A Câmara dos Deputados realiza votações simbólicas quando há concordância entre os líderes partidários.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "VOTACOES",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 13,
+    "claim": "Todos os deputados federais possuem um teto fixo de gastos com combustível de R$ 500,00 por ano.",
+    "expected_verdict": "FALSO",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 14,
+    "claim": "O Portal da Transparência omitiu 100% das despesas com viagens internacionais de todos os ministros em 2023.",
+    "expected_verdict": "FALSO",
+    "category": "GASTOS",
+    "target_entity": "Portal da Transparência"
+  },
+  {
+    "id": 15,
+    "claim": "A votação do Código Florestal no Senado Federal em 2011 ocorreu sem nenhum registro de voto nominal.",
+    "expected_verdict": "FALSO",
+    "category": "VOTACOES",
+    "target_entity": "Senado Federal"
+  },
+  {
+    "id": 16,
+    "claim": "Deputados federais podem utilizar a Cota Parlamentar para comprar imóveis privados em seus nomes.",
+    "expected_verdict": "FALSO",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 17,
+    "claim": "O Senado Federal aboliu completamente o uso de diárias para viagens oficiais de seus servidores desde 2010.",
+    "expected_verdict": "FALSO",
+    "category": "GASTOS",
+    "target_entity": "Senado Federal"
+  },
+  {
+    "id": 18,
+    "claim": "Nenhuma proposta legislativa aprovada na Câmara dos Deputados passa por votação em comissões temáticas.",
+    "expected_verdict": "FALSO",
+    "category": "VOTACOES",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 19,
+    "claim": "A verba do Fundo Partidário gerida pelo TSE não exige apresentação de prestação de contas das legendas.",
+    "expected_verdict": "FALSO",
+    "category": "GASTOS",
+    "target_entity": "Dados Abertos - TSE"
+  },
+  {
+    "id": 20,
+    "claim": "O Senado Federal nunca registrou a apreciação de Vetos Presidenciais em sessões conjuntas.",
+    "expected_verdict": "FALSO",
+    "category": "VOTACOES",
+    "target_entity": "Senado Federal"
+  },
+  {
+    "id": 21,
+    "claim": "O Portal da Transparência cobra uma taxa de assinatura para o acesso aos dados abertos de licitações.",
+    "expected_verdict": "FALSO",
+    "category": "GASTOS",
+    "target_entity": "Portal da Transparência"
+  },
+  {
+    "id": 22,
+    "claim": "A cota parlamentar dos senadores permite ressarcimento integral de campanhas eleitorais pessoais.",
+    "expected_verdict": "FALSO",
+    "category": "GASTOS",
+    "target_entity": "Senado Federal"
+  },
+  {
+    "id": 23,
+    "claim": "As sessões deliberativas da Câmara dos Deputados ocorrem sem registro em ata ou sistema eletrônico.",
+    "expected_verdict": "FALSO",
+    "category": "VOTACOES",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 24,
+    "claim": "O TSE proíbe a divulgação pública do teto de gastos de campanhas para cargos majoritários.",
+    "expected_verdict": "FALSO",
+    "category": "GASTOS",
+    "target_entity": "Dados Abertos - TSE"
+  },
+  {
+    "id": 25,
+    "claim": "O vereador da Câmara Municipal de Macapá efetuou gastos com cota parlamentar registrada na API da Câmara dos Deputados em 2024.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 26,
+    "claim": "A Câmara Municipal de São Paulo aprovou o Projeto de Lei Municipal 123/2023 no sistema de dados abertos do Senado.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "VOTACOES",
+    "target_entity": "Senado Federal"
+  },
+  {
+    "id": 27,
+    "claim": "O deputado estadual de Goiás registrou ressarcimento de combustível no Portal de Dados Abertos da Câmara Federal.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 28,
+    "claim": "A Assembleia Legislativa do Estado do Rio de Janeiro teve votação computada na API do Senado Federal.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "VOTACOES",
+    "target_entity": "Senado Federal"
+  },
+  {
+    "id": 29,
+    "claim": "O prefeito de Curitiba disponibilizou as notas fiscais de reformas municipais na API de cota parlamentar da Câmara.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 30,
+    "claim": "O governador do Estado da Bahia participou de votação nominal de PEC na API de Dados Abertos da Câmara.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "VOTACOES",
+    "target_entity": "Câmara dos Deputados"
+  }
+]
