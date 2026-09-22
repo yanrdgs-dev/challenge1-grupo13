@@ -38,3 +38,11 @@ htmlcov/
 .DS_Store
 .idea/
 .vscode/
+
+# Data Files (preserve structure via .gitkeep)
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+*.parquet
+
