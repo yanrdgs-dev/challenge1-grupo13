@@ -1,0 +1,26 @@
+# Dados brutos, processados e bancos locais
+data/
+*.parquet
+*.csv
+*.zip
+*.duckdb
+*.db
+
+# Python & Ambientes Virtuais
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.env
+
+# Testes & Ferramentas
+.pytest_cache/
+.coverage
+htmlcov/
+
+# SO & IDEs
+.DS_Store
+.vscode/
+.idea/
