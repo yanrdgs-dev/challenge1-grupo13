@@ -25,7 +25,7 @@ Para atingir **latência analítica em milissegundos** via **DuckDB** e **Polars
 - **Fontes**:
   - `consulta_cand_{ANO}_{UF}.csv` (Cadastro de Candidatos)
   - `despesas_pagas_candidatos_{ANO}_{UF}.csv` (Prestação de Contas - Despesas Pagas)
-- **Ano Prioritário**: `2022` (Eleição Geral Federal/Estadual)
+- **Anos Prioritários**: `2026` (Ano Corrente) / `2022` (Eleição Geral Anterior)
 - **Encoding original dos CSVs**: `latin1` (`ISO-8859-1`)
 - **Separador**: Ponto e vírgula (`;`)
 
@@ -56,7 +56,7 @@ Para atingir **latência analítica em milissegundos** via **DuckDB** e **Polars
 
 ### 3.1 Origem dos Dados
 - **Fonte**: `bem_candidato_{ANO}_{UF}.csv` (Inventário Patrimonial)
-- **Ano Prioritário**: `2022`
+- **Anos Prioritários**: `2026` / `2022`
 - **Encoding original dos CSVs**: `latin1` (`ISO-8859-1`)
 - **Separador**: Ponto e vírgula (`;`)
 
@@ -82,7 +82,7 @@ Para atingir **latência analítica em milissegundos** via **DuckDB** e **Polars
 - **Fontes**: 
   - `votacoesVotos-{ANO}.csv` (Votos individuais por sessão e deputado)
   - `votacoes-{ANO}.csv` (Metadados da sessão e vinculação à proposição)
-- **Anos Prioritários**: `2023` e `2024` (57ª Legislatura)
+- **Anos Prioritários**: `2026` (Ano Corrente) / `2024` e `2025`
 - **Encoding original dos CSVs**: `utf-8`
 - **Separador**: Ponto e vírgula (`;`)
 
@@ -114,7 +114,7 @@ Para atingir **latência analítica em milissegundos** via **DuckDB** e **Polars
 
 ### 5.1 Origem dos Dados
 - **Fontes**: `Ano-{ANO}.csv` (Dados Abertos da Câmara dos Deputados)
-- **Anos Prioritários**: `2023` e `2024`
+- **Anos Prioritários**: `2026` (Ano Corrente) / `2024` e `2025`
 - **Encoding original dos CSVs**: `utf-8` / `latin1`
 - **Separador**: Ponto e vírgula (`;`)
 
