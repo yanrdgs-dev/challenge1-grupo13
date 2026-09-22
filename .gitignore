@@ -1,26 +1,51 @@
-# Dados brutos, processados e bancos locais
-data/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# Environment variables
+.env
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDEs & OS
+.DS_Store
+.idea/
+.vscode/
+
+# Data Files (preserve structure via .gitkeep)
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
 *.parquet
 *.csv
 *.zip
 *.duckdb
 *.db
-
-# Python & Ambientes Virtuais
-__pycache__/
-*.py[cod]
-*$py.class
-.venv/
-venv/
-env/
-.env
-
-# Testes & Ferramentas
-.pytest_cache/
-.coverage
-htmlcov/
-
-# SO & IDEs
-.DS_Store
-.vscode/
-.idea/
