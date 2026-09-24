@@ -45,4 +45,7 @@ data/raw/*
 data/processed/*
 !data/processed/.gitkeep
 *.parquet
-
+*.csv
+datasets/camara/
+datasets/senado/
+datasets/tse/

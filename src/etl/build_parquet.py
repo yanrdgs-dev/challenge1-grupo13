@@ -4,6 +4,7 @@ import argparse
 import glob
 import logging
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -54,13 +55,13 @@ def clean_currency_series(series: pl.Series) -> pl.Series:
 
 def clean_dataframe(
     df: pl.DataFrame,
-    partition_col: str = "ano",
+    partition_col: Optional[str] = "ano",
 ) -> pl.DataFrame:
     """Aplica higienização, tipagem estrita e normalização de colunas no DataFrame.
 
     - Converte VR_PAGTO_DESPESA de string com vírgula para Float64 estrito.
-    - Converte outras colunas de valor monetário (prefixo VR_ ou sufixo _VALOR) se presentes.
-    - Garante a existência da coluna de partição de ano (mapeando de ANO_ELEICAO se necessário).
+    - Converte outras colunas de valor monetário (prefixo VR_, vlr, VALOR_) se presentes.
+    - Garante a existência da coluna de partição de ano (mapeando de ANO_ELEICAO, numAno, ANO, etc.).
 
     Args:
         df: DataFrame bruto lido do CSV.
@@ -89,9 +90,24 @@ def clean_dataframe(
         )
         expressions.append(expr_vr)
 
-    # 2. Tratamento de outras colunas financeiras comuns do TSE (ex: VR_DESPESA_CONTRATADA)
+    # 2. Tratamento de outras colunas financeiras comuns do TSE, Câmara e Senado
+    currency_cols = {
+        "vlrLiquido", "vlrDocumento", "vlrGlosa", "vlrRestituicao",
+        "VALOR_REEMBOLSADO", "VR_BEM_CANDIDATO", "VR_RECEITA",
+        "VR_DESPESA_CONTRATADA",
+    }
     for col_name in df.columns:
-        if col_name.startswith("VR_") and col_name != "VR_PAGTO_DESPESA":
+        is_currency = (
+            (
+                col_name.startswith("VR_")
+                or col_name.startswith("vlr")
+                or col_name.startswith("VALOR_")
+                or col_name.endswith("_VALOR")
+                or col_name in currency_cols
+            )
+            and col_name != "VR_PAGTO_DESPESA"
+        )
+        if is_currency:
             col_str = (
                 pl.col(col_name)
                 .cast(pl.Utf8)
@@ -111,11 +127,28 @@ def clean_dataframe(
     if partition_col == "ano" and "ano" not in df.columns:
         if "ANO_ELEICAO" in df.columns:
             expressions.append(
-                pl.col("ANO_ELEICAO").cast(pl.Int32).alias("ano")
+                pl.col("ANO_ELEICAO").cast(pl.Int32, strict=False).alias("ano")
             )
         elif "ano_eleicao" in df.columns:
             expressions.append(
-                pl.col("ano_eleicao").cast(pl.Int32).alias("ano")
+                pl.col("ano_eleicao").cast(pl.Int32, strict=False).alias("ano")
+            )
+        elif "numAno" in df.columns:
+            expressions.append(
+                pl.col("numAno").cast(pl.Int32, strict=False).alias("ano")
+            )
+        elif "ANO" in df.columns:
+            expressions.append(
+                pl.col("ANO").cast(pl.Int32, strict=False).alias("ano")
+            )
+        elif "Ano" in df.columns:
+            expressions.append(
+                pl.col("Ano").cast(pl.Int32, strict=False).alias("ano")
+            )
+    elif partition_col == "ano" and "ano" in df.columns:
+        if df.schema["ano"] != pl.Int32:
+            expressions.append(
+                pl.col("ano").cast(pl.Int32, strict=False).alias("ano")
             )
 
     if expressions:
@@ -124,7 +157,11 @@ def clean_dataframe(
     return df
 
 
-def find_csv_files(input_path: Union[str, Path]) -> List[Path]:
+def find_csv_files(
+    input_path: Union[str, Path],
+    prefer_brasil: bool = False,
+    filter_pattern: Optional[str] = None,
+) -> List[Path]:
     """Localiza todos os arquivos CSV a partir do caminho informado."""
     path = Path(input_path)
     if path.is_file():
@@ -140,6 +177,14 @@ def find_csv_files(input_path: Union[str, Path]) -> List[Path]:
             if f.resolve() not in seen:
                 seen.add(f.resolve())
                 unique_files.append(f)
+
+        if filter_pattern:
+            unique_files = [f for f in unique_files if filter_pattern in f.name]
+
+        if prefer_brasil:
+            brasil_files = [f for f in unique_files if "_BRASIL.csv" in f.name]
+            if brasil_files:
+                return brasil_files
         return unique_files
     return []
 
@@ -151,10 +196,12 @@ def process_csv_to_parquet(
     delimiter: str = ";",
     compression: str = "zstd",
     compression_level: int = 3,
-    partition_col: str = "ano",
+    partition_col: Optional[str] = "ano",
     min_reduction_pct: float = 70.0,
+    prefer_brasil: bool = False,
+    filter_pattern: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Executa o pipeline completo de ingestão, tratamento e serialização em Parquet particionado.
+    """Executa o pipeline completo de ingestão, tratamento e serialização em Parquet.
 
     Args:
         input_path: Arquivo CSV individual ou diretório contendo CSVs brutos.
@@ -163,20 +210,26 @@ def process_csv_to_parquet(
         delimiter: Delimitador de colunas do CSV (padrão ';').
         compression: Algoritmo de compressão do Parquet (padrão 'zstd').
         compression_level: Nível de compressão zstd (padrão 3).
-        partition_col: Nome da coluna para particionamento físico (ex: 'ano').
+        partition_col: Nome da coluna para particionamento físico (ex: 'ano' ou None).
         min_reduction_pct: Percentual mínimo exigido de redução de tamanho (padrão 70.0%).
+        prefer_brasil: Se True, filtra apenas arquivos com sufixo _BRASIL.csv quando disponíveis.
+        filter_pattern: Padrão textual opcional para filtrar nomes de arquivos CSV.
 
     Returns:
         Dicionário com sumário e estatísticas da execução.
     """
-    input_files = find_csv_files(input_path)
+    input_files = find_csv_files(input_path, prefer_brasil=prefer_brasil, filter_pattern=filter_pattern)
     if not input_files:
         raise FileNotFoundError(
-            f"Nenhum arquivo CSV encontrado no caminho especificado: '{input_path}'"
+            f"Nenhum arquivo CSV encontrado no caminho especificado: '{input_path}' (filtro: {filter_pattern})"
         )
 
     out_path = Path(output_dir)
-    out_path.mkdir(parents=True, exist_ok=True)
+    if str(partition_col).lower() in ("none", ""):
+        partition_col = None
+
+    if partition_col or not str(output_dir).endswith(".parquet"):
+        out_path.mkdir(parents=True, exist_ok=True)
 
     logger.info("Iniciando ingestão de %d arquivo(s) CSV...", len(input_files))
 
@@ -194,13 +247,38 @@ def process_csv_to_parquet(
             delimiter,
         )
 
-        df_file = pl.read_csv(
-            file_path,
-            separator=delimiter,
-            encoding=encoding,
-            infer_schema_length=10000,
-            ignore_errors=False,
-        )
+        try:
+            df_file = pl.read_csv(
+                file_path,
+                separator=delimiter,
+                encoding=encoding,
+                infer_schema_length=10000,
+                ignore_errors=True,
+                truncate_ragged_lines=True,
+            )
+        except Exception:
+            alt_enc = "utf8-lossy" if encoding == "latin1" else "latin1"
+            df_file = pl.read_csv(
+                file_path,
+                separator=delimiter,
+                encoding=alt_enc,
+                infer_schema_length=10000,
+                ignore_errors=True,
+                truncate_ragged_lines=True,
+            )
+
+        # Se partition_col == "ano" e ainda não tem ano na tabela nem nas colunas mapeadas, tenta extrair do nome do arquivo
+        if partition_col == "ano" and "ano" not in df_file.columns:
+            has_candidate = any(
+                c in df_file.columns for c in ("ANO_ELEICAO", "ano_eleicao", "numAno", "ANO", "Ano")
+            )
+            if not has_candidate:
+                match = re.search(r"(?:19|20)\d{2}", file_path.stem)
+                if match:
+                    df_file = df_file.with_columns(
+                        pl.lit(int(match.group(0))).cast(pl.Int32).alias("ano")
+                    )
+
         dfs.append(df_file)
 
     # Concatena todos os dataframes ingeridos
@@ -213,7 +291,7 @@ def process_csv_to_parquet(
     logger.info("Total de registros ingeridos: %d", total_rows)
 
     # Aplica sanitização e cast de tipos
-    logger.info("Aplicando sanitização e cast estrito de VR_PAGTO_DESPESA para Float64...")
+    logger.info("Aplicando sanitização e tipagem...")
     cleaned_df = clean_dataframe(full_df, partition_col=partition_col)
 
     if "VR_PAGTO_DESPESA" in cleaned_df.columns:
@@ -225,32 +303,53 @@ def process_csv_to_parquet(
             )
         logger.info("✓ VR_PAGTO_DESPESA convertido com sucesso para Float64.")
 
-    # Verifica coluna de partição
-    if partition_col not in cleaned_df.columns:
-        raise ValueError(
-            f"Coluna de partição '{partition_col}' não encontrada no DataFrame tratado. "
-            f"Colunas disponíveis: {cleaned_df.columns}"
+    # Gravação do Parquet
+    if partition_col:
+        if partition_col not in cleaned_df.columns:
+            raise ValueError(
+                f"Coluna de partição '{partition_col}' não encontrada no DataFrame tratado. "
+                f"Colunas disponíveis: {cleaned_df.columns}"
+            )
+        logger.info(
+            "Gravando Parquet particionado por '%s' em '%s' (compressão: %s, nível: %d)...",
+            partition_col,
+            out_path,
+            compression,
+            compression_level,
+        )
+        cleaned_df.write_parquet(
+            out_path,
+            partition_by=partition_col,
+            compression=compression,
+            compression_level=compression_level,
+            mkdir=True,
+        )
+    else:
+        logger.info(
+            "Gravando Parquet direto em '%s' (compressão: %s, nível: %d)...",
+            out_path,
+            compression,
+            compression_level,
+        )
+        if str(output_dir).endswith(".parquet"):
+            target_file = out_path
+            target_file.parent.mkdir(parents=True, exist_ok=True)
+        else:
+            out_path.mkdir(parents=True, exist_ok=True)
+            stem_name = Path(input_path).stem if Path(input_path).is_file() else "data"
+            target_file = out_path / f"{stem_name}.parquet"
+
+        cleaned_df.write_parquet(
+            target_file,
+            compression=compression,
+            compression_level=compression_level,
         )
 
-    logger.info(
-        "Gravando Parquet particionado por '%s' em '%s' (compressão: %s, nível: %d)...",
-        partition_col,
-        out_path,
-        compression,
-        compression_level,
-    )
-
-    # Gravação nativa do Parquet particionado no Polars com compressão zstd
-    cleaned_df.write_parquet(
-        out_path,
-        partition_by=partition_col,
-        compression=compression,
-        compression_level=compression_level,
-        mkdir=True,
-    )
-
     # Calcula o tamanho total dos arquivos Parquet gerados
-    parquet_files = list(out_path.glob(f"**/*.parquet"))
+    if str(output_dir).endswith(".parquet"):
+        parquet_files = [out_path] if out_path.exists() else []
+    else:
+        parquet_files = list(out_path.glob("**/*.parquet"))
     total_parquet_bytes = sum(f.stat().st_size for f in parquet_files)
 
     if total_csv_bytes > 0:
@@ -258,8 +357,7 @@ def process_csv_to_parquet(
     else:
         reduction_pct = 0.0
 
-    partitions = sorted(list({p.parent.name for p in parquet_files}))
-
+    partitions = sorted(list({p.parent.name for p in parquet_files if "=" in p.parent.name}))
     meets_target = reduction_pct >= min_reduction_pct
 
     summary = {
@@ -283,7 +381,8 @@ def process_csv_to_parquet(
     logger.info("Tamanho CSV bruto:     %.2f KB", summary["csv_size_kb"])
     logger.info("Tamanho Parquet final: %.2f KB", summary["parquet_size_kb"])
     logger.info("Redução volumétrica:   %.2f%%", summary["reduction_pct"])
-    logger.info("Partições geradas:     %s", partitions)
+    if partitions:
+        logger.info("Partições geradas:     %s", partitions)
 
     if meets_target:
         logger.info(
@@ -298,6 +397,205 @@ def process_csv_to_parquet(
         )
 
     return summary
+
+
+def process_all_datasets(
+    datasets_dir: Union[str, Path] = "datasets",
+    output_base: Union[str, Path] = "data/processed",
+) -> List[Dict[str, Any]]:
+    """Converte sistematicamente todos os datasets de Câmara, Senado e TSE para Parquet."""
+    ds_path = Path(datasets_dir)
+    out_base = Path(output_base)
+    summaries = []
+
+    tasks = [
+        # Câmara
+        {
+            "name": "Câmara - Deputados (Cadastro)",
+            "input": ds_path / "camara/cadastro/deputados.csv",
+            "output": out_base / "camara/deputados.parquet",
+            "encoding": "utf8", "delimiter": ";", "partition_col": None,
+        },
+        {
+            "name": "Câmara - CEAP (Cota Parlamentar)",
+            "input": ds_path / "camara/ceap",
+            "output": out_base / "camara/ceap",
+            "encoding": "utf8", "delimiter": ";", "partition_col": "ano",
+        },
+        {
+            "name": "Câmara - Proposições",
+            "input": ds_path / "camara/proposicoes",
+            "output": out_base / "camara/proposicoes",
+            "encoding": "utf8", "delimiter": ";", "partition_col": "ano",
+        },
+        {
+            "name": "Câmara - Proposições Autores",
+            "input": ds_path / "camara/proposicoes_autores",
+            "output": out_base / "camara/proposicoes_autores",
+            "encoding": "utf8", "delimiter": ";", "partition_col": "ano",
+        },
+
+        # Senado
+        {
+            "name": "Senado - Senadores (Cadastro)",
+            "input": ds_path / "senado/cadastro/senadores.csv",
+            "output": out_base / "senado/senadores.parquet",
+            "encoding": "utf8", "delimiter": ";", "partition_col": None,
+        },
+        {
+            "name": "Senado - CEAPS (Cota Senadores)",
+            "input": ds_path / "senado/ceaps",
+            "output": out_base / "senado/ceaps",
+            "encoding": "utf8", "delimiter": ";", "partition_col": "ano",
+        },
+        {
+            "name": "Senado - Matérias",
+            "input": ds_path / "senado/materias/materias.csv",
+            "output": out_base / "senado/materias.parquet",
+            "encoding": "utf8", "delimiter": ",", "partition_col": None,
+        },
+
+        # TSE - Candidatos & Complementar
+        {
+            "name": "TSE - Candidatos",
+            "input": ds_path / "tse/candidatos",
+            "output": out_base / "tse/candidatos",
+            "encoding": "latin1", "delimiter": ";", "partition_col": "ano",
+            "prefer_brasil": True,
+            "filter_pattern": "consulta_cand_20",
+        },
+        {
+            "name": "TSE - Candidatos Complementar",
+            "input": ds_path / "tse/candidatos",
+            "output": out_base / "tse/candidatos_complementar",
+            "encoding": "latin1", "delimiter": ";", "partition_col": "ano",
+            "prefer_brasil": True,
+            "filter_pattern": "consulta_cand_complementar_20",
+        },
+
+        # TSE - Bens
+        {
+            "name": "TSE - Bens de Candidatos",
+            "input": ds_path / "tse/bens",
+            "output": out_base / "tse/bens",
+            "encoding": "latin1", "delimiter": ";", "partition_col": "ano",
+            "prefer_brasil": True,
+        },
+
+        # TSE - Coligações
+        {
+            "name": "TSE - Coligações e Federações",
+            "input": ds_path / "tse/coligacoes",
+            "output": out_base / "tse/coligacoes",
+            "encoding": "latin1", "delimiter": ";", "partition_col": "ano",
+            "prefer_brasil": True,
+        },
+
+        # TSE - Cassação
+        {
+            "name": "TSE - Motivo Cassação",
+            "input": ds_path / "tse/cassacao",
+            "output": out_base / "tse/cassacao",
+            "encoding": "latin1", "delimiter": ";", "partition_col": "ano",
+            "prefer_brasil": True,
+        },
+
+        # TSE - Prestação de Contas
+        {
+            "name": "TSE - Prestação de Contas (Despesas Pagas)",
+            "input": ds_path / "tse/prestacao_contas",
+            "output": out_base / "tse/prestacao_contas/despesas_pagas",
+            "encoding": "latin1", "delimiter": ";", "partition_col": "ano",
+            "filter_pattern": "despesas_pagas_candidatos",
+            "prefer_brasil": True,
+        },
+        {
+            "name": "TSE - Prestação de Contas (Despesas Contratadas)",
+            "input": ds_path / "tse/prestacao_contas",
+            "output": out_base / "tse/prestacao_contas/despesas_contratadas",
+            "encoding": "latin1", "delimiter": ";", "partition_col": "ano",
+            "filter_pattern": "despesas_contratadas_candidatos",
+            "prefer_brasil": True,
+        },
+        {
+            "name": "TSE - Prestação de Contas (Receitas)",
+            "input": ds_path / "tse/prestacao_contas",
+            "output": out_base / "tse/prestacao_contas/receitas",
+            "encoding": "latin1", "delimiter": ";", "partition_col": "ano",
+            "filter_pattern": "receitas_candidatos_20",
+            "prefer_brasil": True,
+        },
+
+        # TSE - Redes Sociais
+        {
+            "name": "TSE - Redes Sociais",
+            "input": ds_path / "tse/redes_sociais",
+            "output": out_base / "tse/redes_sociais",
+            "encoding": "latin1", "delimiter": ";", "partition_col": "ano",
+        },
+
+        # TSE - Votação Munzona
+        {
+            "name": "TSE - Votação Munzona (2022)",
+            "input": ds_path / "tse/votacao/munzona/votacao_candidato_munzona_2022",
+            "output": out_base / "tse/votacao_munzona",
+            "encoding": "latin1", "delimiter": ";", "partition_col": "ano",
+            "prefer_brasil": True,
+        },
+
+        # TSE - Totalização Presidente 2022
+        {
+            "name": "TSE - Totalização Presidencial 2022",
+            "input": ds_path / "tse/votacao/totalizacao",
+            "output": out_base / "tse/totalizacao_presidente_2022",
+            "encoding": "latin1", "delimiter": ";", "partition_col": None,
+        },
+
+        # TSE - Detalhe Votação Seção 2022
+        {
+            "name": "TSE - Detalhe Votação Seção 2022",
+            "input": ds_path / "tse/votacao/secao/detalhe_votacao_secao_2022",
+            "output": out_base / "tse/detalhe_votacao_secao_2022",
+            "encoding": "latin1", "delimiter": ";", "partition_col": "ano",
+            "prefer_brasil": True,
+        },
+    ]
+
+    logger.info(">>> Iniciando processamento em lote de %d conjuntos de dados <<<", len(tasks))
+
+    for idx, task in enumerate(tasks, 1):
+        task_input = Path(task["input"])
+        if not task_input.exists():
+            logger.warning("[%d/%d] Pulando '%s': caminho não encontrado (%s)", idx, len(tasks), task["name"], task_input)
+            continue
+
+        logger.info("\n------------------------------------------------------------")
+        logger.info("[%d/%d] Processando: %s", idx, len(tasks), task["name"])
+        logger.info("Origem:  %s", task["input"])
+        logger.info("Destino: %s", task["output"])
+        logger.info("------------------------------------------------------------")
+
+        try:
+            summary = process_csv_to_parquet(
+                input_path=task["input"],
+                output_dir=task["output"],
+                encoding=task.get("encoding", "latin1"),
+                delimiter=task.get("delimiter", ";"),
+                partition_col=task.get("partition_col", "ano"),
+                prefer_brasil=task.get("prefer_brasil", False),
+                filter_pattern=task.get("filter_pattern"),
+                min_reduction_pct=task.get("min_reduction_pct", 50.0),
+            )
+            summary["dataset_name"] = task["name"]
+            summaries.append(summary)
+        except Exception as e:
+            logger.error("Erro ao processar '%s': %s", task["name"], e, exc_info=True)
+
+    logger.info("\n============================================================")
+    logger.info("        FINALIZADO PROCESSAMENTO DE TODOS OS DATASETS       ")
+    logger.info("============================================================")
+    logger.info("Total de conjuntos processados com sucesso: %d / %d", len(summaries), len(tasks))
+    return summaries
 
 
 def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
@@ -356,6 +654,16 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default=70.0,
         help="Percentual mínimo de redução exigido (padrão: 70.0).",
     )
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Processa todos os conjuntos de dados organizados em datasets/ gerando os Parquets correspondentes.",
+    )
+    parser.add_argument(
+        "--datasets-dir",
+        default="datasets",
+        help="Diretório raiz dos datasets (padrão: datasets).",
+    )
     return parser.parse_args(args)
 
 
@@ -363,6 +671,15 @@ def main() -> None:
     """Ponto de entrada CLI do pipeline de ETL."""
     args = parse_args()
     try:
+        if args.all:
+            summaries = process_all_datasets(
+                datasets_dir=args.datasets_dir,
+                output_base="data/processed",
+            )
+            if not summaries:
+                sys.exit(1)
+            sys.exit(0)
+
         summary = process_csv_to_parquet(
             input_path=args.input_path,
             output_dir=args.output_dir,
