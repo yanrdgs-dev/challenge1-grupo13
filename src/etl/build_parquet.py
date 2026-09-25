@@ -108,12 +108,11 @@ def clean_dataframe(
             and col_name != "VR_PAGTO_DESPESA"
         )
         if is_currency:
+            col_raw = pl.col(col_name).cast(pl.Utf8).str.strip_chars()
             col_str = (
-                pl.col(col_name)
-                .cast(pl.Utf8)
-                .str.strip_chars()
-                .str.replace_all(r"\.", "")
-                .str.replace(",", ".")
+                pl.when(col_raw.str.contains(","))
+                .then(col_raw.str.replace_all(r"\.", "").str.replace(",", "."))
+                .otherwise(col_raw)
             )
             expressions.append(
                 pl.when(col_str.is_null() | (col_str == "") | (col_str == "None"))
