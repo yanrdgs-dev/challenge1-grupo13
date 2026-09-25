@@ -101,20 +101,30 @@ def chart_02_autoria():
         how="inner"
     )
     
-    # 1. Top 8 Autores Principais de PL/PEC/PLP
+    # 1. Top 8 Autores Principais de PL/PEC/PLP (agrupados por ID do parlamentar para consolidar trocas de partido)
     top_principais = (
         df_joined.filter(pl.col("siglaTipo").is_in(["PL", "PEC", "PLP"]) & (pl.col("papel") == "Autor Principal"))
-        .group_by(["nomeAutor", "siglaPartidoAutor", "siglaUFAutor"])
-        .agg(pl.len().alias("total"))
+        .group_by("idDeputadoAutor")
+        .agg(
+            pl.col("nomeAutor").first().alias("nomeAutor"),
+            pl.col("siglaUFAutor").first().alias("siglaUFAutor"),
+            pl.col("siglaPartidoAutor").unique().str.join("/").alias("siglaPartidoAutor"),
+            pl.len().alias("total")
+        )
         .sort("total", descending=True)
         .head(8)
     )
     
-    # 2. Top 8 Cosignatários
+    # 2. Top 8 Cosignatários (agrupados por ID do parlamentar para consolidar trocas de partido)
     top_cosign = (
         df_joined.filter(pl.col("papel") == "Cosignatário")
-        .group_by(["nomeAutor", "siglaPartidoAutor", "siglaUFAutor"])
-        .agg(pl.len().alias("total"))
+        .group_by("idDeputadoAutor")
+        .agg(
+            pl.col("nomeAutor").first().alias("nomeAutor"),
+            pl.col("siglaUFAutor").first().alias("siglaUFAutor"),
+            pl.col("siglaPartidoAutor").unique().str.join("/").alias("siglaPartidoAutor"),
+            pl.len().alias("total")
+        )
         .sort("total", descending=True)
         .head(8)
     )

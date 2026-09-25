@@ -242,44 +242,50 @@ def chart_03_distribuicao_parlamentares():
 
 
 def chart_04_fornecedores_hibridos():
-    print("Gerando Gráfico 04: Fornecedores Híbridos (Mandato vs Campanha TSE)...")
-    # Dados extraídos da EDA empírica
+    print("Gerando Gráfico 04: Recursos Pagos a Fornecedores (Mandato vs Campanha TSE)...")
     empresas = [
-        "PANTANAL VEÍCULOS",
-        "FACEBOOK SERVIÇOS",
-        "LATAM AIRLINES",
-        "TELEFÔNICA (VIVO)",
-        "SUPREMA MOBILIDADE",
-        "NOVACAR LOCADORA",
-        "DALETH VEÍCULOS",
-        "VIA LOCADORA",
-        "AZUL LINHAS AÉREAS",
-        "PONTUAL LOC CAR"
+        "PANTANAL VEÍCULOS\n(Locação de Frotas)",
+        "FACEBOOK / META\n(Impulsionamento Digital)",
+        "LATAM AIRLINES\n(Passagens Aéreas)",
+        "TELEFÔNICA / VIVO\n(Telefonia e Dados)",
+        "SUPREMA MOBILIDADE\n(Locação de Frotas)",
+        "NOVACAR LOCADORA\n(Locação de Frotas)",
+        "DALETH VEÍCULOS\n(Locação de Frotas)",
+        "VIA LOCADORA\n(Locação de Frotas)",
+        "AZUL LINHAS AÉREAS\n(Passagens Aéreas)",
+        "PONTUAL LOC CAR\n(Locação de Frotas)"
     ]
     camara_vals = [15.26, 9.95, 7.62, 7.22, 6.75, 5.83, 3.30, 3.21, 3.06, 2.54] # em Milhões de R$
     tse_vals = [0.08, 371.64, 0.01, 0.01, 0.10, 0.02, 0.04, 0.01, 0.04, 0.48]    # em Milhões de R$
     
-    fig, ax = plt.subplots(figsize=(13, 6))
+    fig, ax = plt.subplots(figsize=(13.5, 6.5))
     y = np.arange(len(empresas))
-    height = 0.4
+    height = 0.55
     
     # Barra da Câmara
-    bars1 = ax.barh(y - height/2, camara_vals, height=height, label="Câmara CEAP (Mandato)", color="#1f77b4")
-    # Barra do TSE (log ou escala para não esmagar pelos 371M do Facebook)
-    # Mostramos o valor da Câmara e anotamos o TSE
+    bars1 = ax.barh(y, camara_vals, height=height, label="Pago pela Câmara (Cota Parlamentar CEAP)", color="#1f77b4")
     ax.set_yticks(y)
-    ax.set_yticklabels(empresas, fontsize=9.5)
+    ax.set_yticklabels(empresas, fontsize=9)
     ax.invert_yaxis()
-    ax.set_xlabel("Valor Total Reembolsado na Câmara (Milhões de R$)")
-    ax.set_title("Top Fornecedores da Cota Parlamentar com Atuação Simultânea em Campanhas Eleitorais (TSE)\n35,2% dos fornecedores com CNPJ da Câmara também faturam em campanhas eleitorais", fontsize=12, fontweight="bold", pad=12)
+    ax.set_xlabel("Total de Recursos Públicos Reembolsados na Câmara (Milhões de R$)")
+    ax.set_title(
+        "Recursos Públicos e Partidários Pagos aos Top Fornecedores da Câmara e Campanhas do TSE\n"
+        "(Valores brutos recebidos pelas empresas do erário/partidos — Não reflete a margem de lucro líquido privado)",
+        fontsize=11.5, fontweight="bold", pad=12
+    )
     ax.xaxis.set_major_formatter(ticker.FormatStrFormatter("R$ %.0fM"))
     
     for bar, cam, tse in zip(bars1, camara_vals, tse_vals):
-        tse_txt = f"TSE: R$ {tse:.2f}M" if tse < 100 else f"TSE: R$ {tse:.0f}M (Impulsionamento)"
-        ax.text(cam + 0.25, bar.get_y() + bar.get_height()/2, f"Câmara: R$ {cam:.2f}M | {tse_txt}", va="center", fontsize=8.5, fontweight="bold", color="#333")
+        tse_txt = f"TSE: R$ {tse:.2f}M" if tse < 100 else f"TSE: R$ {tse:.1f}M (Fundo Eleitoral)"
+        ax.text(
+            cam + 0.25, bar.get_y() + bar.get_height()/2,
+            f"Câmara: R$ {cam:.2f}M  |  {tse_txt}",
+            va="center", fontsize=8.5, fontweight="bold", color="#222"
+        )
     
-    ax.set_xlim(0, max(camara_vals) * 1.35)
+    ax.set_xlim(0, max(camara_vals) * 1.38)
     ax.grid(True, linestyle=":", alpha=0.6)
+    ax.legend(loc="lower right", frameon=True, fontsize=9.5)
     
     plt.tight_layout()
     out_file = OUT_DIR / "04_top_fornecedores_e_sobreposicao_tse.png"
@@ -290,7 +296,7 @@ def chart_04_fornecedores_hibridos():
 
 def chart_05_auditoria_glosas_passagens():
     print("Gerando Gráfico 05: Auditoria Documental, Glosas e Passagens Aéreas...")
-    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(16, 5))
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(16.5, 5.2))
     
     # 1. Rastreabilidade de Comprovantes (Pizza)
     labels = ["Com Link Oficial\n(NF-e / Recibo)", "Sem Link Direto"]
@@ -316,16 +322,23 @@ def chart_05_auditoria_glosas_passagens():
     )
     ax2.text(0.05, 0.5, stats_text, fontsize=9.5, verticalalignment="center", bbox=dict(boxstyle="round,pad=0.8", fc="#f7f7f7", ec="#bbb", lw=1))
     
-    # 3. Top Trechos Aéreos
-    trechos = ["Brasília ➔ Confins (BH)", "Brasília ➔ Salvador", "Confins ➔ Brasília", "Salvador ➔ Brasília"]
-    voos = [544, 494, 489, 430]
+    # 3. Top Trechos Aéreos de IDA (Apenas partindo de BSB)
+    trechos = [
+        "BSB ➔ Confins (Belo Horizonte)",
+        "BSB ➔ Salvador (BA)",
+        "BSB ➔ Santos Dumont (Rio de Janeiro)",
+        "BSB ➔ Congonhas (São Paulo)",
+        "BSB ➔ Belém (PA)",
+        "BSB ➔ Boa Vista (RR)"
+    ]
+    voos = [544, 494, 333, 329, 188, 176]
     y3 = np.arange(len(trechos))
     bars3 = ax3.barh(y3, voos, color="#1f77b4", height=0.55)
     ax3.set_yticks(y3)
-    ax3.set_yticklabels(trechos, fontsize=9)
+    ax3.set_yticklabels(trechos, fontsize=8.5)
     ax3.invert_yaxis()
     ax3.set_xlabel("Quantidade de Passagens Reembolsadas")
-    ax3.set_title("Top Rotas Aéreas Reembolsadas\nEixo Brasília ↔ Capitais de Origem", fontsize=11, fontweight="bold")
+    ax3.set_title("Top Destinos de Ida a Partir de Brasília\n(Rotas BSB ➔ Redutos Eleitorais)", fontsize=11, fontweight="bold")
     for bar, val in zip(bars3, voos):
         ax3.text(val + 10, bar.get_y() + bar.get_height()/2, f"{val} voos", va="center", fontsize=8.5, fontweight="bold")
     ax3.set_xlim(0, max(voos) * 1.25)

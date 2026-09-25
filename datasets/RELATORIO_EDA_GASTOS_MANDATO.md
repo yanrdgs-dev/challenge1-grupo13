@@ -116,6 +116,10 @@ Identificamos **685 ocorrências** em que o mesmo parlamentar contratou durante 
 
 *Insight para o Fact-Checking:* Embora a contratação em si não seja ilegal desde que haja efetiva comprovação da prestação do serviço no exercício do mandato, **essa coincidência é o principal motor de reportagens e investigações do Ministério Público**. O chatbot agora dispõe de dados exatos para confirmar se a relação comercial existiu e quais foram os valores contratuais em cada esfera.
 
+> [!NOTE]
+> **Esclarecimento Metodológico: Gasto Público vs. Lucro da Empresa**
+> Os dados fiscais públicos da CEAP e do TSE refletem exclusivamente o **valor bruto pago/reembolsado pelo erário e partidos às empresas fornecedoras** (faturamento bruto com serviços políticos). Os dados públicos não contêm informações contábeis privadas sobre custos operacionais ou margem de **lucro líquido** das empresas.
+
 ---
 
 ## 6. Auditoria Documental, Glosas e Passagens Aéreas
@@ -132,14 +136,16 @@ Identificamos **685 ocorrências** em que o mesmo parlamentar contratou durante 
 *   A maior glosa individual registrada foi de **R$ 33.329,00**.
 *   *Aplicação no Fact-Checking:* Permite esclarecer alegações como *"deputado pediu reembolso indevido"*, comprovando se o valor chegou a ser pago ou se foi glosado pela administração.
 
-### 6.3 Passagens Aéreas e Rotas (`txtTrecho` e `txtPassageiro`)
+### 6.3 Passagens Aéreas e Rotas de Ida (`txtTrecho` e `txtPassageiro`)
 *   **12.740 registros de passagens aéreas** detalhadas via reembolso da Câmara.
 *   **1.375 passageiros distintos** (parlamentares e servidores credenciados).
-*   **758 trechos aéreos registrados**, liderados pelas conexões essenciais do Congresso:
-    1.  Brasília ➔ Confins / Belo Horizonte (`BSB/CNF`): 544 voos (R$ 557k)
-    2.  Brasília ➔ Salvador (`BSB/SSA`): 494 voos (R$ 527k)
-    3.  Confins ➔ Brasília (`CNF/BSB`): 489 voos (R$ 458k)
-    4.  Salvador ➔ Brasília (`SSA/BSB`): 430 voos (R$ 437k)
+*   **758 trechos aéreos registrados**, liderados pelos destinos de ida partindo de Brasília em direção aos redutos eleitorais:
+    1.  Brasília ➔ Confins / Belo Horizonte (`BSB ➔ CNF`): **544 voos**
+    2.  Brasília ➔ Salvador (`BSB ➔ SSA`): **494 voos**
+    3.  Brasília ➔ Santos Dumont / Rio de Janeiro (`BSB ➔ SDU`): **333 voos**
+    4.  Brasília ➔ Congonhas / São Paulo (`BSB ➔ CGH`): **329 voos**
+    5.  Brasília ➔ Belém (`BSB ➔ BEL`): **188 voos**
+    6.  Brasília ➔ Boa Vista (`BSB ➔ BVB`): **176 voos**
 
 ---
 

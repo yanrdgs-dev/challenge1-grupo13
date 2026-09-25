@@ -47,22 +47,27 @@ A base de autores da Câmara registra 411.537 vínculos atribuídos formalmente 
 *   **Cosignatário / Subscritor (`ordemAssinatura > 1`):** **28,3% (116.478 vínculos)**. Corresponde a assinaturas coletivas de apoio, requerimentos de urgência de bancada ou subscrições em bloco.
 
 ### 3.2 Quem Realmente Escreve Projetos de Lei (Top Autores de PL/PEC/PLP):
-Deputados que lideram na apresentação de proposições substantivas próprias como autores principais:
-1.  **Amom Mandel** (CIDADANIA/REPUBLICANOS - AM): Mais de 1.000 projetos protocolados.
-2.  **Duda Ramos** (MDB/PODE - RR): Mais de 980 projetos protocolados.
-3.  **Marcos Tavares** (PDT - RJ): 276 projetos.
-4.  **Jonas Donizette** (PSB - SP): 202 projetos.
-5.  **Alexandre Frota** (PSDB - SP): 139 projetos.
-6.  **Laura Carneiro** (PSD - RJ): 135 projetos.
-7.  **Kim Kataguiri** (UNIÃO - SP): 121 projetos.
+Deputados que lideram na apresentação de proposições substantivas próprias como autores principais (consolidados por parlamentar, unificando mudanças de partido):
+1.  **Amom Mandel** (CIDADANIA/REPUBLICANOS - AM): **1.069 projetos** de lei substantivos.
+2.  **Duda Ramos** (MDB/PODE - RR): **983 projetos** de lei substantivos.
+3.  **Marcos Tavares** (PDT - RJ): **276 projetos**.
+4.  **Jonas Donizette** (PSB - SP): **202 projetos**.
+5.  **Alexandre Frota** (PROS/PSDB - SP): **156 projetos**.
+6.  **José Nelto** (PP/PODE/UNIÃO - GO): **148 projetos**.
+7.  **Kim Kataguiri** (UNIÃO/DEM/MISSÃO - SP): **147 projetos**.
+8.  **Laura Carneiro** (PSD/PMDB - RJ): **136 projetos**.
+
+> [!NOTE]
+> **Consolidação de Mandatos e Janela Partidária:**
+> Ao agrupar os dados apenas por texto de partido, parlamentares que trocaram de legenda (como Amom Mandel, que migrou do Cidadania para o Republicanos, e Duda Ramos, que migrou do Pode para o MDB) apareciam duplicados em tabelas ingênuas. Na análise refinada, consolidamos pelo `idDeputadoAutor`, computando a totalidade de sua produção autoral independentemente de trocas de partido ao longo da legislatura.
 
 ### 3.3 Quem Lidera em Subscrições e Apoios em Bloco (Cosignatários):
 Parlamentares atuando intensivamente na articulação de bancada, assinando requerimentos coletivos:
-1.  **Sóstenes Cavalcante** (PL - RJ): 723 subscrições de apoio.
-2.  **Raimundo Santos** (PSD - PA): 602 subscrições.
-3.  **Laura Carneiro** (PSD - RJ): 554 subscrições.
-4.  **Antonio Brito** (PSD - BA): 544 subscrições.
-5.  **André Figueiredo** (PDT - CE): 521 subscrições.
+1.  **Sóstenes Cavalcante** (PL/UNIÃO - RJ): **735 subscrições** de apoio.
+2.  **Raimundo Santos** (PSD - PA): **602 subscrições**.
+3.  **Laura Carneiro** (PSD - RJ): **554 subscrições**.
+4.  **Antonio Brito** (PSD - BA): **544 subscrições**.
+5.  **André Figueiredo** (PDT - CE): **521 subscrições**.
 
 *Regra de Ouro do Fact-Checking:* Se um usuário perguntar se *"o deputado X é autor do Projeto de Lei Y"*, a *tool* do agente consulta `proponente` e `ordemAssinatura`. Se a ordem for maior que 1, a resposta deve esclarecer com precisão: *"O deputado X não é o autor original do projeto; ele é o 14º signatário de apoio em uma lista de 35 deputados. O autor principal que protocolou a matéria é o deputado Z"*.
 
