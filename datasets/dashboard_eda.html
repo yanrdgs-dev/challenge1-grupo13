@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Análise Exploratória de Dados (EDA) - FACTCKBR</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --card-bg: #111827;
+      --card-border: #1f2937;
+      --text-main: #f9fafb;
+      --text-muted: #9ca3af;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --accent: #10b981;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+      --purple: #8b5cf6;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg);
+      color: var(--text-main);
+      line-height: 1.6;
+      padding: 32px 20px 80px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    header {
+      margin-bottom: 40px;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 24px;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 4px 12px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-radius: 9999px;
+      background: rgba(59, 130, 246, 0.15);
+      color: #60a5fa;
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      margin-bottom: 12px;
+    }
+
+    h1 {
+      font-size: 2.3rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, #ffffff 30%, #94a3b8 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 8px;
+    }
+
+    .subtitle {
+      font-size: 1.1rem;
+      color: var(--text-muted);
+    }
+
+    /* KPI Grid */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 36px;
+    }
+
+    .kpi-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 20px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .kpi-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 4px;
+      height: 100%;
+      background: var(--primary);
+    }
+
+    .kpi-card.danger::before { background: var(--danger); }
+    .kpi-card.warning::before { background: var(--warning); }
+    .kpi-card.accent::before { background: var(--accent); }
+
+    .kpi-label {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .kpi-val {
+      font-size: 2rem;
+      font-weight: 800;
+      margin: 4px 0;
+      color: #fff;
+    }
+
+    .kpi-desc {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+    }
+
+    /* Section & Cards */
+    .section-title {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin: 40px 0 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #f3f4f6;
+    }
+
+    .section-title span {
+      background: rgba(59, 130, 246, 0.2);
+      color: #60a5fa;
+      font-size: 0.9rem;
+      padding: 2px 8px;
+      border-radius: 6px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 28px;
+      box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.5);
+    }
+
+    .card-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin-bottom: 6px;
+      color: #fff;
+    }
+
+    .card-desc {
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      margin-bottom: 20px;
+    }
+
+    .chart-container {
+      background: #0d1321;
+      border: 1px solid #1f2937;
+      border-radius: 12px;
+      padding: 16px;
+      text-align: center;
+      margin-bottom: 16px;
+    }
+
+    .chart-container img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 8px;
+    }
+
+    .findings-box {
+      background: rgba(30, 41, 59, 0.5);
+      border-left: 4px solid var(--primary);
+      padding: 14px 18px;
+      border-radius: 0 8px 8px 0;
+      font-size: 0.92rem;
+    }
+
+    .findings-box.alert {
+      border-left-color: var(--danger);
+      background: rgba(239, 68, 68, 0.08);
+    }
+
+    .findings-box.warning {
+      border-left-color: var(--warning);
+      background: rgba(245, 158, 11, 0.08);
+    }
+
+    .findings-box strong {
+      color: #fff;
+    }
+
+    /* Tables */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: 0.9rem;
+    }
+
+    th, td {
+      padding: 12px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    th {
+      background: rgba(31, 41, 55, 0.5);
+      color: #e5e7eb;
+      font-weight: 600;
+    }
+
+    tr:hover td {
+      background: rgba(55, 65, 81, 0.3);
+    }
+
+    code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85em;
+      background: #1f2937;
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #93c5fd;
+    }
+
+    /* Roadmap grid */
+    .roadmap-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .roadmap-item {
+      background: rgba(17, 24, 39, 0.7);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 18px;
+    }
+
+    .roadmap-item h4 {
+      font-size: 1rem;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .pill {
+      font-size: 0.7rem;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-weight: 700;
+    }
+    .pill-red { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+    .pill-green { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+    .pill-blue { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+
+    footer {
+      text-align: center;
+      margin-top: 60px;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      border-top: 1px solid var(--card-border);
+      padding-top: 24px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <div class="badge">Relatório Técnico de EDA</div>
+      <h1>Análise Exploratória de Dados: FACTCKBR</h1>
+      <p class="subtitle">Compreensão estrutural, padrões estatísticos, auditoria de qualidade e oportunidades analíticas do dataset de fact-checking da política brasileira.</p>
+    </header>
+
+    <!-- Top KPIs -->
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">Volume Total</div>
+        <div class="kpi-val">1.313</div>
+        <div class="kpi-desc">Alegações checadas (claims)</div>
+      </div>
+      <div class="kpi-card accent">
+        <div class="kpi-label">Artigos Únicos</div>
+        <div class="kpi-val">984</div>
+        <div class="kpi-desc">URLs únicas (329 multi-claims)</div>
+      </div>
+      <div class="kpi-card danger">
+        <div class="kpi-label">Veredito "Falso"</div>
+        <div class="kpi-val">71,8%</div>
+        <div class="kpi-desc">943 alegações desmentidas</div>
+      </div>
+      <div class="kpi-card warning">
+        <div class="kpi-label">Período Temporal</div>
+        <div class="kpi-val">2016-2019</div>
+        <div class="kpi-desc">Pico: Eleições 2018 (Outubro)</div>
+      </div>
+    </div>
+
+    <!-- Seção 1: Características e Agências -->
+    <h2 class="section-title">1. Estrutura e Cobertura por Agência <span>Origem</span></h2>
+    <div class="card">
+      <h3 class="card-title">Distribuição de Conteúdo por Checadora</h3>
+      <p class="card-desc">O dataset foi construído a partir das 3 maiores agências profissionais de fact-checking do Brasil: Agência Lupa, Agência Pública e Aos Fatos.</p>
+      <div class="chart-container">
+        <img src="eda_charts/01_volume_por_agencia.png" alt="Volume de Checagens por Agência">
+      </div>
+      <div class="findings-box">
+        <strong>Principais Achados:</strong> A <em>Agência Lupa</em> é responsável pelo maior volume de alegações (528), seguida pela <em>Agência Pública</em> (415) e <em>Aos Fatos</em> (370). Na Pública e na Lupa, observa-se uma alta frequência de <em>multi-claims</em>: uma única reportagem de checagem cobre múltiplos discursos (ex: debates de TV checados em tempo real), gerando até 11 declarações distintas sob uma mesma URL.
+      </div>
+    </div>
+
+    <!-- Seção 2: Desbalanceamento de Classes -->
+    <h2 class="section-title">2. Distribuição de Vereditos e Classes <span>Padrões</span></h2>
+    <div class="card">
+      <h3 class="card-title">Desbalanceamento Severo da Variável Alvo</h3>
+      <p class="card-desc">Avaliação das categorias textuais atribuídas como veredito das checagens (campo <code>alternativeName</code> normalizado).</p>
+      <div class="chart-container">
+        <img src="eda_charts/02_distribuicao_vereditos.png" alt="Distribuição de Vereditos">
+      </div>
+      <div class="chart-container">
+        <img src="eda_charts/03_vereditos_por_agencia.png" alt="Vereditos por Agência">
+      </div>
+      <div class="findings-box warning">
+        <strong>Padrão Crítico:</strong> 71,8% do dataset é composto por rótulos <code>Falso</code>. Enquanto <em>Aos Fatos</em> concentra suas publicações quase exclusivamente em desmentir informações falsas ou distorcidas (96,5%), a <em>Agência Pública</em> apresenta uma taxonomia mais refinada de 8 níveis (com 20,5% de "Verdadeiro" e 18,1% de "Exagerado"), pois historicamente checa discursos oficiais de políticos no projeto "Truco".
+      </div>
+    </div>
+
+    <!-- Seção 3: Auditoria de Qualidade -->
+    <h2 class="section-title">3. Avaliação da Qualidade e Anomalias <span>Data Quality</span></h2>
+    <div class="card">
+      <h3 class="card-title">Anomalia Crítica: O campo <code>ratingValue</code> da Agência Lupa</h3>
+      <p class="card-desc">Identificação de falha de extração no schema original das páginas web.</p>
+      <div class="chart-container">
+        <img src="eda_charts/04_anomalia_rating_value.png" alt="Anomalia ratingValue">
+      </div>
+      <div class="chart-container">
+        <img src="eda_charts/06_qualidade_textos_e_outliers.png" alt="Qualidade de Textos e Outliers">
+      </div>
+      <div class="findings-box alert">
+        <strong>Vulnerabilidades de Dados Descobertas:</strong>
+        <ul style="margin-left: 20px; margin-top: 8px;">
+          <li><strong>ratingValue estático na Lupa:</strong> 100% dos 528 registros da Lupa possuem <code>ratingValue = 4.0</code> estático, seja a afirmação Verdadeira, Falsa ou Exagerada. Esse campo numérico <u>jamais</u> deve ser usado diretamente como target.</li>
+          <li><strong>reviewBody mascarado como "Empty":</strong> 100% das 528 linhas da Lupa trazem a string literal <code>"Empty"</code> no lugar da justificativa da checagem.</li>
+          <li><strong>Outliers de tamanho em <code>claimReviewed</code>:</strong> Na Pública, falhas de scraping inseriram a reportagem completa com até 9.606 caracteres (>1.500 palavras) dentro do campo reservado para a frase checada.</li>
+          <li><strong>Inconsistência de maiúsculas/minúsculas:</strong> Aos Fatos utiliza termos em minúsculo (<code>falso</code>, <code>distorcido</code>), enquanto Lupa e Pública utilizam capitalização (<code>Falso</code>, <code>Distorcido</code>).</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Seção 4: Série Temporal e Temas -->
+    <h2 class="section-title">4. Sazonalidade Histórica e Atores Políticos <span>Contexto</span></h2>
+    <div class="card">
+      <h3 class="card-title">Evolução Temporal e o Impacto das Eleições de 2018</h3>
+      <p class="card-desc">Comportamento da produção de checagens ao longo dos anos de 2016 a 2019.</p>
+      <div class="chart-container">
+        <img src="eda_charts/05_serie_temporal_eleicoes.png" alt="Série Temporal">
+      </div>
+      <div class="chart-container">
+        <img src="eda_charts/07_atores_e_temas_politicos.png" alt="Atores Políticos">
+      </div>
+      <div class="findings-box">
+        <strong>Dinâmica Política:</strong> Observa-se um salto de volume em 2018 impulsionado pelo pleito presidencial, alcançando 154 checagens em outubro de 2018. <em>Jair Bolsonaro</em> é a figura central do dataset, presente em 25,1% de todas as checagens (329 menções), seguido por <em>Lula</em> (9,9%), <em>PT</em> (6,9%) e <em>Fernando Haddad</em> (6,6%).
+      </div>
+    </div>
+
+    <!-- Seção 5: Desafios e Oportunidades -->
+    <h2 class="section-title">5. Próximas Etapas: Desafios e Oportunidades <span>Roadmap</span></h2>
+    <div class="roadmap-grid">
+      <div class="roadmap-item">
+        <h4><span class="pill pill-red">Desafio</span> Tratar Desbalanceamento Severo</h4>
+        <p style="font-size: 0.88rem; color: var(--text-muted);">
+          Como 72% dos rótulos são "Falso", métricas tradicionais como Acurácia serão enganosas. Será necessário priorizar F1-Macro, Balance Weighting e amostragem estratificada.
+        </p>
+      </div>
+
+      <div class="roadmap-item">
+        <h4><span class="pill pill-red">Desafio</span> Engenharia da Variável Alvo</h4>
+        <p style="font-size: 0.88rem; color: var(--text-muted);">
+          Consolidar os 18 vereditos textuais díspares em uma classificação unificada: Binária (Falso vs Confiável) ou Ternária (Falso, Nuance/Parcial, Verdadeiro).
+        </p>
+      </div>
+
+      <div class="roadmap-item">
+        <h4><span class="pill pill-green">Oportunidade</span> Modelagem NLP com BERTimbau</h4>
+        <p style="font-size: 0.88rem; color: var(--text-muted);">
+          Treinar um classificador de alegações políticas utilizando transformers pré-treinados em português brasileiro (<code>neuralmind/bert-base-portuguese-cased</code>).
+        </p>
+      </div>
+
+      <div class="roadmap-item">
+        <h4><span class="pill pill-green">Oportunidade</span> Enriquecimento via Crawler</h4>
+        <p style="font-size: 0.88rem; color: var(--text-muted);">
+          Como 100% das URLs originais estão preservadas, é viável re-extrair os textos completos da Lupa para recuperar o campo <code>reviewBody</code> faltante.
+        </p>
+      </div>
+
+      <div class="roadmap-item">
+        <h4><span class="pill pill-blue">Oportunidade</span> Deduplicação e Claim Matching</h4>
+        <p style="font-size: 0.88rem; color: var(--text-muted);">
+          Desenvolver sistema de busca vetorial para verificar automaticamente se uma nova declaração em circulação já foi desmentida no passado.
+        </p>
+      </div>
+
+      <div class="roadmap-item">
+        <h4><span class="pill pill-blue">Oportunidade</span> Análise de Propagação Temática</h4>
+        <p style="font-size: 0.88rem; color: var(--text-muted);">
+          Estudo longitudinal da evolução de temas sensíveis (saúde pública, urnas e reformas econômicas) durante períodos eleitorais.
+        </p>
+      </div>
+    </div>
+
+    <footer>
+      <p>Análise Exploratória de Dados (EDA) desenvolvida para o dataset <code>FACTCKBR.tsv</code>. Arquivos gerados em <code>/Users/aluno2/Documents/datasets/</code>.</p>
+    </footer>
+  </div>
+</body>
+</html>
