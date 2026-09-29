@@ -184,3 +184,110 @@ def test_missing_csv_raises_file_not_found(tmp_path):
             input_path=empty_dir,
             output_dir=tmp_path / "out",
         )
+
+
+def test_schema_pruning_tse_candidatos():
+    """Valida que clean_dataframe poda colunas burocráticas/redundantes mantendo o schema do MVP."""
+    raw_data = {
+        "DT_GERACAO": ["22/09/2026"],
+        "HH_GERACAO": ["08:31:23"],
+        "ANO_ELEICAO": [2026],
+        "CD_TIPO_ELEICAO": [2],
+        "SG_UF": ["SP"],
+        "SQ_CANDIDATO": [250001],
+        "NM_CANDIDATO": ["MARCIO ALVES DOS SANTOS"],
+        "NM_URNA_CANDIDATO": ["MARCIO ALVES"],
+        "SG_PARTIDO": ["UP"],
+        "DS_CARGO": ["SENADOR"],
+        "CD_CARGO": [5],
+        "NR_TITULO_ELEITORAL_CANDIDATO": ["123456789"],
+        "CD_COR_RACA": ["02"],
+    }
+    df = pl.DataFrame(raw_data)
+    assert len(df.columns) == 13
+
+    # Com poda automática por schema detectado
+    cleaned = clean_dataframe(df, partition_col="ano", prune_redundant=True)
+
+    # Verifica que colunas burocráticas foram podadas
+    assert "DT_GERACAO" not in cleaned.columns
+    assert "HH_GERACAO" not in cleaned.columns
+    assert "CD_TIPO_ELEICAO" not in cleaned.columns
+    assert "NR_TITULO_ELEITORAL_CANDIDATO" not in cleaned.columns
+
+    # Verifica que atributos oficiais da Task 1.1 e partição foram preservados
+    assert "ANO_ELEICAO" in cleaned.columns
+    assert "SG_UF" in cleaned.columns
+    assert "SQ_CANDIDATO" in cleaned.columns
+    assert "NM_CANDIDATO" in cleaned.columns
+    assert "NM_URNA_CANDIDATO" in cleaned.columns
+    assert "SG_PARTIDO" in cleaned.columns
+    assert "DS_CARGO" in cleaned.columns
+    assert "ano" in cleaned.columns
+    assert len(cleaned.columns) == 8
+
+
+def test_explicit_selected_columns_filter(tmp_path):
+    """Valida o filtro explícito de colunas selecionadas no pipeline."""
+    csv_content = (
+        "ANO_ELEICAO;SG_UF;NM_CANDIDATO;DS_CARGO;COLUNA_DESNECESSARIA;VR_PAGTO_DESPESA\n"
+        "2026;SP;CANDIDATO X;GOVERNADOR;LIXO;1000,00\n"
+    ).encode("latin1")
+
+    input_csv = tmp_path / "raw.csv"
+    input_csv.write_bytes(csv_content)
+    output_dir = tmp_path / "out"
+
+    selected = ["ANO_ELEICAO", "NM_CANDIDATO", "VR_PAGTO_DESPESA"]
+    summary = process_csv_to_parquet(
+        input_path=input_csv,
+        output_dir=output_dir,
+        selected_columns=selected,
+        partition_col="ano",
+        min_reduction_pct=0.0,
+    )
+
+    assert summary["columns_before"] == 6
+    assert summary["columns_after"] == 4  # 3 selecionadas + partição 'ano'
+    assert summary["pruned_columns_count"] == 2
+
+    parquet_file = list(output_dir.glob("**/*.parquet"))[0]
+    df = pl.read_parquet(parquet_file)
+    assert set(df.columns) == {"ANO_ELEICAO", "NM_CANDIDATO", "VR_PAGTO_DESPESA", "ano"}
+
+
+def test_cli_execution_with_schema_flag(tmp_path):
+    """Valida execução da CLI especificando o schema para poda de colunas."""
+    csv_content = (
+        "ANO_ELEICAO;SG_UF;SQ_CANDIDATO;DS_TIPO_BEM_CANDIDATO;DS_BEM_CANDIDATO;VR_BEM_CANDIDATO;COLUNA_EXTRA\n"
+        "2026;SP;12345;VEICULO;CARRO;50000,00;DADO_DESCARTAVEL\n"
+    ).encode("latin1")
+
+    input_dir = tmp_path / "raw"
+    input_dir.mkdir()
+    (input_dir / "bens.csv").write_bytes(csv_content)
+    output_dir = tmp_path / "out_bens"
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "src.etl.build_parquet",
+        "--input",
+        str(input_dir),
+        "--output",
+        str(output_dir),
+        "--schema",
+        "tse_bens",
+        "--min-reduction",
+        "0.0",
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    assert result.returncode == 0
+
+    parquet_file = list(output_dir.glob("**/*.parquet"))[0]
+    df = pl.read_parquet(parquet_file)
+    assert "COLUNA_EXTRA" not in df.columns
+    assert "VR_BEM_CANDIDATO" in df.columns
+    assert df.schema["VR_BEM_CANDIDATO"] == pl.Float64
+

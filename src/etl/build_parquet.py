@@ -11,6 +11,13 @@ from typing import Any, Dict, List, Optional, Union
 
 import polars as pl
 
+from src.schemas.data_schemas import (
+    DATA_SCHEMAS,
+    SCHEMA_RENAMES,
+    detect_schema_by_columns,
+    get_schema_columns,
+)
+
 # Configuração padrão de logging
 logging.basicConfig(
     level=logging.INFO,
@@ -55,20 +62,28 @@ def clean_currency_series(series: pl.Series) -> pl.Series:
 
 def clean_dataframe(
     df: pl.DataFrame,
-    partition_col: Optional[str] = "ano",
+    partition_col: str = "ano",
+    selected_columns: Optional[List[str]] = None,
+    schema_name: Optional[str] = None,
+    prune_redundant: bool = True,
 ) -> pl.DataFrame:
-    """Aplica higienização, tipagem estrita e normalização de colunas no DataFrame.
+    """Aplica higienização, tipagem estrita, normalização e poda de colunas redundantes.
 
+    Atende aos critérios das Tasks 1.1 e 1.2:
     - Converte VR_PAGTO_DESPESA de string com vírgula para Float64 estrito.
-    - Converte outras colunas de valor monetário (prefixo VR_, vlr, VALOR_) se presentes.
-    - Garante a existência da coluna de partição de ano (mapeando de ANO_ELEICAO, numAno, ANO, etc.).
+    - Converte outras colunas financeiras (prefixo VR_ ou vlr).
+    - Garante a existência da coluna de partição de ano (mapeando de ANO_ELEICAO se necessário).
+    - Poda de colunas redundantes e projeção de atributos conforme schema formal.
 
     Args:
         df: DataFrame bruto lido do CSV.
         partition_col: Nome da coluna que será utilizada para particionamento físico.
+        selected_columns: Lista explícita de colunas a serem mantidas no Parquet final.
+        schema_name: Nome do schema predefinido (ex: 'tse_candidatos', 'tse_despesas').
+        prune_redundant: Se True, ativa a poda automática de colunas caso o schema seja identificado.
 
     Returns:
-        DataFrame tratado e tipado.
+        DataFrame tratado, tipado e podado.
     """
     expressions = []
 
@@ -149,9 +164,63 @@ def clean_dataframe(
             expressions.append(
                 pl.col("ano").cast(pl.Int32, strict=False).alias("ano")
             )
+        elif "numAno" in df.columns:
+            expressions.append(
+                pl.col("numAno").cast(pl.Int32).alias("ano")
+            )
+        elif "dataHoraVoto" in df.columns:
+            expressions.append(
+                pl.col("dataHoraVoto").cast(pl.Utf8).str.slice(0, 4).cast(pl.Int32).alias("ano")
+            )
 
     if expressions:
         df = df.with_columns(expressions)
+
+    # 4. Poda Estrutural (Pruning) e Filtro de Colunas por Schema (Task 1.1 e 1.2)
+    target_columns: Optional[List[str]] = None
+    target_schema_key: Optional[str] = None
+
+    if selected_columns:
+        target_columns = list(selected_columns)
+    elif schema_name and schema_name.lower() not in ("none", "auto"):
+        target_columns = get_schema_columns(schema_name)
+        target_schema_key = schema_name.lower()
+    elif prune_redundant:
+        detected = detect_schema_by_columns(df.columns)
+        if detected:
+            target_columns = get_schema_columns(detected)
+            target_schema_key = detected
+            logger.info("Schema detectado automaticamente para poda: '%s'", detected)
+
+    if target_columns:
+        # Mantém apenas colunas presentes no DataFrame que pertencem ao schema
+        cols_to_keep = [col for col in target_columns if col in df.columns]
+
+        # Garante que a coluna de partição seja sempre preservada
+        if partition_col in df.columns and partition_col not in cols_to_keep:
+            cols_to_keep.append(partition_col)
+
+        orig_count = len(df.columns)
+        df = df.select(cols_to_keep)
+        pruned_count = orig_count - len(cols_to_keep)
+        logger.info(
+            "Poda de colunas aplicada: %d mantidas, %d redundantes eliminadas (%d -> %d).",
+            len(cols_to_keep),
+            pruned_count,
+            orig_count,
+            len(cols_to_keep),
+        )
+
+        # Aplica padronização / renomeação de colunas brutas para nomes canônicos se configurado
+        if target_schema_key and target_schema_key in SCHEMA_RENAMES:
+            rename_map = {
+                old: new
+                for old, new in SCHEMA_RENAMES[target_schema_key].items()
+                if old in df.columns and new not in df.columns
+            }
+            if rename_map:
+                logger.info("Normalizando colunas canônicas: %s", rename_map)
+                df = df.rename(rename_map)
 
     return df
 
@@ -362,6 +431,9 @@ def process_csv_to_parquet(
     summary = {
         "rows_processed": total_rows,
         "input_files_count": len(input_files),
+        "columns_before": total_cols_before,
+        "columns_after": total_cols_after,
+        "pruned_columns_count": total_cols_before - total_cols_after,
         "csv_bytes": total_csv_bytes,
         "csv_size_kb": round(total_csv_bytes / 1024, 2),
         "parquet_bytes": total_parquet_bytes,
@@ -688,6 +760,9 @@ def main() -> None:
             compression_level=args.compression_level,
             partition_col=args.partition_col,
             min_reduction_pct=args.min_reduction,
+            selected_columns=selected_cols,
+            schema_name=args.schema_name,
+            prune_redundant=prune_redundant,
         )
         if not summary["meets_target"]:
             logger.warning("Pipeline finalizou com redução abaixo da meta.")

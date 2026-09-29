@@ -49,3 +49,6 @@ data/processed/*
 datasets/camara/
 datasets/senado/
 datasets/tse/
+*.zip
+*.duckdb
+*.db
