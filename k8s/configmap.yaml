@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: factcheck-config
+  labels:
+    app.kubernetes.io/name: factchecking-system
+data:
+  OLLAMA_BASE_URL: "http://host.docker.internal:11434"
+  ROUTER_MODEL: "qwen2.5:7b"
+  JUDGE_MODEL: "qwen2.5:14b"
+  JUDGE_SERVICE_URL: "http://judge-service:8000"
