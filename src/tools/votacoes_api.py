@@ -22,6 +22,10 @@ logger = logging.getLogger(__name__)
 http_client = HttpClient(timeout=10.0, max_retries=3, retry_delay=0.5, cache_enabled=True)
 
 
+# Cache de mapeamento entre código de votação do Senado e código da matéria
+_senado_votacao_para_materia: Dict[str, str] = {}
+
+
 # ============================================================================
 # 5.1 get_proposition_vote_result
 # ============================================================================
@@ -87,10 +91,14 @@ def get_proposition_vote_result(
                 or "aprovad" in res_desc.lower()
             )
             data_sessao = item.get("SessaoPlenaria", {}).get("DataSessao")
+            cod_sessao_vot = str(item.get("CodigoSessaoVotacao"))
+
+            # Registra mapeamento para que get_proposition_vote_breakdown encontre a matéria
+            _senado_votacao_para_materia[cod_sessao_vot] = str(id_proposicao)
 
             results.append(
                 {
-                    "id_votacao": str(item.get("CodigoSessaoVotacao")),
+                    "id_votacao": cod_sessao_vot,
                     "data": data_sessao,
                     "tipo_votacao": desc,
                     "aprovado": aprovado,
@@ -155,6 +163,9 @@ def get_proposition_vote_breakdown(id_votacao: str, casa: str) -> Dict[str, int]
         # Se contiver underline, extrai id_materia
         if "_" in id_votacao:
             id_materia, cod_vot = id_votacao.split("_", 1)
+        elif id_votacao in _senado_votacao_para_materia:
+            id_materia = _senado_votacao_para_materia[id_votacao]
+            cod_vot = id_votacao
         else:
             id_materia, cod_vot = id_votacao, id_votacao
 
@@ -416,6 +427,14 @@ def get_plenary_attendance(
                 "ausentes_inferidos": [],
                 "observacao": f"Nenhuma sessão deliberativa encontrada para o período '{periodo}'.",
             }
+    else:
+        # Se id_evento foi fornecido diretamente, tenta recuperar a data da sessão
+        try:
+            ev_detalhe = http_client.get_json(f"https://dadosabertos.camara.leg.br/api/v2/eventos/{evento_id_final}")
+            data_raw = ev_detalhe.get("dados", {}).get("dataHoraInicio", "")
+            data_evento = str(data_raw)[:10] if data_raw else None
+        except Exception:
+            data_evento = None
 
     # 1. Consulta deputados que registraram presença no evento
     presentes_url = f"https://dadosabertos.camara.leg.br/api/v2/eventos/{evento_id_final}/deputados"
