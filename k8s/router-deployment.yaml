@@ -50,11 +50,10 @@ metadata:
   labels:
     app: router-service
 spec:
-  type: NodePort
+  type: LoadBalancer
   selector:
     app: router-service
   ports:
     - port: 8000
       targetPort: 8000
-      nodePort: 30080
       name: http
