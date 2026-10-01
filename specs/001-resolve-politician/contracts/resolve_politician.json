@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "resolve_politician",
+  "description": "Tool canônica para resolução e desambiguação de nomes de parlamentares federais brasileiros (Câmara dos Deputados e Senado Federal).",
+  "type": "object",
+  "properties": {
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "nome_busca": {
+          "type": "string",
+          "minLength": 2,
+          "description": "Nome civil, nome de urna ou apelido político citado na claim."
+        },
+        "uf": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 2,
+          "description": "Sigla da Unidade Federativa com 2 letras (ex: SP, RJ, MG) usada para desambiguar homônimos."
+        },
+        "cargo": {
+          "type": "string",
+          "enum": ["Deputado Federal", "Senador"],
+          "description": "Cargo do parlamentar para desambiguação por casa legislativa."
+        },
+        "ano": {
+          "type": "integer",
+          "minimum": 2000,
+          "maximum": 2030,
+          "description": "Ano ou legislatura de referência do mandato."
+        }
+      },
+      "required": ["nome_busca"],
+      "additionalProperties": false
+    },
+    "returns": {
+      "type": "object",
+      "properties": {
+        "sq_candidato": {
+          "type": ["integer", "null"],
+          "description": "Identificador único do candidato no TSE."
+        },
+        "ideCadastro": {
+          "type": ["integer", "null"],
+          "description": "Identificador numérico oficial na Câmara dos Deputados."
+        },
+        "cod_senador": {
+          "type": ["integer", "null"],
+          "description": "Identificador numérico oficial no Senado Federal."
+        },
+        "nome_civil": {
+          "type": ["string", "null"],
+          "description": "Nome civil oficial completo registrado."
+        },
+        "nome_urna": {
+          "type": ["string", "null"],
+          "description": "Nome registrado para urna eleitoral e identificação pública."
+        },
+        "casa": {
+          "type": ["string", "null"],
+          "enum": ["Câmara dos Deputados", "Senado Federal", null],
+          "description": "Casa legislativa federal do parlamentar."
+        },
+        "cargo": {
+          "type": ["string", "null"],
+          "enum": ["Deputado Federal", "Senador", null],
+          "description": "Cargo formal exercido pelo parlamentar."
+        },
+        "uf": {
+          "type": ["string", "null"],
+          "description": "Sigla do estado federativo de representação."
+        },
+        "partido": {
+          "type": ["string", "null"],
+          "description": "Sigla do partido político do parlamentar."
+        },
+        "ambiguous": {
+          "type": "boolean",
+          "description": "Sinaliza se múltiplos candidatos empataram na busca sem desambiguação."
+        },
+        "candidatos_alternativos": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "sq_candidato": { "type": ["integer", "null"] },
+              "ideCadastro": { "type": ["integer", "null"] },
+              "cod_senador": { "type": ["integer", "null"] },
+              "nome_civil": { "type": "string" },
+              "nome_urna": { "type": "string" },
+              "uf": { "type": "string" },
+              "partido": { "type": "string" },
+              "cargo": { "type": "string" }
+            },
+            "required": ["nome_civil", "uf", "cargo"]
+          },
+          "description": "Lista de candidatos viáveis concorrentes retornada quando ambiguous é True."
+        },
+        "match_score": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Grau percentual de confiança na correspondência encontrada."
+        }
+      },
+      "required": ["ambiguous", "candidatos_alternativos"],
+      "additionalProperties": false
+    }
+  }
+}

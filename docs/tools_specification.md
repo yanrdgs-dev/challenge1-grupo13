@@ -34,7 +34,11 @@ As tools estão organizadas em 5 grupos, conforme a natureza da fonte de dado:
 
 ## 2. Grupo: Resolução de Entidade
 
-### 2.1 `resolve_politician` 🟢
+### 2.1 `resolve_politician` 🟢 (Implementada ✅)
+
+- **Status de Implementação:** ✅ Concluída em `src/tools/resolve_politician.py`
+- **Suíte de Testes:** `tests/test_resolve_politician.py` (20/20 testes unitários passando)
+- **Tabela Dimensional:** `data/processed/dim_politicos.parquet`
 
 **Parâmetros**
 
