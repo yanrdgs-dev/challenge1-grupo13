@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: router-agent
-          image: factcheck-router:latest
+          image: factcheck-router:v2
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000

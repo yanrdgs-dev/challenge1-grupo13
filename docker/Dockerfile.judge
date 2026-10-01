@@ -13,6 +13,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copia o código-fonte da aplicação
+ARG CACHEBUST=1
+RUN echo "Building version: $CACHEBUST"
 COPY src/ src/
 
 ENV PYTHONUNBUFFERED=1

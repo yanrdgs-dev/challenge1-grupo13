@@ -53,12 +53,12 @@ TOOLS_CATALOG: List[Dict[str, Any]] = [
                     },
                     "uf": {
                         "type": "string",
-                        "description": "Sigla da UF com 2 letras (ex: 'MG', 'RS', 'SP') se identificável no texto.",
+                        "description": "Sigla da UF com 2 letras (ex: 'MG', 'RS', 'SP'). ATENÇÃO: NÃO preencha se a frase estiver afirmando de qual estado o político é (ex: 'X é deputado de DF'). Preencha APENAS se a UF for mera referência para desambiguar homônimos.",
                     },
                     "cargo": {
                         "type": "string",
                         "enum": ["Deputado Federal", "Senador"],
-                        "description": "Cargo do parlamentar caso especificado na frase.",
+                        "description": "NÃO preencha se a frase estiver afirmando o cargo dele.",
                     },
                     "ano": {
                         "type": "integer",
@@ -218,6 +218,7 @@ ROUTER_SYSTEM_PROMPT = (
     "- Se a alegação cita uma proposição legislativa formal (PL, PEC, MPV) ou nome popular de matéria "
     "(ex: 'PEC da Reforma Tributária', 'Marco Temporal', 'PL das Fake News'), você DEVE chamar OBRIGATORIAMENTE 'resolve_proposition' primeiro para obter o ID oficial.\n"
     "- Se a alegação cita o nome de um político/parlamentar para checar dados individuais, você DEVE chamar 'resolve_politician' primeiro para obter o identificador oficial.\n"
+    "  ⚠️ ATENÇÃO PARA 'resolve_politician': Passe APENAS 'nome_busca' com o nome. NUNCA passe 'uf' ou 'cargo' se a alegação estiver justamente afirmando de qual estado ou cargo ele é (ex: 'Nikolas Ferreira é deputado de Distrito Federal'). Se passar 'uf': 'DF', a ferramenta buscará um Nikolas no DF, não achará e gerará um falso INCONCLUSIVO! Busque pelo nome para obter o estado real (MG) e permitir ao julgador cravar FALSO.\n"
     "- Se a alegação pergunta sobre ranking de gastos ou 'quem mais gastou a cota (CEAP/CEAPS)', utilize 'get_top_ceap_spender'.\n"
     "- Se a alegação questiona se um tipo de gasto é permitido ou elegível (ex: consultoria, combustível), utilize 'list_expense_categories'.\n"
     "- Se a alegação cita limites monetários numéricos de gastos (ex: 'R$ 500 por mês'), utilize 'check_parliamentary_expenses'.\n"
@@ -309,12 +310,23 @@ def execute_live_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str
     """Executa a tool Python real caso já esteja implementada no projeto."""
     if tool_name == "resolve_politician" and resolve_politician is not None:
         try:
-            return resolve_politician(
+            res = resolve_politician(
                 nome_busca=args.get("nome_busca", ""),
                 uf=args.get("uf"),
                 cargo=args.get("cargo"),
                 ano=args.get("ano"),
             )
+            # Fallback defensivo: se não encontrou com a UF fornecida, tenta sem a UF
+            # para o caso de a alegação ter citado o estado errado
+            if (res.get("ideCadastro") is None and res.get("sq_candidato") is None) and args.get("uf"):
+                fallback = resolve_politician(
+                    nome_busca=args.get("nome_busca", ""),
+                    cargo=args.get("cargo"),
+                    ano=args.get("ano"),
+                )
+                if fallback.get("ideCadastro") or fallback.get("sq_candidato"):
+                    return fallback
+            return res
         except Exception as e:
             return {"erro": str(e)}
 

@@ -64,12 +64,23 @@ def health_check():
 def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Executa a tool Python real mapeada pelo Roteador."""
     if tool_name == "resolve_politician":
-        return resolve_politician(
+        res = resolve_politician(
             nome_busca=args.get("nome_busca", ""),
             uf=args.get("uf"),
             cargo=args.get("cargo"),
             ano=args.get("ano"),
         )
+        # Fallback defensivo: se não encontrou com a UF fornecida, tenta sem a UF
+        # para os casos em que a claim afirmava o estado errado
+        if (res.get("ideCadastro") is None and res.get("sq_candidato") is None) and args.get("uf"):
+            fallback = resolve_politician(
+                nome_busca=args.get("nome_busca", ""),
+                cargo=args.get("cargo"),
+                ano=args.get("ano"),
+            )
+            if fallback.get("ideCadastro") or fallback.get("sq_candidato"):
+                return fallback
+        return res
     elif tool_name == "resolve_proposition":
         return resolve_proposition(
             casa=args.get("casa", "camara"),

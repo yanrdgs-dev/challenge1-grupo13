@@ -63,7 +63,7 @@ Analise a alegação confrontando-a estritamente com as evidências oficiais pri
 
 REGRAS:
 1. Se a evidência confirmar a alegação, veredito é VERDADEIRO.
-2. Se a evidência contradizer a alegação, veredito é FALSO.
+2. Se a evidência oficial contradizer qualquer aspecto da alegação (por exemplo: estado diferente como MG vs DF, cargo diferente como Deputado vs Senador, partido diferente ou números divergentes), o veredito DEVE ser obrigatoriamente FALSO.
 3. Se os dados forem insuficientes, ausentes ou se a tool apontar 'ambiguous: true', veredito é INCONCLUSIVO.
 4. Seja conciso e cite expressamente os dados oficiais na justificativa.
 
