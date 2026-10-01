@@ -421,48 +421,34 @@ def run_batch_evaluation(model: str, base_url: str) -> None:
 
 
 def interactive_mode(model: str, base_url: str) -> None:
-    """Modo REPL interativo para testar frases digitadas na hora."""
-    print(f"\n{BOLD}{GREEN}=== DEMO INTERATIVA DE ROTEAMENTO DE TOOLS COM QWEN2.5:7B ==={RESET}")
-    print(f"Modelo: {CYAN}{model}{RESET} | Servidor: {CYAN}{base_url}{RESET}")
-    print("Digite qualquer frase ou alegação política para o modelo classificar.")
-    print("Comandos especiais:")
-    print(f"  {YELLOW}exemplos{RESET}  → Mostra exemplos prontos para testar")
-    print(f"  {YELLOW}benchmark{RESET} → Roda o teste com o Golden Dataset")
-    print(f"  {YELLOW}sair{RESET}      → Encerra a demo\n")
+    """Modo direto: uma frase por input com classificação imediata."""
+    print(f"\n{BOLD}{GREEN}=== Classificador de Tools com {model} (Ollama) ==={RESET}")
+    print(f"{DIM}Servidor: {base_url}{RESET}")
+    print(f"Digite uma frase por vez para identificar a tool e os parâmetros.")
+    print(f"{DIM}(Pressione Enter vazio ou Ctrl+C para sair){RESET}\n")
 
+    counter = 1
     while True:
         try:
-            user_input = input(f"{BOLD}Digite sua frase > {RESET}").strip()
-            if not user_input:
-                continue
+            prompt_label = f"{BOLD}[Frase {counter}] Digite a frase > {RESET}"
+            user_input = input(prompt_label).strip()
 
-            cmd = user_input.lower()
-            if cmd in ("sair", "exit", "quit"):
-                print("Encerrando a demo. Até mais!")
+            if not user_input or user_input.lower() in ("sair", "exit", "quit", "q"):
+                print("\nEncerrando a demo. Até mais!")
                 break
 
-            if cmd == "exemplos":
-                print(f"\n{BOLD}Exemplos de teste sugeridos:{RESET}")
-                for idx, c in enumerate(SAMPLE_CLAIMS, 1):
-                    print(f"  {idx}. {c['text']}")
-                print()
-                continue
-
-            if cmd == "benchmark":
-                run_batch_evaluation(model, base_url)
-                continue
-
-            # Classifica a frase informada
-            print(f"{DIM}Enviando para o modelo {model}...{RESET}")
+            print(f"{DIM}Classificando com {model}...{RESET}")
             result = call_ollama_router(user_input, model=model, base_url=base_url)
             print_routing_result(user_input, result, show_live_exec=True)
             print()
+            counter += 1
 
         except (KeyboardInterrupt, EOFError):
-            print("\nEncerrando a demo. Até mais!")
+            print("\n\nEncerrando a demo. Até mais!")
             break
         except Exception as e:
-            print(f"{RED}Erro ao processar: {e}{RESET}\n")
+            print(f"{RED}Erro ao processar frase: {e}{RESET}\n")
+
 
 
 def main() -> None:
