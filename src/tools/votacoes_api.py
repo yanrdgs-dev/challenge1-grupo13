@@ -14,7 +14,7 @@ Tools implementadas:
 from typing import Any, Dict, List, Optional
 import logging
 import re
-from src.tools.http_client import HttpClient
+from src.tools.http_client import HttpClient, HttpNetworkError
 
 logger = logging.getLogger(__name__)
 
@@ -55,55 +55,61 @@ def get_proposition_vote_result(
 
     results: List[Dict[str, Any]] = []
 
-    if casa_norm == "camara":
-        url = f"https://dadosabertos.camara.leg.br/api/v2/proposicoes/{id_proposicao}/votacoes"
-        payload = http_client.get_json(url)
-        itens = payload.get("dados", [])
+    try:
+        if casa_norm == "camara":
+            url = f"https://dadosabertos.camara.leg.br/api/v2/proposicoes/{id_proposicao}/votacoes"
+            payload = http_client.get_json(url)
+            itens = payload.get("dados", [])
 
-        for item in itens:
-            desc = item.get("descricao") or ""
-            aprov_val = item.get("aprovacao")
-            aprovado = bool(aprov_val == 1 or "aprovad" in desc.lower())
+            for item in itens:
+                desc = item.get("descricao") or ""
+                aprov_val = item.get("aprovacao")
+                aprovado = bool(aprov_val == 1 or "aprovad" in desc.lower())
 
-            results.append(
-                {
-                    "id_votacao": str(item.get("id")),
-                    "data": item.get("data"),
-                    "tipo_votacao": desc,
-                    "aprovado": aprovado,
-                }
-            )
+                results.append(
+                    {
+                        "id_votacao": str(item.get("id")),
+                        "data": item.get("data"),
+                        "tipo_votacao": desc,
+                        "aprovado": aprovado,
+                    }
+                )
 
-    elif casa_norm == "senado":
-        url = f"https://legis.senado.leg.br/dadosabertos/materia/votacoes/{id_proposicao}"
-        payload = http_client.get_json(url)
-        materia_data = payload.get("VotacaoMateria", {}).get("Materia", {})
-        votacoes_raw = materia_data.get("Votacoes", {}).get("Votacao", [])
+        elif casa_norm == "senado":
+            url = f"https://legis.senado.leg.br/dadosabertos/materia/votacoes/{id_proposicao}"
+            payload = http_client.get_json(url)
+            materia_data = payload.get("VotacaoMateria", {}).get("Materia", {})
+            votacoes_raw = materia_data.get("Votacoes", {}).get("Votacao", [])
 
-        if isinstance(votacoes_raw, dict):
-            votacoes_raw = [votacoes_raw]
+            if isinstance(votacoes_raw, dict):
+                votacoes_raw = [votacoes_raw]
 
-        for item in votacoes_raw:
-            desc = item.get("DescricaoVotacao") or ""
-            res_desc = str(item.get("DescricaoResultado") or item.get("Resultado") or "")
-            aprovado = bool(
-                res_desc.strip().lower() in ["aprovado", "a", "aprovada"]
-                or "aprovad" in res_desc.lower()
-            )
-            data_sessao = item.get("SessaoPlenaria", {}).get("DataSessao")
-            cod_sessao_vot = str(item.get("CodigoSessaoVotacao"))
+            for item in votacoes_raw:
+                desc = item.get("DescricaoVotacao") or ""
+                res_desc = str(item.get("DescricaoResultado") or item.get("Resultado") or "")
+                aprovado = bool(
+                    res_desc.strip().lower() in ["aprovado", "a", "aprovada"]
+                    or "aprovad" in res_desc.lower()
+                )
+                data_sessao = item.get("SessaoPlenaria", {}).get("DataSessao")
+                cod_sessao_vot = str(item.get("CodigoSessaoVotacao"))
 
-            # Registra mapeamento para que get_proposition_vote_breakdown encontre a matéria
-            _senado_votacao_para_materia[cod_sessao_vot] = str(id_proposicao)
+                # Registra mapeamento para que get_proposition_vote_breakdown encontre a matéria
+                _senado_votacao_para_materia[cod_sessao_vot] = str(id_proposicao)
 
-            results.append(
-                {
-                    "id_votacao": cod_sessao_vot,
-                    "data": data_sessao,
-                    "tipo_votacao": desc,
-                    "aprovado": aprovado,
-                }
-            )
+                results.append(
+                    {
+                        "id_votacao": cod_sessao_vot,
+                        "data": data_sessao,
+                        "tipo_votacao": desc,
+                        "aprovado": aprovado,
+                    }
+                )
+    except HttpNetworkError as exc:
+        if "404" in str(exc):
+            logger.info("Proposição %s sem votações registradas (404). Retornando [].", id_proposicao)
+            return []
+        raise
 
     # Aplicação de filtro por tipo de votação se especificado
     if tipo_votacao:
@@ -139,76 +145,82 @@ def get_proposition_vote_breakdown(id_votacao: str, casa: str) -> Dict[str, int]
     obstrucao = 0
     ausente = 0
 
-    if casa_norm == "camara":
-        url = f"https://dadosabertos.camara.leg.br/api/v2/votacoes/{id_votacao}/votos"
-        payload = http_client.get_json(url)
-        votos = payload.get("dados", [])
+    try:
+        if casa_norm == "camara":
+            url = f"https://dadosabertos.camara.leg.br/api/v2/votacoes/{id_votacao}/votos"
+            payload = http_client.get_json(url)
+            votos = payload.get("dados", [])
 
-        for v in votos:
-            tipo = str(v.get("tipoVoto", "")).lower().strip()
-            if any(t in tipo for t in ["ausente", "faltou", "não compareceu", "nao compareceu", "não votou", "nao votou"]):
-                ausente += 1
-            elif "sim" in tipo:
-                sim += 1
-            elif "não" in tipo or "nao" in tipo:
-                nao += 1
-            elif "absten" in tipo:
-                abstencao += 1
-            elif "obstru" in tipo:
-                obstrucao += 1
+            for v in votos:
+                tipo = str(v.get("tipoVoto", "")).lower().strip()
+                if any(t in tipo for t in ["ausente", "faltou", "não compareceu", "nao compareceu", "não votou", "nao votou"]):
+                    ausente += 1
+                elif "sim" in tipo:
+                    sim += 1
+                elif "não" in tipo or "nao" in tipo:
+                    nao += 1
+                elif "absten" in tipo:
+                    abstencao += 1
+                elif "obstru" in tipo:
+                    obstrucao += 1
 
-        total = len(votos)
+            total = len(votos)
 
-    elif casa_norm == "senado":
-        # Se contiver underline, extrai id_materia
-        if "_" in id_votacao:
-            id_materia, cod_vot = id_votacao.split("_", 1)
-        elif id_votacao in _senado_votacao_para_materia:
-            id_materia = _senado_votacao_para_materia[id_votacao]
-            cod_vot = id_votacao
-        else:
-            id_materia, cod_vot = id_votacao, id_votacao
+        elif casa_norm == "senado":
+            # Se contiver underline, extrai id_materia
+            if "_" in id_votacao:
+                id_materia, cod_vot = id_votacao.split("_", 1)
+            elif id_votacao in _senado_votacao_para_materia:
+                id_materia = _senado_votacao_para_materia[id_votacao]
+                cod_vot = id_votacao
+            else:
+                id_materia, cod_vot = id_votacao, id_votacao
 
-        url = f"https://legis.senado.leg.br/dadosabertos/materia/votacoes/{id_materia}"
-        payload = http_client.get_json(url)
-        votacoes_raw = (
-            payload.get("VotacaoMateria", {})
-            .get("Materia", {})
-            .get("Votacoes", {})
-            .get("Votacao", [])
-        )
+            url = f"https://legis.senado.leg.br/dadosabertos/materia/votacoes/{id_materia}"
+            payload = http_client.get_json(url)
+            votacoes_raw = (
+                payload.get("VotacaoMateria", {})
+                .get("Materia", {})
+                .get("Votacoes", {})
+                .get("Votacao", [])
+            )
 
-        if isinstance(votacoes_raw, dict):
-            votacoes_raw = [votacoes_raw]
+            if isinstance(votacoes_raw, dict):
+                votacoes_raw = [votacoes_raw]
 
-        target_votacao = None
-        for v in votacoes_raw:
-            if str(v.get("CodigoSessaoVotacao")) == str(cod_vot) or len(votacoes_raw) == 1:
-                target_votacao = v
-                break
+            target_votacao = None
+            for v in votacoes_raw:
+                if str(v.get("CodigoSessaoVotacao")) == str(cod_vot) or len(votacoes_raw) == 1:
+                    target_votacao = v
+                    break
 
-        votos_list = []
-        if target_votacao:
-            raw_votos = target_votacao.get("Votos", {}).get("VotoParlamentar", [])
-            if isinstance(raw_votos, dict):
-                votos_list = [raw_votos]
-            elif isinstance(raw_votos, list):
-                votos_list = raw_votos
+            votos_list = []
+            if target_votacao:
+                raw_votos = target_votacao.get("Votos", {}).get("VotoParlamentar", [])
+                if isinstance(raw_votos, dict):
+                    votos_list = [raw_votos]
+                elif isinstance(raw_votos, list):
+                    votos_list = raw_votos
 
-        for v in votos_list:
-            sigla = str(v.get("SiglaVoto", "")).lower().strip()
-            if any(t in sigla for t in ["ausente", "não compareceu", "nao compareceu", "não votou", "nao votou"]):
-                ausente += 1
-            elif "sim" in sigla:
-                sim += 1
-            elif "não" in sigla or "nao" in sigla:
-                nao += 1
-            elif "absten" in sigla:
-                abstencao += 1
-            elif "obstru" in sigla:
-                obstrucao += 1
+            for v in votos_list:
+                sigla = str(v.get("SiglaVoto", "")).lower().strip()
+                if any(t in sigla for t in ["ausente", "não compareceu", "nao compareceu", "não votou", "nao votou"]):
+                    ausente += 1
+                elif "sim" in sigla:
+                    sim += 1
+                elif "não" in sigla or "nao" in sigla:
+                    nao += 1
+                elif "absten" in sigla:
+                    abstencao += 1
+                elif "obstru" in sigla:
+                    obstrucao += 1
 
-        total = len(votos_list)
+            total = len(votos_list)
+    except HttpNetworkError as exc:
+        if "404" in str(exc):
+            logger.info("Votação %s não encontrada (404). Retornando contagem zerada.", id_votacao)
+            return {"sim": 0, "nao": 0, "abstencao": 0, "obstrucao": 0, "ausente": 0, "total": 0}
+        raise
 
     return {
         "sim": sim,
