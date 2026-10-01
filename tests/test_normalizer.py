@@ -44,3 +44,32 @@ def test_normalize_text_empty_and_edge_cases():
     assert normalize_text("") == ""
     assert normalize_text("   ") == ""
     assert normalize_text(None) == ""
+
+
+def test_normalize_proposition_sigla():
+    """Valida normalização de siglas de proposições legislativas (T003)."""
+    from src.tools.normalizer import normalize_proposition_sigla
+
+    assert normalize_proposition_sigla("pl") == "PL"
+    assert normalize_proposition_sigla("P.L.") == "PL"
+    assert normalize_proposition_sigla("  pec  ") == "PEC"
+    assert normalize_proposition_sigla("P.E.C.") == "PEC"
+    assert normalize_proposition_sigla("mpv") == "MPV"
+    assert normalize_proposition_sigla("PDL") == "PDL"
+    assert normalize_proposition_sigla("") == ""
+    assert normalize_proposition_sigla(None) == ""
+
+
+def test_normalize_casa():
+    """Valida normalização canônica da casa legislativa."""
+    from src.tools.normalizer import normalize_casa
+
+    assert normalize_casa("camara") == "camara"
+    assert normalize_casa("Câmara") == "camara"
+    assert normalize_casa("CÂMARA DOS DEPUTADOS") == "camara"
+    assert normalize_casa("senado") == "senado"
+    assert normalize_casa("Senado Federal") == "senado"
+    assert normalize_casa("congresso") == "congresso"
+    assert normalize_casa("Congresso Nacional") == "congresso"
+    assert normalize_casa("invalida") == ""
+    assert normalize_casa(None) == ""
