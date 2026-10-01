@@ -57,3 +57,32 @@ def normalize_text(text: Optional[str]) -> str:
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
 
     return cleaned
+
+
+def normalize_proposition_sigla(sigla: Optional[str]) -> str:
+    """Normaliza sigla de proposição legislativa (ex: 'pl', 'P.E.C.', ' mpv ').
+
+    Remove pontuações, espaços e retorna em caixa alta.
+    """
+    if not sigla:
+        return ""
+    cleaned = strip_accents(str(sigla)).upper()
+    cleaned = re.sub(r"[^A-Z0-9]", "", cleaned)
+    return cleaned
+
+
+def normalize_casa(casa: Optional[str]) -> str:
+    """Normaliza o identificador da casa legislativa para 'camara', 'senado' ou 'congresso'.
+
+    Retorna string vazia se inválida.
+    """
+    if not casa:
+        return ""
+    norm = normalize_text(casa)
+    if "camara" in norm:
+        return "camara"
+    if "senado" in norm:
+        return "senado"
+    if "congresso" in norm:
+        return "congresso"
+    return ""

@@ -59,7 +59,12 @@ As tools estão organizadas em 5 grupos, conforme a natureza da fonte de dado:
 
 ---
 
-### 2.2 `resolve_proposition` 🟡
+### 2.2 `resolve_proposition` 🟢 (Implementada ✅)
+
+- **Status de Implementação:** ✅ Concluída em `src/tools/resolve_proposition.py`
+- **Cliente HTTP Especializado:** `src/tools/legislative_client.py` (timeout estrito 5.0s, cache de sessão em memória)
+- **Suíte de Testes:** `tests/test_resolve_proposition.py` (10/10 testes passando) e `tests/test_legislative_client.py` (7/7 testes passando)
+- **Contrato JSON Schema:** `specs/002-resolve-proposition/contracts/resolve_proposition.json`
 
 **Parâmetros**
 
