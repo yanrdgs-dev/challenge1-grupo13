@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "resolve_proposition",
+  "description": "Tool canônica para identificação e resolução de matérias e proposições legislativas na Câmara dos Deputados, Senado Federal e Congresso Nacional.",
+  "type": "object",
+  "properties": {
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "casa": {
+          "type": "string",
+          "enum": ["camara", "senado", "congresso"],
+          "description": "Casa legislativa alvo da consulta."
+        },
+        "sigla_tipo": {
+          "type": "string",
+          "description": "Sigla formal do tipo da matéria (ex: PL, PEC, MPV, PDL)."
+        },
+        "numero": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Número oficial da matéria legislativa."
+        },
+        "ano": {
+          "type": "integer",
+          "minimum": 1988,
+          "maximum": 2030,
+          "description": "Ano de apresentação da matéria."
+        },
+        "termo_busca": {
+          "type": "string",
+          "description": "Nome popular, apelido ou tema da matéria quando não há número formal (ex: 'PL das Fake News', 'Marco Temporal')."
+        }
+      },
+      "required": ["casa"],
+      "additionalProperties": false
+    },
+    "returns": {
+      "type": "object",
+      "properties": {
+        "id_proposicao": {
+          "type": ["integer", "null"],
+          "description": "Identificador único oficial da matéria legislativa retornado pela API da Casa."
+        },
+        "sigla_tipo": {
+          "type": ["string", "null"],
+          "description": "Sigla oficial da proposição."
+        },
+        "numero": {
+          "type": ["integer", "null"],
+          "description": "Número oficial da matéria."
+        },
+        "ano": {
+          "type": ["integer", "null"],
+          "description": "Ano oficial da matéria."
+        },
+        "ementa": {
+          "type": ["string", "null"],
+          "description": "Texto oficial descritivo da ementa da matéria legislativa."
+        },
+        "casa": {
+          "type": "string",
+          "enum": ["camara", "senado", "congresso"],
+          "description": "Casa legislativa de tramitação."
+        },
+        "ambiguous": {
+          "type": "boolean",
+          "description": "Indica se múltiplos projetos concorrentes empataram sem desambiguação clara."
+        },
+        "candidatos": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id_proposicao": { "type": "integer" },
+              "sigla_tipo": { "type": "string" },
+              "numero": { "type": "integer" },
+              "ano": { "type": "integer" },
+              "ementa": { "type": "string" },
+              "casa": { "type": "string" }
+            },
+            "required": ["id_proposicao", "sigla_tipo", "numero", "ano", "ementa", "casa"]
+          },
+          "description": "Lista de matérias concorrentes identificadas em buscas ambíguas ou amplas."
+        },
+        "match_score": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Grau percentual de confiança na correspondência da ementa."
+        }
+      },
+      "required": ["casa", "ambiguous", "candidatos"],
+      "additionalProperties": false
+    }
+  }
+}
