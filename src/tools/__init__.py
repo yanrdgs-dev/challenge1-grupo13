@@ -34,5 +34,13 @@ __all__ = [
     "get_proposition_vote_result",
     "get_proposition_vote_breakdown",
     "get_congress_veto_sessions",
-    "get_plenary_attendance"
+    "get_plenary_attendance",
+    "TopSpenderItem",
+    "TopSpenderResponse",
+    "ExpenseCategoryItem",
+    "ExpenseCategoriesResponse",
+    "ExpenseAuditResult",
+    "get_top_ceap_spender",
+    "list_expense_categories",
+    "check_parliamentary_expenses",
 ]
