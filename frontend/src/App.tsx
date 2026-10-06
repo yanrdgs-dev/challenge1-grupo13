@@ -1,4 +1,4 @@
-import { useState, type FormEvent, type ReactNode } from "react"
+import { useEffect, useState, type FormEvent, type ReactNode } from "react"
 
 type IconName =
   | "archive"
@@ -172,26 +172,32 @@ const chats = [
   },
 ]
 
-const suggestions = [
+interface Suggestion {
+  icon: IconName
+  eyebrow: string
+  text: string
+}
+
+const defaultSuggestions: Suggestion[] = [
   {
-    icon: "ballot" as IconName,
+    icon: "ballot",
     eyebrow: "Eleições",
     text: "Como funciona o segundo turno no Brasil?",
   },
   {
-    icon: "book" as IconName,
+    icon: "book",
     eyebrow: "Cidadania",
-    text: "Quais são os meus principais direitos civis?",
+    text: "A confirmação de ministros do STF pelo Senado é por votação secreta?",
   },
   {
-    icon: "file" as IconName,
-    eyebrow: "Projetos de lei",
-    text: "Como acompanhar uma proposta no Congresso?",
+    icon: "file",
+    eyebrow: "Cota Parlamentar",
+    text: "Todo deputado federal tem um teto fixo de R$ 500 por ano para combustível?",
   },
   {
-    icon: "archive" as IconName,
-    eyebrow: "Governo",
-    text: "Qual a diferença entre os três poderes?",
+    icon: "archive",
+    eyebrow: "Transparência",
+    text: "Dá para ver no site do TSE quanto cada candidato declarou ter gastado?",
   },
 ]
 
@@ -324,6 +330,8 @@ interface ChatMessage {
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [message, setMessage] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+  const [suggestions, setSuggestions] = useState<Suggestion[]>(defaultSuggestions)
   const [conversation, setConversation] = useState<ChatMessage[]>([
     {
       id: "demo-user",
@@ -344,10 +352,26 @@ export default function App() {
     },
   ])
 
-  function submitMessage(event: FormEvent) {
+  useEffect(() => {
+    fetch("/api/suggestions")
+      .then((res) => {
+        if (!res.ok) throw new Error("Erro ao carregar sugestões")
+        return res.json()
+      })
+      .then((data: Suggestion[]) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setSuggestions(data)
+        }
+      })
+      .catch(() => {
+        // Mantém defaultSuggestions em caso de falha de conexão inicial
+      })
+  }, [])
+
+  async function submitMessage(event: FormEvent) {
     event.preventDefault()
     const trimmed = message.trim()
-    if (!trimmed) return
+    if (!trimmed || isLoading) return
 
     const userMsg: ChatMessage = {
       id: `user-${Date.now()}`,
@@ -355,38 +379,43 @@ export default function App() {
       text: trimmed,
     }
 
-    // Mock resposta baseada nas regras de checagem ou esclarecimento
-    const isQuestion = trimmed.toLowerCase()
-    let assistantReply: ChatMessage
-
-    if (isQuestion.includes("combustível") && isQuestion.includes("500")) {
-      assistantReply = {
-        id: `assistant-${Date.now()}`,
-        role: "assistant",
-        text: "É FALSO que todo deputado tenha um teto de R$ 500/ano para combustível. O Ato da Mesa nº 43/2009 estabelece um limite mensal de até R$ 9.392,00 por parlamentar.",
-        verdict: "FALSO",
-        sources: ["Ato da Mesa da Câmara nº 43/2009", "CEAP / Dados Abertos"],
-      }
-    } else if (isQuestion.includes("stf") && isQuestion.includes("secreta")) {
-      assistantReply = {
-        id: `assistant-${Date.now()}`,
-        role: "assistant",
-        text: "É VERDADEIRO. Conforme o art. 52, III, 'a' da Constituição Federal e art. 383 do Regimento Interno do Senado, a votação de ministros do STF em Plenário é secreta após arguição pública.",
-        verdict: "VERDADEIRO",
-        sources: ["Constituição Federal (Art. 52)", "Regimento Interno do Senado Federal"],
-      }
-    } else {
-      assistantReply = {
-        id: `assistant-${Date.now()}`,
-        role: "assistant",
-        text: `Recebemos sua consulta: "${trimmed}". As informações são checadas com base nos dados públicos e normativos oficiais da Câmara dos Deputados, Senado Federal e TSE.`,
-        verdict: "VERIFICADO",
-        sources: ["Portal de Dados Abertos", "Legislação Federal"],
-      }
-    }
-
-    setConversation((prev) => [...prev, userMsg, assistantReply])
+    setConversation((prev) => [...prev, userMsg])
     setMessage("")
+    setIsLoading(true)
+
+    try {
+      const response = await fetch("/api/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: trimmed }),
+      })
+
+      if (!response.ok) {
+        throw new Error(`Falha na requisição: ${response.status}`)
+      }
+
+      const data = await response.json()
+      const assistantReply: ChatMessage = {
+        id: data.id || `assistant-${Date.now()}`,
+        role: "assistant",
+        text: data.text,
+        verdict: data.verdict,
+        subdetails: data.subdetails,
+        sources: data.sources,
+      }
+      setConversation((prev) => [...prev, assistantReply])
+    } catch {
+      const fallbackReply: ChatMessage = {
+        id: `assistant-${Date.now()}`,
+        role: "assistant",
+        text: "Não foi possível conectar ao servidor de fact-checking no momento. Verifique se o backend está em execução.",
+        verdict: "INCONCLUSIVO",
+        sources: ["Sistema Offline"],
+      }
+      setConversation((prev) => [...prev, fallbackReply])
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   function handleSuggestion(text: string) {
@@ -544,6 +573,18 @@ export default function App() {
                   </div>
                 )
               )}
+
+              {isLoading && (
+                <div className="flex items-start gap-3 sm:gap-4">
+                  <div className="mt-1 grid size-9 shrink-0 place-items-center rounded-xl bg-emerald-700 text-white animate-pulse">
+                    <PolisLogo className="size-6" />
+                  </div>
+                  <div className="rounded-2xl rounded-tl-md border border-slate-200 bg-white p-4 text-sm text-slate-500 shadow-sm flex items-center gap-2">
+                    <span className="size-2 rounded-full bg-emerald-500 animate-ping" />
+                    Consultando fontes e bases normativas oficiais...
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -564,6 +605,7 @@ export default function App() {
               <textarea
                 aria-label="Mensagem para o Assistente Pólis"
                 className="min-h-10 max-h-32 flex-1 resize-none bg-transparent px-1 py-2.5 text-sm leading-5 text-slate-800 outline-none placeholder:text-slate-400"
+                disabled={isLoading}
                 onChange={(event) => setMessage(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
@@ -585,7 +627,7 @@ export default function App() {
               <button
                 aria-label="Enviar mensagem"
                 className="grid size-10 shrink-0 place-items-center rounded-xl bg-emerald-700 text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
-                disabled={!message.trim()}
+                disabled={!message.trim() || isLoading}
                 type="submit"
               >
                 <Icon name="arrow-up" className="size-5" />
