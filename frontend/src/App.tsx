@@ -3,23 +3,19 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "rea
 type IconName =
   | "archive"
   | "arrow-up"
-  | "attachment"
   | "ballot"
   | "book"
   | "chevron-down"
   | "close"
   | "external"
   | "file"
-  | "gear"
   | "menu"
   | "message"
-  | "microphone"
   | "more"
   | "plus"
   | "search"
   | "shield"
   | "sparkle"
-  | "user"
 
 function Icon({
   name,
@@ -39,9 +35,6 @@ function Icon({
       <>
         <path d="M12 19V5M6.5 10.5 12 5l5.5 5.5" />
       </>
-    ),
-    attachment: (
-      <path d="m20.5 11.5-8.4 8.4a6 6 0 0 1-8.5-8.5l9-9a4 4 0 0 1 5.7 5.7l-9 9a2 2 0 0 1-2.9-2.8l8.5-8.5" />
     ),
     ballot: (
       <>
@@ -70,21 +63,9 @@ function Icon({
         <path d="M6 2h8l4 4v16H6zM14 2v5h5M9 12h6M9 16h6" />
       </>
     ),
-    gear: (
-      <>
-        <circle cx="12" cy="12" r="3" />
-        <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.6v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z" />
-      </>
-    ),
     menu: <path d="M4 7h16M4 12h16M4 17h16" />,
     message: (
       <path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z" />
-    ),
-    microphone: (
-      <>
-        <rect x="9" y="3" width="6" height="11" rx="3" />
-        <path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6" />
-      </>
     ),
     more: (
       <>
@@ -108,12 +89,6 @@ function Icon({
     ),
     sparkle: (
       <path d="M12 3c.4 4.8 2.2 6.6 7 7-4.8.4-6.6 2.2-7 7-.4-4.8-2.2-6.6-7-7 4.8-.4 6.6-2.2 7-7ZM19 16c.2 2 1 2.8 3 3-2 .2-2.8 1-3 3-.2-2-1-2.8-3-3 2-.2 2.8-1 3-3Z" />
-    ),
-    user: (
-      <>
-        <circle cx="12" cy="8" r="4" />
-        <path d="M4 21a8 8 0 0 1 16 0" />
-      </>
     ),
   }
 
@@ -154,29 +129,21 @@ function PolisLogo({ className = "size-6" }: { className?: string }) {
   )
 }
 
-const chats = [
-  {
-    label: "Hoje",
-    items: [
-      "A votação de ministro do STF no Senado é secreta?",
-      "Todo deputado tem teto fixo de R$ 500 para combustível?",
-    ],
-  },
-  {
-    label: "Ontem",
-    items: [
-      "Como funciona o segundo turno no Brasil?",
-      "Dá para consultar gastos de candidatos no TSE?",
-    ],
-  },
-  {
-    label: "Últimos 7 dias",
-    items: [
-      "Partidos precisam prestar contas do Fundo Partidário?",
-      "Acesso ao Portal da Transparência é gratuito?",
-    ],
-  },
-]
+interface ChatMessage {
+  id: string
+  role: "user" | "assistant"
+  text: string
+  verdict?: "VERDADEIRO" | "FALSO" | "INCONCLUSIVO" | "VERIFICADO"
+  sources?: string[]
+  subdetails?: string[]
+}
+
+interface ChatSession {
+  id: string
+  title: string
+  createdAt: number
+  messages: ChatMessage[]
+}
 
 interface Suggestion {
   icon: IconName
@@ -207,17 +174,57 @@ const defaultSuggestions: Suggestion[] = [
   },
 ]
 
+function groupSessions(sessions: ChatSession[]) {
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const yesterdayStart = todayStart - 24 * 60 * 60 * 1000
+
+  const today: ChatSession[] = []
+  const yesterday: ChatSession[] = []
+  const older: ChatSession[] = []
+
+  for (const s of sessions) {
+    if (s.createdAt >= todayStart) {
+      today.push(s)
+    } else if (s.createdAt >= yesterdayStart) {
+      yesterday.push(s)
+    } else {
+      older.push(s)
+    }
+  }
+
+  const groups: { label: string; items: ChatSession[] }[] = []
+  if (today.length > 0) groups.push({ label: "Hoje", items: today })
+  if (yesterday.length > 0) groups.push({ label: "Ontem", items: yesterday })
+  if (older.length > 0) groups.push({ label: "Anteriores", items: older })
+
+  return groups
+}
+
 function Sidebar({
   open,
   onClose,
   onNewChat,
-  onSelectTopic,
+  sessions,
+  activeSessionId,
+  onSelectSession,
+  onDeleteSession,
 }: {
   open: boolean
   onClose: () => void
   onNewChat: () => void
-  onSelectTopic: (topic: string) => void
+  sessions: ChatSession[]
+  activeSessionId: string | null
+  onSelectSession: (sessionId: string) => void
+  onDeleteSession: (sessionId: string) => void
 }) {
+  const [searchTerm, setSearchTerm] = useState("")
+
+  const filteredSessions = sessions.filter((s) =>
+    s.title.toLowerCase().includes(searchTerm.toLowerCase().trim())
+  )
+  const groups = groupSessions(filteredSessions)
+
   return (
     <>
       {open && (
@@ -255,7 +262,7 @@ function Sidebar({
           </button>
         </div>
 
-        <div className="px-4 pb-5">
+        <div className="px-4 pb-4">
           <button
             onClick={() => {
               onNewChat()
@@ -268,62 +275,106 @@ function Sidebar({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-3">
-          <div className="mb-5 px-2">
-            <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white/70 px-3 py-2 text-slate-400">
-              <Icon name="search" className="size-4" />
-              <span className="text-sm">Buscar conversas</span>
-              <span className="ml-auto rounded border border-slate-200 px-1.5 py-0.5 text-[0.625rem]">
-                ⌘ K
-              </span>
+        {sessions.length > 0 && (
+          <div className="px-4 pb-3">
+            <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white/70 px-3 py-2 text-slate-400 focus-within:border-emerald-300 focus-within:ring-2 focus-within:ring-emerald-100">
+              <Icon name="search" className="size-4 shrink-0" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Buscar conversas..."
+                className="w-full bg-transparent text-xs text-slate-700 outline-none placeholder:text-slate-400"
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  aria-label="Limpar busca"
+                  onClick={() => setSearchTerm("")}
+                  className="text-slate-400 hover:text-slate-600"
+                >
+                  <Icon name="close" className="size-3.5" />
+                </button>
+              )}
             </div>
           </div>
-          <nav aria-label="Histórico de conversas" className="space-y-6">
-            {chats.map((group) => (
-              <div key={group.label}>
-                <p className="mb-2 px-3 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                  {group.label}
-                </p>
-                <div className="space-y-0.5">
-                  {group.items.map((chat) => (
-                    <button
-                      key={chat}
-                      onClick={() => {
-                        onSelectTopic(chat)
-                        onClose()
-                      }}
-                      className="group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
-                    >
-                      <Icon
-                        name="message"
-                        className="size-4 shrink-0 opacity-70"
-                      />
-                      <span className="truncate">{chat}</span>
-                      <Icon
-                        name="more"
-                        className="ml-auto hidden size-4 group-hover:block"
-                      />
-                    </button>
-                  ))}
-                </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto px-3">
+          {sessions.length === 0 ? (
+            <div className="px-4 py-10 text-center">
+              <div className="mx-auto mb-3 grid size-10 place-items-center rounded-xl bg-slate-100 text-slate-400">
+                <Icon name="message" className="size-5" />
               </div>
-            ))}
-          </nav>
+              <p className="text-xs font-semibold text-slate-600">Nenhum histórico anterior</p>
+              <p className="mt-1 text-[0.72rem] leading-relaxed text-slate-400">
+                O histórico de chats aparecerá aqui conforme você utilizar a Pólis para fazer perguntas e checagens.
+              </p>
+            </div>
+          ) : filteredSessions.length === 0 ? (
+            <div className="px-4 py-8 text-center text-xs text-slate-400">
+              Nenhuma conversa encontrada para "{searchTerm}".
+            </div>
+          ) : (
+            <nav aria-label="Histórico de conversas" className="space-y-5">
+              {groups.map((group) => (
+                <div key={group.label}>
+                  <p className="mb-2 px-3 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                    {group.label}
+                  </p>
+                  <div className="space-y-0.5">
+                    {group.items.map((sess) => {
+                      const isActive = sess.id === activeSessionId
+                      return (
+                        <div
+                          key={sess.id}
+                          className={`group flex items-center justify-between rounded-lg px-3 py-2.5 text-sm transition ${
+                            isActive
+                              ? "bg-emerald-50 font-medium text-emerald-900 border border-emerald-200/60"
+                              : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                          }`}
+                        >
+                          <button
+                            onClick={() => {
+                              onSelectSession(sess.id)
+                              onClose()
+                            }}
+                            className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+                          >
+                            <Icon
+                              name="message"
+                              className={`size-4 shrink-0 ${
+                                isActive ? "text-emerald-700" : "opacity-60"
+                              }`}
+                            />
+                            <span className="truncate">{sess.title}</span>
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="Excluir conversa do histórico"
+                            title="Excluir conversa"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onDeleteSession(sess.id)
+                            }}
+                            className="ml-1 hidden rounded p-1 text-slate-400 hover:bg-slate-200/60 hover:text-rose-600 group-hover:block"
+                          >
+                            <Icon name="close" className="size-3.5" />
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </nav>
+          )}
         </div>
 
-        <div className="border-t border-slate-200/80 p-3">
-          <button className="flex w-full items-center gap-3 rounded-xl p-2.5 text-left hover:bg-slate-100">
-            <div className="grid size-9 shrink-0 place-items-center rounded-full bg-amber-100 text-sm font-semibold text-amber-800">
-              MC
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-slate-800">
-                Marina Costa
-              </p>
-              <p className="text-xs text-slate-500">Plano Cidadão</p>
-            </div>
-            <Icon name="gear" className="size-4 text-slate-500" />
-          </button>
+        <div className="border-t border-slate-200/80 p-3 text-center">
+          <p className="text-[0.68rem] font-medium text-slate-400">
+            Pólis · Informação pública auditável
+          </p>
         </div>
       </aside>
     </>
@@ -340,23 +391,34 @@ function SourceChip({ children }: { children: ReactNode }) {
   )
 }
 
-interface ChatMessage {
-  id: string
-  role: "user" | "assistant"
-  text: string
-  verdict?: "VERDADEIRO" | "FALSO" | "INCONCLUSIVO" | "VERIFICADO"
-  sources?: string[]
-  subdetails?: string[]
-}
-
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [message, setMessage] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [suggestions, setSuggestions] = useState<Suggestion[]>(defaultSuggestions)
+
+  // Histórico dinâmico de conversas sincronizado com o uso do sistema
+  const [sessions, setSessions] = useState<ChatSession[]>(() => {
+    try {
+      const stored = localStorage.getItem("polis_chat_sessions")
+      return stored ? JSON.parse(stored) : []
+    } catch {
+      return []
+    }
+  })
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [conversation, setConversation] = useState<ChatMessage[]>([])
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  // Salva o histórico dinâmico no localStorage conforme o uso
+  useEffect(() => {
+    try {
+      localStorage.setItem("polis_chat_sessions", JSON.stringify(sessions))
+    } catch {
+      // Ignora erro de cota de armazenamento se houver
+    }
+  }, [sessions])
 
   useEffect(() => {
     fetch("/api/suggestions")
@@ -389,9 +451,32 @@ export default function App() {
       text: trimmed,
     }
 
-    setConversation((prev) => [...prev, userMsg])
+    let currentSessionId = activeSessionId
+    const updatedConversation = [...conversation, userMsg]
+    setConversation(updatedConversation)
     setMessage("")
     setIsLoading(true)
+
+    // Se for uma nova conversa, cria a sessão no histórico dinâmico
+    if (!currentSessionId) {
+      currentSessionId = `session-${Date.now()}`
+      setActiveSessionId(currentSessionId)
+      const newSession: ChatSession = {
+        id: currentSessionId,
+        title: trimmed.length > 42 ? trimmed.slice(0, 40) + "..." : trimmed,
+        createdAt: Date.now(),
+        messages: [userMsg],
+      }
+      setSessions((prev) => [newSession, ...prev])
+    } else {
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === currentSessionId
+            ? { ...s, messages: [...s.messages, userMsg] }
+            : s
+        )
+      )
+    }
 
     try {
       const response = await fetch("/api/check", {
@@ -413,7 +498,15 @@ export default function App() {
         subdetails: data.subdetails,
         sources: data.sources,
       }
+
       setConversation((prev) => [...prev, assistantReply])
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === currentSessionId
+            ? { ...s, messages: [...s.messages, assistantReply] }
+            : s
+        )
+      )
     } catch {
       const fallbackReply: ChatMessage = {
         id: `assistant-${Date.now()}`,
@@ -423,6 +516,13 @@ export default function App() {
         sources: ["Sistema Offline"],
       }
       setConversation((prev) => [...prev, fallbackReply])
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === currentSessionId
+            ? { ...s, messages: [...s.messages, fallbackReply] }
+            : s
+        )
+      )
     } finally {
       setIsLoading(false)
     }
@@ -438,8 +538,26 @@ export default function App() {
   }
 
   function handleNewChat() {
+    setActiveSessionId(null)
     setConversation([])
     setMessage("")
+  }
+
+  function handleSelectSession(sessionId: string) {
+    const session = sessions.find((s) => s.id === sessionId)
+    if (session) {
+      setActiveSessionId(session.id)
+      setConversation(session.messages)
+      setMessage("")
+    }
+  }
+
+  function handleDeleteSession(sessionId: string) {
+    setSessions((prev) => prev.filter((s) => s.id !== sessionId))
+    if (activeSessionId === sessionId) {
+      setActiveSessionId(null)
+      setConversation([])
+    }
   }
 
   const isInitialView = conversation.length === 0
@@ -450,7 +568,10 @@ export default function App() {
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         onNewChat={handleNewChat}
-        onSelectTopic={sendQuery}
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        onSelectSession={handleSelectSession}
+        onDeleteSession={handleDeleteSession}
       />
 
       <main className="flex min-w-0 flex-1 flex-col bg-[#fcfdfc]">
@@ -636,22 +757,16 @@ export default function App() {
           </div>
         </div>
 
+        {/* Barra de Envio sem clip de anexo e sem microfone */}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-[#fcfdfc] via-[#fcfdfc] to-transparent px-4 pb-5 pt-12 sm:px-6 lg:left-[18rem]">
           <form
             className="pointer-events-auto mx-auto max-w-3xl"
             onSubmit={submitMessage}
           >
-            <div className="flex items-end gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl shadow-slate-900/[0.07] ring-1 ring-slate-900/[0.02] focus-within:border-emerald-300 focus-within:ring-4 focus-within:ring-emerald-100/70">
-              <button
-                type="button"
-                aria-label="Anexar arquivo"
-                className="grid size-10 shrink-0 place-items-center rounded-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-              >
-                <Icon name="attachment" />
-              </button>
+            <div className="flex items-end gap-2 rounded-2xl border border-slate-200 bg-white p-2 pl-4 shadow-xl shadow-slate-900/[0.07] ring-1 ring-slate-900/[0.02] focus-within:border-emerald-300 focus-within:ring-4 focus-within:ring-emerald-100/70">
               <textarea
                 aria-label="Mensagem para o Assistente Pólis"
-                className="min-h-10 max-h-32 flex-1 resize-none bg-transparent px-1 py-2.5 text-sm leading-5 text-slate-800 outline-none placeholder:text-slate-400"
+                className="min-h-10 max-h-32 flex-1 resize-none bg-transparent py-2.5 text-sm leading-5 text-slate-800 outline-none placeholder:text-slate-400"
                 disabled={isLoading}
                 onChange={(event) => setMessage(event.target.value)}
                 onKeyDown={(event) => {
@@ -664,13 +779,6 @@ export default function App() {
                 rows={1}
                 value={message}
               />
-              <button
-                type="button"
-                aria-label="Usar microfone"
-                className="grid size-10 shrink-0 place-items-center rounded-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
-              >
-                <Icon name="microphone" />
-              </button>
               <button
                 aria-label="Enviar mensagem"
                 className="grid size-10 shrink-0 place-items-center rounded-xl bg-emerald-700 text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
