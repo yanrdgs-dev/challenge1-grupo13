@@ -1,0 +1,79 @@
+{
+  "calculo_cota_por_uf": {
+    "topico": "calculo_cota_por_uf",
+    "resposta_resumida": "O valor da cota parlamentar (CEAP) varia mensalmente para cada deputado federal conforme o estado de representação.",
+    "fonte_normativa": "Ato da Mesa da Câmara dos Deputados nº 43/2009, art. 3º e Anexo",
+    "fundamentacao": "A cota parlamentar tem valor diferenciado por Unidade da Federação, calculado principalmente em função do preço das passagens aéreas de Brasília até a capital de cada estado e da distância territorial. Deputados de estados mais distantes (ex: Roraima, Acre, Amazonas) possuem cotas superiores aos de estados próximos ao DF (ex: Goiás, Minas Gerais).",
+    "veredito_regra": "varia_por_uf"
+  },
+  "sabatina_stf": {
+    "topico": "sabatina_stf",
+    "resposta_resumida": "A aprovação de indicados a ministro do Supremo Tribunal Federal pelo plenário do Senado Federal é realizada obrigatoriamente por votação secreta.",
+    "fonte_normativa": "Constituição Federal de 1988, art. 52, inciso III, alínea 'a'; e Regimento Interno do Senado Federal (RISF), art. 383",
+    "fundamentacao": "A Constituição Federal estabelece que compete privativamente ao Senado Federal aprovar previamente, por voto secreto, após arguição pública, a escolha dos Ministros do Supremo Tribunal Federal, exigindo maioria absoluta dos senadores no Plenário.",
+    "veredito_regra": "votacao_secreta"
+  },
+  "votacao_simbolica": {
+    "topico": "votacao_simbolica",
+    "resposta_resumida": "A Câmara dos Deputados pode aprovar matérias legislativas por votação simbólica quando não há requerimento para votação nominal ou quando há acordo prévio de lideranças.",
+    "fonte_normativa": "Regimento Interno da Câmara dos Deputados (RICD), arts. 185 e 186",
+    "fundamentacao": "A votação simbólica é a regra geral no processo legislativo da Câmara dos Deputados para deliberação de projetos, requerimentos e emendas, exceto quando a Constituição ou o Regimento exigir quórum qualificado ou houver requerimento tempestivo e apoiado de bancada para votação nominal.",
+    "veredito_regra": "permitida"
+  },
+  "teto_categoria_combustivel": {
+    "topico": "teto_categoria_combustivel",
+    "resposta_resumida": "Não existe teto fixo anual de R$ 500,00 para despesas de combustível na cota parlamentar da Câmara. O limite é mensal e fixado em até R$ 9.392,00.",
+    "fonte_normativa": "Ato da Mesa da Câmara dos Deputados nº 43/2009, art. 2º, § 1º, inciso VIII",
+    "fundamentacao": "A regulamentação da CEAP fixa subcota específica mensal para despesas com combustíveis e lubrificantes automotivos, limitada a R$ 9.392,00 por mês por deputado, sendo inverídica a afirmação de que existe um teto anual de R$ 500,00.",
+    "veredito_regra": "sem_teto_500"
+  },
+  "prestacao_contas_partido": {
+    "topico": "prestacao_contas_partido",
+    "resposta_resumida": "Partidos políticos são obrigados a prestar contas anualmente à Justiça Eleitoral sobre o uso dos recursos do Fundo Partidário.",
+    "fonte_normativa": "Lei nº 9.096/1995 (Lei dos Partidos Políticos), art. 32; e Resolução TSE nº 23.604/2019",
+    "fundamentacao": "A prestação de contas à Justiça Eleitoral é obrigatória para todos os órgãos partidários que receberem recursos do Fundo Partidário. A falta de prestação ou desaprovação grave enseja a suspensão de repasses de novas cotas e devolução de valores ao erário.",
+    "veredito_regra": "obrigatoria"
+  },
+  "veto_presidencial": {
+    "topico": "veto_presidencial",
+    "resposta_resumida": "O Senado Federal e a Câmara dos Deputados apreciam e votam vetos presidenciais em sessões conjuntas do Congresso Nacional.",
+    "fonte_normativa": "Constituição Federal de 1988, art. 66, § 4º; e Regimento Comum do Congresso Nacional (RCCN)",
+    "fundamentacao": "O veto presidencial deve ser apreciado em sessão conjunta do Congresso Nacional dentro de 30 dias a contar de seu recebimento, só podendo ser rejeitado pelo voto da maioria absoluta dos deputados e senadores. O Senado participa rotineiramente dessas votações.",
+    "veredito_regra": "sessao_conjunta"
+  },
+  "lai_gratuidade": {
+    "topico": "lai_gratuidade",
+    "resposta_resumida": "O acesso a informações públicas e dados de licitações é gratuito e não exige pagamento de assinatura.",
+    "fonte_normativa": "Lei nº 12.527/2011 (Lei de Acesso à Informação - LAI), art. 10; e Decreto nº 7.724/2012",
+    "fundamentacao": "A LAI consagra o princípio da publicidade e gratuidade no fornecimento de dados públicos governamentais. É vedado cobrar por consultas a dados abertos na internet, admitindo-se apenas a cobrança de custos estritos de reprodução de documentos físicos ou mídias quando expressamente solicitados pelo cidadão.",
+    "veredito_regra": "gratuito"
+  },
+  "cota_campanha_vs_mandato": {
+    "topico": "cota_campanha_vs_mandato",
+    "resposta_resumida": "É estritamente proibido utilizar a cota parlamentar (CEAP/CEAPS) para custear despesas de campanha eleitoral.",
+    "fonte_normativa": "Ato da Mesa da Câmara nº 43/2009, art. 2º; e Regulamento da CEAPS do Senado (Ato da Comissão Diretora nº 3/2003)",
+    "fundamentacao": "As verbas de cota parlamentar destinam-se única e exclusivamente ao exercício das atividades típicas do mandato parlamentar. O uso de verba de gabinete ou cota indenizatória para despesas eleitorais caracteriza desvio de finalidade, improbidade administrativa e abuso de poder político/econômico perante a Justiça Eleitoral.",
+    "veredito_regra": "proibido"
+  },
+  "teto_gastos_campanha": {
+    "topico": "teto_gastos_campanha",
+    "resposta_resumida": "O Tribunal Superior Eleitoral (TSE) publica e divulga obrigatoriamente os limites máximos de gastos para todas as campanhas eleitorais.",
+    "fonte_normativa": "Lei nº 9.504/1997 (Lei das Eleições), arts. 18 e 18-C; e Resoluções específicas do TSE por eleição",
+    "fundamentacao": "A legislação eleitoral determina que o TSE divulgue em Diário da Justiça Eleitoral e em seu portal oficial os valores máximos autorizados de gastos para cada cargo eletivo e circunscrição eleitoral em cada pleito. Não há sigilo nem proibição de divulgação.",
+    "veredito_regra": "publico"
+  },
+  "cota_compra_bens": {
+    "topico": "cota_compra_bens",
+    "resposta_resumida": "Parlamentares não podem utilizar a cota indenizatória para adquirir bens imóveis ou patrimônio pessoal.",
+    "fonte_normativa": "Ato da Mesa da Câmara dos Deputados nº 43/2009, art. 2º; e Lei nº 8.429/1992",
+    "fundamentacao": "A cota parlamentar cobre despesas de custeio temporário e locação necessárias ao mandato (ex: locação de escritório, passagens, combustíveis). Não é permitido adquirir bens permanentes ou imóveis em nome pessoal com recursos públicos de cota.",
+    "veredito_regra": "proibido"
+  },
+  "tramitacao_comissoes": {
+    "topico": "tramitacao_comissoes",
+    "resposta_resumida": "Projetos de lei na Câmara dos Deputados passam obrigatoriamente por votação e parecer nas comissões temáticas competentes antes do Plenário.",
+    "fonte_normativa": "Regimento Interno da Câmara dos Deputados (RICD), arts. 24, 32 e 54",
+    "fundamentacao": "Salvo em casos expressos de regime de urgência urgentíssima aprovado por quórum qualificado, todo projeto de lei é distribuído às comissões temáticas pertinentes ao mérito (ex: Saúde, Educação, Segurança) e à Comissão de Constituição e Justiça e de Cidadania (CCJC) para exame de admissibilidade e constitucionalidade antes de ser apreciado pelo Plenário.",
+    "veredito_regra": "obrigatoria"
+  }
+}
