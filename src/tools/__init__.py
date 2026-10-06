@@ -1,3 +1,5 @@
+"""Módulo de ferramentas (tools) para o agente de fact-checking político."""
+
 from src.tools.legislativo_tools import (
     check_bill_apensamentos,
     get_proposition_tramitation_history,
