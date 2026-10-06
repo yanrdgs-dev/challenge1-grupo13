@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react"
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react"
 
 type IconName =
   | "archive"
@@ -158,17 +158,23 @@ const chats = [
   {
     label: "Hoje",
     items: [
-      "Como funciona o sistema eleitoral?",
-      "Reforma tributária em resumo",
+      "A votação de ministro do STF no Senado é secreta?",
+      "Todo deputado tem teto fixo de R$ 500 para combustível?",
     ],
   },
   {
     label: "Ontem",
-    items: ["Direitos do consumidor", "O que faz um vereador?"],
+    items: [
+      "Como funciona o segundo turno no Brasil?",
+      "Dá para consultar gastos de candidatos no TSE?",
+    ],
   },
   {
     label: "Últimos 7 dias",
-    items: ["Orçamento público municipal", "Canais de participação social"],
+    items: [
+      "Partidos precisam prestar contas do Fundo Partidário?",
+      "Acesso ao Portal da Transparência é gratuito?",
+    ],
   },
 ]
 
@@ -201,7 +207,17 @@ const defaultSuggestions: Suggestion[] = [
   },
 ]
 
-function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
+function Sidebar({
+  open,
+  onClose,
+  onNewChat,
+  onSelectTopic,
+}: {
+  open: boolean
+  onClose: () => void
+  onNewChat: () => void
+  onSelectTopic: (topic: string) => void
+}) {
   return (
     <>
       {open && (
@@ -240,7 +256,13 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
         </div>
 
         <div className="px-4 pb-5">
-          <button className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white shadow-sm shadow-emerald-900/10 transition hover:bg-emerald-800">
+          <button
+            onClick={() => {
+              onNewChat()
+              onClose()
+            }}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-3 text-sm font-semibold text-white shadow-sm shadow-emerald-900/10 transition hover:bg-emerald-800"
+          >
             <Icon name="plus" className="size-4" />
             Nova conversa
           </button>
@@ -257,20 +279,20 @@ function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
             </div>
           </div>
           <nav aria-label="Histórico de conversas" className="space-y-6">
-            {chats.map((group, groupIndex) => (
+            {chats.map((group) => (
               <div key={group.label}>
                 <p className="mb-2 px-3 text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-slate-400">
                   {group.label}
                 </p>
                 <div className="space-y-0.5">
-                  {group.items.map((chat, index) => (
+                  {group.items.map((chat) => (
                     <button
-                      className={`group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition ${
-                        groupIndex === 0 && index === 0
-                          ? "bg-emerald-50 font-medium text-emerald-900"
-                          : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                      }`}
                       key={chat}
+                      onClick={() => {
+                        onSelectTopic(chat)
+                        onClose()
+                      }}
+                      className="group flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
                     >
                       <Icon
                         name="message"
@@ -332,25 +354,9 @@ export default function App() {
   const [message, setMessage] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [suggestions, setSuggestions] = useState<Suggestion[]>(defaultSuggestions)
-  const [conversation, setConversation] = useState<ChatMessage[]>([
-    {
-      id: "demo-user",
-      role: "user",
-      text: "Como funciona o segundo turno nas eleições brasileiras?",
-    },
-    {
-      id: "demo-assistant",
-      role: "assistant",
-      text: "O segundo turno é uma nova votação realizada quando nenhum candidato alcança a maioria absoluta dos votos válidos no primeiro turno.",
-      verdict: "VERIFICADO",
-      subdetails: [
-        "Nas eleições para presidente, governador e prefeito de municípios com mais de 200 mil eleitores.",
-        "Participam os dois candidatos mais votados no primeiro turno.",
-        "Vence quem obtiver a maioria dos votos válidos nessa nova votação.",
-      ],
-      sources: ["Tribunal Superior Eleitoral", "Constituição Federal de 1988 (Art. 28 e 29)"],
-    },
-  ])
+  const [conversation, setConversation] = useState<ChatMessage[]>([])
+
+  const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     fetch("/api/suggestions")
@@ -368,9 +374,13 @@ export default function App() {
       })
   }, [])
 
-  async function submitMessage(event: FormEvent) {
-    event.preventDefault()
-    const trimmed = message.trim()
+  useEffect(() => {
+    // Rolagem automática para a mensagem mais recente
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [conversation, isLoading])
+
+  async function sendQuery(queryText: string) {
+    const trimmed = queryText.trim()
     if (!trimmed || isLoading) return
 
     const userMsg: ChatMessage = {
@@ -418,13 +428,30 @@ export default function App() {
     }
   }
 
-  function handleSuggestion(text: string) {
-    setMessage(text)
+  function submitMessage(event: FormEvent) {
+    event.preventDefault()
+    sendQuery(message)
   }
+
+  function handleSelectSuggestion(suggestionText: string) {
+    sendQuery(suggestionText)
+  }
+
+  function handleNewChat() {
+    setConversation([])
+    setMessage("")
+  }
+
+  const isInitialView = conversation.length === 0
 
   return (
     <div className="flex h-dvh overflow-hidden bg-white text-slate-800">
-      <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        onNewChat={handleNewChat}
+        onSelectTopic={sendQuery}
+      />
 
       <main className="flex min-w-0 flex-1 flex-col bg-[#fcfdfc]">
         <header className="flex h-20 shrink-0 items-center justify-between border-b border-slate-200/80 bg-white/90 px-4 backdrop-blur-xl sm:px-6 lg:px-8">
@@ -443,6 +470,11 @@ export default function App() {
                   <Icon name="shield" className="size-3" />
                   Fontes oficiais
                 </span>
+                {!isInitialView && (
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[0.65rem] font-medium text-slate-600">
+                    Conversa ativa
+                  </span>
+                )}
               </div>
               <p className="mt-0.5 flex items-center gap-1.5 text-xs text-slate-500">
                 <span className="size-1.5 rounded-full bg-emerald-500" />
@@ -450,142 +482,157 @@ export default function App() {
               </p>
             </div>
           </div>
-          <button
-            className="grid size-10 place-items-center rounded-xl text-slate-500 transition hover:bg-slate-100"
-            aria-label="Mais opções"
-          >
-            <Icon name="more" />
-          </button>
+          <div className="flex items-center gap-2">
+            {!isInitialView && (
+              <button
+                onClick={handleNewChat}
+                className="hidden items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 sm:inline-flex"
+              >
+                <Icon name="plus" className="size-3.5" />
+                Nova conversa
+              </button>
+            )}
+            <button
+              className="grid size-10 place-items-center rounded-xl text-slate-500 transition hover:bg-slate-100"
+              aria-label="Mais opções"
+            >
+              <Icon name="more" />
+            </button>
+          </div>
         </header>
 
         <div className="flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-5xl px-5 pb-44 pt-12 sm:px-8 sm:pt-16 lg:px-12">
-            <section className="mx-auto max-w-3xl text-center">
-              <div className="mx-auto mb-6 grid size-12 place-items-center rounded-2xl border border-emerald-100 bg-emerald-50 text-emerald-700">
-                <PolisLogo className="size-7" />
-              </div>
-              <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
-                Informação pública, sem complicação
-              </p>
-              <h1 className="text-balance font-serif text-3xl font-medium leading-tight tracking-tight text-slate-950 sm:text-4xl lg:text-[2.75rem]">
-                Como posso ajudar você a entender a política hoje?
-              </h1>
-              <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-slate-500 sm:text-base">
-                Tire dúvidas sobre cidadania, eleições e instituições com
-                respostas claras, contexto e fontes que você pode conferir.
-              </p>
-            </section>
-
-            <section
-              aria-label="Sugestões de perguntas"
-              className="mx-auto mt-10 grid max-w-3xl gap-3 sm:grid-cols-2"
-            >
-              {suggestions.map((suggestion) => (
-                <button
-                  className="group flex min-h-28 items-start gap-4 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm shadow-slate-900/[0.02] transition duration-200 hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md hover:shadow-emerald-900/[0.05]"
-                  key={suggestion.text}
-                  onClick={() => handleSuggestion(suggestion.text)}
-                >
-                  <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-600 transition group-hover:bg-emerald-50 group-hover:text-emerald-700">
-                    <Icon name={suggestion.icon} className="size-4.5" />
-                  </span>
-                  <span>
-                    <span className="block text-[0.65rem] font-semibold uppercase tracking-[0.13em] text-slate-400">
-                      {suggestion.eyebrow}
-                    </span>
-                    <span className="mt-1.5 block text-sm font-medium leading-5 text-slate-700 group-hover:text-slate-950">
-                      {suggestion.text}
-                    </span>
-                  </span>
-                </button>
-              ))}
-            </section>
-
-            <div className="mx-auto my-12 flex max-w-3xl items-center gap-4">
-              <span className="h-px flex-1 bg-slate-200" />
-              <span className="text-[0.65rem] font-semibold uppercase tracking-[0.14em] text-slate-400">
-                Histórico de verificação
-              </span>
-              <span className="h-px flex-1 bg-slate-200" />
-            </div>
-
-            <div className="mx-auto max-w-3xl space-y-6">
-              {conversation.map((msg) =>
-                msg.role === "user" ? (
-                  <div key={msg.id} className="flex justify-end">
-                    <div className="max-w-xl rounded-2xl rounded-br-md bg-slate-100 px-4 py-3 text-sm leading-6 text-slate-800">
-                      {msg.text}
-                    </div>
+          <div className="mx-auto w-full max-w-5xl px-5 pb-44 pt-8 sm:px-8 sm:pt-12 lg:px-12">
+            {isInitialView ? (
+              // 1. Visão Inicial Acolhedora com Hero e Sugestões
+              <div className="animate-in fade-in duration-300">
+                <section className="mx-auto max-w-3xl text-center">
+                  <div className="mx-auto mb-6 grid size-12 place-items-center rounded-2xl border border-emerald-100 bg-emerald-50 text-emerald-700 shadow-sm shadow-emerald-900/10">
+                    <PolisLogo className="size-7" />
                   </div>
-                ) : (
-                  <div key={msg.id} className="flex items-start gap-3 sm:gap-4">
-                    <div className="mt-1 grid size-9 shrink-0 place-items-center rounded-xl bg-emerald-700 text-white">
+                  <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                    Informação pública, sem complicação
+                  </p>
+                  <h1 className="text-balance font-serif text-3xl font-medium leading-tight tracking-tight text-slate-950 sm:text-4xl lg:text-[2.75rem]">
+                    Como posso ajudar você a entender a política hoje?
+                  </h1>
+                  <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-slate-500 sm:text-base">
+                    Tire dúvidas sobre cidadania, eleições e instituições com
+                    respostas claras, contexto e fontes oficiais que você pode conferir.
+                  </p>
+                </section>
+
+                <section
+                  aria-label="Sugestões de perguntas"
+                  className="mx-auto mt-10 grid max-w-3xl gap-3 sm:grid-cols-2"
+                >
+                  {suggestions.map((suggestion) => (
+                    <button
+                      className="group flex min-h-28 items-start gap-4 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm shadow-slate-900/[0.02] transition duration-200 hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md hover:shadow-emerald-900/[0.05]"
+                      key={suggestion.text}
+                      onClick={() => handleSelectSuggestion(suggestion.text)}
+                    >
+                      <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-600 transition group-hover:bg-emerald-50 group-hover:text-emerald-700">
+                        <Icon name={suggestion.icon} className="size-4.5" />
+                      </span>
+                      <span>
+                        <span className="block text-[0.65rem] font-semibold uppercase tracking-[0.13em] text-slate-400">
+                          {suggestion.eyebrow}
+                        </span>
+                        <span className="mt-1.5 block text-sm font-medium leading-5 text-slate-700 group-hover:text-slate-950">
+                          {suggestion.text}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
+                </section>
+
+                <div className="mx-auto mt-12 max-w-3xl rounded-xl border border-slate-100 bg-slate-50/70 p-4 text-center text-xs text-slate-500">
+                  <span className="font-semibold text-slate-700">Verificação Baseada em Evidências:</span> O agente consulta datasets abertos do TSE, Câmara dos Deputados, Senado Federal e normativos legais antes de emitir qualquer veredito.
+                </div>
+              </div>
+            ) : (
+              // 2. Visão de Conversa Ativa Dinâmica
+              <div className="mx-auto max-w-3xl space-y-6">
+                {conversation.map((msg) =>
+                  msg.role === "user" ? (
+                    <div key={msg.id} className="flex justify-end animate-in fade-in slide-in-from-bottom-2 duration-200">
+                      <div className="max-w-xl rounded-2xl rounded-br-md bg-emerald-700 px-4 py-3 text-sm leading-6 text-white shadow-sm">
+                        {msg.text}
+                      </div>
+                    </div>
+                  ) : (
+                    <div key={msg.id} className="flex items-start gap-3 sm:gap-4 animate-in fade-in slide-in-from-bottom-2 duration-200">
+                      <div className="mt-1 grid size-9 shrink-0 place-items-center rounded-xl bg-emerald-700 text-white shadow-sm shadow-emerald-900/10">
+                        <PolisLogo className="size-6" />
+                      </div>
+                      <article className="min-w-0 flex-1 rounded-2xl rounded-tl-md border border-slate-200 bg-white p-5 shadow-sm shadow-slate-900/[0.03] sm:p-6">
+                        <div className="mb-4 flex items-center gap-2">
+                          <p className="text-sm font-semibold text-slate-900">
+                            Assistente Pólis
+                          </p>
+                          {msg.verdict && (
+                            <span
+                              className={`rounded-full px-2.5 py-0.5 text-[0.68rem] font-bold tracking-wide uppercase ${
+                                msg.verdict === "VERDADEIRO"
+                                  ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                                  : msg.verdict === "FALSO"
+                                  ? "bg-rose-50 text-rose-800 border border-rose-200"
+                                  : msg.verdict === "INCONCLUSIVO"
+                                  ? "bg-amber-50 text-amber-800 border border-amber-200"
+                                  : "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                              }`}
+                            >
+                              {msg.verdict}
+                            </span>
+                          )}
+                        </div>
+                        <div className="space-y-4 text-sm leading-6 text-slate-700">
+                          <p>{msg.text}</p>
+                          {msg.subdetails && msg.subdetails.length > 0 && (
+                            <ul className="space-y-2.5 pt-1">
+                              {msg.subdetails.map((detail, idx) => (
+                                <li key={idx} className="flex gap-3">
+                                  <span className="mt-2.5 size-1.5 shrink-0 rounded-full bg-emerald-600" />
+                                  <span>{detail}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                        {msg.sources && msg.sources.length > 0 && (
+                          <div className="mt-6 border-t border-slate-100 pt-4">
+                            <p className="mb-3 flex items-center gap-1.5 text-[0.65rem] font-semibold uppercase tracking-[0.13em] text-slate-400">
+                              <Icon name="shield" className="size-3.5" />
+                              Fontes oficiais auditáveis
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {msg.sources.map((src, idx) => (
+                                <SourceChip key={idx}>{src}</SourceChip>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </article>
+                    </div>
+                  )
+                )}
+
+                {isLoading && (
+                  <div className="flex items-start gap-3 sm:gap-4 animate-in fade-in duration-150">
+                    <div className="mt-1 grid size-9 shrink-0 place-items-center rounded-xl bg-emerald-700 text-white animate-pulse">
                       <PolisLogo className="size-6" />
                     </div>
-                    <article className="min-w-0 flex-1 rounded-2xl rounded-tl-md border border-slate-200 bg-white p-5 shadow-sm shadow-slate-900/[0.03] sm:p-6">
-                      <div className="mb-4 flex items-center gap-2">
-                        <p className="text-sm font-semibold text-slate-900">
-                          Assistente Pólis
-                        </p>
-                        {msg.verdict && (
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[0.65rem] font-semibold ${
-                              msg.verdict === "VERDADEIRO"
-                                ? "bg-emerald-50 text-emerald-700"
-                                : msg.verdict === "FALSO"
-                                ? "bg-rose-50 text-rose-700"
-                                : msg.verdict === "INCONCLUSIVO"
-                                ? "bg-amber-50 text-amber-700"
-                                : "bg-emerald-50 text-emerald-700"
-                            }`}
-                          >
-                            {msg.verdict}
-                          </span>
-                        )}
-                      </div>
-                      <div className="space-y-4 text-sm leading-6 text-slate-600">
-                        <p>{msg.text}</p>
-                        {msg.subdetails && msg.subdetails.length > 0 && (
-                          <ul className="space-y-2.5">
-                            {msg.subdetails.map((detail, idx) => (
-                              <li key={idx} className="flex gap-3">
-                                <span className="mt-2.5 size-1.5 shrink-0 rounded-full bg-emerald-600" />
-                                <span>{detail}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                      {msg.sources && msg.sources.length > 0 && (
-                        <div className="mt-6 border-t border-slate-100 pt-4">
-                          <p className="mb-3 flex items-center gap-1.5 text-[0.65rem] font-semibold uppercase tracking-[0.13em] text-slate-400">
-                            <Icon name="shield" className="size-3.5" />
-                            Fontes oficiais consultadas
-                          </p>
-                          <div className="flex flex-wrap gap-2">
-                            {msg.sources.map((src, idx) => (
-                              <SourceChip key={idx}>{src}</SourceChip>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </article>
+                    <div className="rounded-2xl rounded-tl-md border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm flex items-center gap-3">
+                      <span className="size-2 rounded-full bg-emerald-500 animate-ping" />
+                      Consultando bases e fontes normativas oficiais...
+                    </div>
                   </div>
-                )
-              )}
+                )}
 
-              {isLoading && (
-                <div className="flex items-start gap-3 sm:gap-4">
-                  <div className="mt-1 grid size-9 shrink-0 place-items-center rounded-xl bg-emerald-700 text-white animate-pulse">
-                    <PolisLogo className="size-6" />
-                  </div>
-                  <div className="rounded-2xl rounded-tl-md border border-slate-200 bg-white p-4 text-sm text-slate-500 shadow-sm flex items-center gap-2">
-                    <span className="size-2 rounded-full bg-emerald-500 animate-ping" />
-                    Consultando fontes e bases normativas oficiais...
-                  </div>
-                </div>
-              )}
-            </div>
+                <div ref={messagesEndRef} />
+              </div>
+            )}
           </div>
         </div>
 
@@ -613,7 +660,7 @@ export default function App() {
                     event.currentTarget.form?.requestSubmit()
                   }
                 }}
-                placeholder="Pergunte sobre política, cidadania ou seus direitos..."
+                placeholder="Pergunte sobre política, cidadania ou cheque uma alegação..."
                 rows={1}
                 value={message}
               />
@@ -634,8 +681,7 @@ export default function App() {
               </button>
             </div>
             <p className="mt-2 text-center text-[0.65rem] text-slate-400">
-              A Pólis pode cometer erros. Verifique informações importantes nas
-              fontes indicadas.
+              A Pólis checa dados oficiais e normativos. Verifique sempre informações importantes nas fontes primárias indicadas.
             </p>
           </form>
         </div>
