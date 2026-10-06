@@ -6,8 +6,9 @@ from unittest.mock import patch, MagicMock
 from src.core.llm_client import LLMClient
 
 
-def test_init_defaults():
+def test_init_defaults(monkeypatch):
     """Valida a inicialização padrão a partir do .env."""
+    monkeypatch.delenv("LLM_TIMEOUT", raising=False)
     client = LLMClient()
     assert client.primary_provider == "ollama"
     assert client.fallback_provider == "groq"
