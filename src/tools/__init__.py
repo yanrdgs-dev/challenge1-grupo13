@@ -18,6 +18,16 @@ from src.tools.votacoes_api import (
 from src.tools.http_client import HttpClient, HttpNetworkError
 from src.tools.resolve_politician import resolve_politician
 from src.tools.resolve_proposition import resolve_proposition
+from src.tools.gastos_tools import (
+    TopSpenderItem,
+    TopSpenderResponse,
+    ExpenseCategoryItem,
+    ExpenseCategoriesResponse,
+    ExpenseAuditResult,
+    get_top_ceap_spender,
+    list_expense_categories,
+    check_parliamentary_expenses,
+)
 
 __all__ = [
     "get_proposition_tramitation_history",

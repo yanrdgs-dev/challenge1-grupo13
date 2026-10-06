@@ -30,6 +30,7 @@ class LLMClient:
         self,
         primary_provider: Optional[str] = None,
         fallback_provider: Optional[str] = None,
+        model: Optional[str] = None,
         timeout: Optional[float] = None,
     ):
         """Inicializa o cliente com base em parâmetros ou variáveis de ambiente.
@@ -37,6 +38,7 @@ class LLMClient:
         Args:
             primary_provider: Provedor principal ('ollama', 'groq' ou 'openai').
             fallback_provider: Provedor de contingência (ou None/'' para desabilitar).
+            model: Nome do modelo específico (ou None para usar do .env).
             timeout: Tempo limite para requisições em segundos.
         """
         self.primary_provider = (
@@ -49,6 +51,7 @@ class LLMClient:
             else os.getenv("FALLBACK_PROVIDER", "groq")
         )
         self.fallback_provider = raw_fallback.strip().lower() if raw_fallback else None
+        self.model = model
 
         env_timeout = os.getenv("LLM_TIMEOUT", "3.0")
         try:
@@ -63,11 +66,22 @@ class LLMClient:
         except ValueError:
             self.fallback_timeout = 10.0
 
-    def generate(self, prompt: str) -> str:
+    def generate(
+        self,
+        prompt: str,
+        json_mode: bool = False,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        num_ctx: int = 1024,
+    ) -> str:
         """Executa a inferência no provedor configurado e aplica fallback em caso de falha.
 
         Args:
             prompt: Texto do prompt enviado para o modelo.
+            json_mode: Se True, instrui o modelo a responder estritamente em JSON.
+            temperature: Temperatura para amostragem (0.0 para mais determinístico).
+            max_tokens: Limite máximo de tokens gerados na resposta.
+            num_ctx: Tamanho da janela de contexto alocada (padrão 1024 para agilidade).
 
         Returns:
             Texto gerado pelo modelo LLM.
@@ -81,7 +95,15 @@ class LLMClient:
 
         try:
             logger.info("Executando inferência via: %s", self.primary_provider.upper())
-            return self._call_provider(self.primary_provider, prompt, timeout=self.timeout)
+            return self._call_provider(
+                self.primary_provider,
+                prompt,
+                timeout=self.timeout,
+                json_mode=json_mode,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                num_ctx=num_ctx,
+            )
         except Exception as e:
             logger.warning(
                 "Falha no provedor '%s': %s",
@@ -100,6 +122,10 @@ class LLMClient:
                         self.fallback_provider,
                         prompt,
                         timeout=self.fallback_timeout,
+                        json_mode=json_mode,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        num_ctx=num_ctx,
                     )
                 except Exception as fallback_err:
                     logger.error(
@@ -117,13 +143,26 @@ class LLMClient:
                     f"Falha no provedor '{self.primary_provider}' e nenhum fallback disponível: {e}"
                 ) from e
 
-    def _call_provider(self, provider: str, prompt: str, timeout: float) -> str:
+    def _call_provider(
+        self,
+        provider: str,
+        prompt: str,
+        timeout: float,
+        json_mode: bool = False,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        num_ctx: int = 2048,
+    ) -> str:
         """Roteia a chamada para a função correspondente ao provedor.
 
         Args:
             provider: Identificador do provedor ('ollama', 'groq', 'openai').
             prompt: Conteúdo da mensagem do usuário.
             timeout: Tempo limite da requisição em segundos.
+            json_mode: Se True, formata resposta como JSON.
+            temperature: Temperatura de inferência.
+            max_tokens: Teto de tokens gerados.
+            num_ctx: Tamanho da janela de contexto.
 
         Returns:
             Resposta textual da LLM.
@@ -134,24 +173,48 @@ class LLMClient:
             )
 
         if provider == "ollama":
-            return self._call_ollama(prompt, timeout)
+            return self._call_ollama(
+                prompt, timeout, json_mode=json_mode, temperature=temperature, max_tokens=max_tokens, num_ctx=num_ctx
+            )
         elif provider == "groq":
-            return self._call_groq(prompt, timeout)
+            return self._call_groq(
+                prompt, timeout, json_mode=json_mode, temperature=temperature, max_tokens=max_tokens
+            )
         elif provider == "openai":
-            return self._call_openai(prompt, timeout)
+            return self._call_openai(
+                prompt, timeout, json_mode=json_mode, temperature=temperature, max_tokens=max_tokens
+            )
 
         raise ValueError(f"Provedor não implementado: '{provider}'")
 
-    def _call_ollama(self, prompt: str, timeout: float) -> str:
+    def _call_ollama(
+        self,
+        prompt: str,
+        timeout: float,
+        json_mode: bool = False,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        num_ctx: int = 2048,
+    ) -> str:
         """Executa inferência local via API do Ollama."""
         base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
-        model = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+        model = self.model or os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 
         payload = {
             "model": model,
             "prompt": prompt,
             "stream": False,
+            "keep_alive": -1,
         }
+        if json_mode:
+            payload["format"] = "json"
+
+        options = {"num_ctx": num_ctx}
+        if temperature is not None:
+            options["temperature"] = float(temperature)
+        if max_tokens is not None:
+            options["num_predict"] = int(max_tokens)
+        payload["options"] = options
 
         with httpx.Client(timeout=timeout) as client:
             response = client.post(f"{base_url}/api/generate", json=payload)
@@ -159,13 +222,20 @@ class LLMClient:
             data = response.json()
             return data.get("response", "")
 
-    def _call_groq(self, prompt: str, timeout: float) -> str:
+    def _call_groq(
+        self,
+        prompt: str,
+        timeout: float,
+        json_mode: bool = False,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> str:
         """Executa inferência em nuvem via API do Groq."""
         api_key = os.getenv("GROQ_API_KEY")
         if not api_key or api_key == "sua_chave_groq_aqui":
             raise ValueError("GROQ_API_KEY não configurada ou inválida no arquivo .env")
 
-        model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+        model = self.model or os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -174,6 +244,12 @@ class LLMClient:
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
         }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
+        if temperature is not None:
+            payload["temperature"] = float(temperature)
+        if max_tokens is not None:
+            payload["max_tokens"] = int(max_tokens)
 
         with httpx.Client(timeout=timeout) as client:
             response = client.post(
@@ -185,13 +261,20 @@ class LLMClient:
             data = response.json()
             return data["choices"][0]["message"]["content"]
 
-    def _call_openai(self, prompt: str, timeout: float) -> str:
+    def _call_openai(
+        self,
+        prompt: str,
+        timeout: float,
+        json_mode: bool = False,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> str:
         """Executa inferência em nuvem via API da OpenAI."""
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key or api_key == "sua_chave_openai_aqui":
             raise ValueError("OPENAI_API_KEY não configurada ou inválida no arquivo .env")
 
-        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        model = self.model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -200,6 +283,12 @@ class LLMClient:
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
         }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
+        if temperature is not None:
+            payload["temperature"] = float(temperature)
+        if max_tokens is not None:
+            payload["max_tokens"] = int(max_tokens)
 
         with httpx.Client(timeout=timeout) as client:
             response = client.post(

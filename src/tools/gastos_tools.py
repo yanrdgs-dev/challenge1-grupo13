@@ -178,20 +178,41 @@ def _resolve_ceap_dataset(
             if not parquet_files:
                 parquet_files.extend(list(dataset_path.glob(f"*{ano}*.parquet")))
         else:
-            parquet_files.extend(list(dataset_path.glob("**/*.parquet")))
+            parquet_files.extend(list(dataset_path.rglob("*.parquet")))
+    raw_lf = None
+    if parquet_files:
+        raw_lf = pl.scan_parquet([str(p) for p in parquet_files])
+    else:
+        # Fallback para datasets CSV brutos em datasets/ se parquet não estiver presente
+        csv_candidates: List[Path] = []
+        if clean_casa == "camara":
+            camara_csv_dir = Path("datasets/camara/ceap")
+            if camara_csv_dir.exists():
+                if ano:
+                    csv_candidates = list(camara_csv_dir.glob(f"*{ano}*.csv"))
+                if not csv_candidates:
+                    csv_candidates = list(camara_csv_dir.glob("*.csv"))
+        else:
+            senado_csv_dir = Path("datasets/senado/ceaps")
+            if senado_csv_dir.exists():
+                if ano:
+                    csv_candidates = list(senado_csv_dir.glob(f"*{ano}*.csv"))
+                if not csv_candidates:
+                    csv_candidates = list(senado_csv_dir.glob("*.csv"))
 
-    if not parquet_files:
-        logger.warning(
-            "Nenhum arquivo Parquet localizado para casa='%s', ano=%s em '%s'",
-            clean_casa,
-            ano,
-            dataset_path,
-        )
-        return pl.DataFrame(schema=CANONICAL_SCHEMA).lazy()
+        if csv_candidates:
+            raw_lf = pl.scan_csv(str(csv_candidates[0]), separator=";", ignore_errors=True)
+        else:
+            logger.warning(
+                "Nenhum arquivo Parquet ou CSV localizado para casa='%s', ano=%s em '%s'",
+                clean_casa,
+                ano,
+                dataset_path,
+            )
+            return pl.DataFrame(schema=CANONICAL_SCHEMA).lazy()
 
     # Mapeamento e normalização dependendo da origem
     try:
-        raw_lf = pl.scan_parquet([str(p) for p in parquet_files])
         schema_cols = raw_lf.collect_schema().names()
 
         if clean_casa == "camara":
@@ -219,24 +240,27 @@ def _resolve_ceap_dataset(
 
         else:
             # Resolução das colunas do Senado (CEAPS)
-            id_col = "COD_SENADOR" if "COD_SENADOR" in schema_cols else "idSenador"
-            nome_col = "SENADOR" if "SENADOR" in schema_cols else "NOME_SENADOR"
-            uf_col = "UF" if "UF" in schema_cols else "siglaUf"
-            partido_col = "PARTIDO" if "PARTIDO" in schema_cols else "siglaPartido"
-            ano_col = "ANO" if "ANO" in schema_cols else "ano"
-            cat_col = "TIPO_DESPESA" if "TIPO_DESPESA" in schema_cols else "tipoDespesa"
-            fornec_col = "FORNECEDOR" if "FORNECEDOR" in schema_cols else "fornecedor"
-            vlr_col = "VALOR_REEMBOLSADO" if "VALOR_REEMBOLSADO" in schema_cols else "vlrLiquido"
+            id_col = "COD_SENADOR" if "COD_SENADOR" in schema_cols else ("idSenador" if "idSenador" in schema_cols else None)
+            nome_col = "SENADOR" if "SENADOR" in schema_cols else ("NOME_SENADOR" if "NOME_SENADOR" in schema_cols else None)
+            uf_col = "UF" if "UF" in schema_cols else ("siglaUf" if "siglaUf" in schema_cols else None)
+            partido_col = "PARTIDO" if "PARTIDO" in schema_cols else ("siglaPartido" if "siglaPartido" in schema_cols else None)
+            ano_col = "ANO" if "ANO" in schema_cols else ("ano" if "ano" in schema_cols else None)
+            cat_col = "TIPO_DESPESA" if "TIPO_DESPESA" in schema_cols else ("tipoDespesa" if "tipoDespesa" in schema_cols else None)
+            fornec_col = "NOME_FORNECEDOR" if "NOME_FORNECEDOR" in schema_cols else ("FORNECEDOR" if "FORNECEDOR" in schema_cols else None)
+            vlr_col = "VALOR_REEMBOLSADO" if "VALOR_REEMBOLSADO" in schema_cols else ("vlrLiquido" if "vlrLiquido" in schema_cols else None)
 
             norm_lf = raw_lf.select([
-                (pl.col(id_col).cast(pl.Utf8).fill_null("") if id_col in schema_cols else pl.lit("")).alias("id_parlamentar"),
-                pl.col(nome_col).cast(pl.Utf8).fill_null("NÃO INFORMADO").alias("nome_parlamentar"),
-                pl.col(uf_col).cast(pl.Utf8).fill_null("").alias("uf"),
-                pl.col(partido_col).cast(pl.Utf8).fill_null("").alias("partido"),
-                (pl.col(ano_col).cast(pl.Int64) if ano_col in schema_cols else pl.lit(ano or 0).cast(pl.Int64)).alias("ano"),
-                pl.col(cat_col).cast(pl.Utf8).fill_null("OUTROS").alias("categoria"),
-                pl.col(fornec_col).cast(pl.Utf8).fill_null("").alias("fornecedor"),
-                pl.col(vlr_col).cast(pl.Float64).fill_null(0.0).alias("valor"),
+                (pl.col(id_col).cast(pl.Utf8).fill_null("") if id_col else pl.lit("")).alias("id_parlamentar"),
+                (pl.col(nome_col).cast(pl.Utf8).fill_null("NÃO INFORMADO") if nome_col else pl.lit("NÃO INFORMADO")).alias("nome_parlamentar"),
+                (pl.col(uf_col).cast(pl.Utf8).fill_null("") if uf_col else pl.lit("")).alias("uf"),
+                (pl.col(partido_col).cast(pl.Utf8).fill_null("") if partido_col else pl.lit("")).alias("partido"),
+                (pl.col(ano_col).cast(pl.Int64) if ano_col else pl.lit(ano or 0).cast(pl.Int64)).alias("ano"),
+                (pl.col(cat_col).cast(pl.Utf8).fill_null("OUTROS") if cat_col else pl.lit("OUTROS")).alias("categoria"),
+                (pl.col(fornec_col).cast(pl.Utf8).fill_null("") if fornec_col else pl.lit("")).alias("fornecedor"),
+                (
+                    pl.col(vlr_col).cast(pl.Utf8).str.replace(",", ".").cast(pl.Float64).fill_null(0.0)
+                    if vlr_col else pl.lit(0.0)
+                ).alias("valor"),
             ])
             return norm_lf
 
