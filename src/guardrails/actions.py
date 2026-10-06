@@ -208,7 +208,8 @@ def audit_traceable_evidence(
 
     # Verifica se pelo menos uma fonte primária ou sigla oficial está citada no texto
     text_lower = text.lower()
-    has_source_mention = any(src.lower() in text_lower for src in sources)
+    valid_sources = [str(src) for src in sources if src]
+    has_source_mention = any(src.lower() in text_lower for src in valid_sources)
 
     # Permite também menções a termos canônicos (CF/88, Regimento, TSE, Portal da Transparência, etc.)
     official_keywords = [
@@ -216,10 +217,17 @@ def audit_traceable_evidence(
         "regimento",
         "ato da mesa",
         "tse",
+        "tribunal superior eleitoral",
         "portal da transparência",
+        "portal da transparencia",
         "câmara dos deputados",
+        "camara dos deputados",
         "senado federal",
+        "dados abertos",
+        "lai",
+        "lei",
     ]
+
     if not has_source_mention and not any(kw in text_lower for kw in official_keywords):
         return {
             "passed": False,
