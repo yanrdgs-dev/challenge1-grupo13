@@ -1,0 +1,9 @@
+# Output Rail: Auditoria Determinística de Evidência Rastreável (Regra 1 da Constituição)
+
+define flow check evidence traceability
+  $audit = execute audit_traceable_evidence
+  if not $audit.passed
+    bot respond inconclusive missing evidence
+
+define bot respond inconclusive missing evidence
+  "Veredito inconclusivo: a alegação não pôde ser confirmada com evidência rastreável em fonte primária oficial (Regra 1 da Constituição do Agente)."
