@@ -400,3 +400,47 @@ def test_golden_dataset_claim_22_campanha_eleitoral_senado(mock_ceap_data_dir: P
     campanha = [c for c in res.categorias if "eleitoral" in c.categoria.lower() or "campanha" in c.categoria.lower()]
     assert len(campanha) == 0
 
+
+
+# --------------------------------------------------------------------------- #
+# ID canônico: o CEAP real traz ideCadastro (o mesmo do resolve_politician) e
+# nuDeputadoId (ID interno diferente). O join com a resolução usa ideCadastro.
+# --------------------------------------------------------------------------- #
+
+@pytest.fixture
+def real_schema_ceap_dir(tmp_path: Path) -> Path:
+    base_dir = tmp_path / "data" / "processed"
+    camara_dir = base_dir / "camara" / "ceap" / "ano=2023"
+    camara_dir.mkdir(parents=True, exist_ok=True)
+    pl.DataFrame({
+        "txNomeParlamentar": ["Pompeo de Mattos", "Pompeo de Mattos", "Deputado Silva"],
+        "ideCadastro": ["73486", "73486", "999"],
+        "nuDeputadoId": [1458, 1458, 2000],
+        "sgUF": ["RS", "RS", "SP"],
+        "sgPartido": ["PDT", "PDT", "PL"],
+        "numAno": [2023, 2023, 2023],
+        "txtDescricao": ["COMBUSTÍVEIS E LUBRIFICANTES.", "PASSAGEM AÉREA", "COMBUSTÍVEIS E LUBRIFICANTES."],
+        "txtFornecedor": ["POSTO", "GOL", "POSTO"],
+        "vlrLiquido": [1000.0, 3000.0, 50.0],
+    }).write_parquet(camara_dir / "ceap_2023.parquet")
+    return base_dir
+
+
+def test_expenses_filter_by_ide_cadastro_matches_resolver_id(real_schema_ceap_dir: Path):
+    resultado = check_parliamentary_expenses(
+        casa="camara", ano=2023, parlamentar_id="73486", base_dir=real_schema_ceap_dir
+    )
+    assert resultado.qtd_lancamentos == 2
+    assert resultado.valor_total == 4000.0
+
+
+def test_expenses_internal_id_no_longer_identifies_parliamentarian(real_schema_ceap_dir: Path):
+    resultado = check_parliamentary_expenses(
+        casa="camara", ano=2023, parlamentar_id="1458", base_dir=real_schema_ceap_dir
+    )
+    assert resultado.qtd_lancamentos == 0
+
+
+def test_top_spender_exposes_ide_cadastro_as_id(real_schema_ceap_dir: Path):
+    resultado = get_top_ceap_spender(casa="camara", ano=2023, base_dir=real_schema_ceap_dir)
+    assert resultado.gastadores[0].id_parlamentar == "73486"
