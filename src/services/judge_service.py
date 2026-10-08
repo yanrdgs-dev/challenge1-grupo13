@@ -15,6 +15,8 @@ from pydantic import BaseModel, Field
 
 from src.core.llm_client import LLMClient
 from src.observability import tracing
+from src.observability.prompts import get_prompt
+from src.prompts.defaults import JUDGE_PROMPT_TEMPLATE, PROMPT_JUDGE
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("JudgeService")
@@ -87,32 +89,19 @@ def _evaluate(payload: JudgeRequest) -> JudgeResponse:
         else "Nenhuma evidência primária localizada ou claim não verificável."
     )
 
-    prompt = f"""Você é o Agente Julgador de um sistema de fact-checking político brasileiro.
-Analise a alegação confrontando-a estritamente com as evidências oficiais primárias fornecidas.
-
-REGRAS:
-1. Se a evidência confirmar a alegação, veredito é VERDADEIRO.
-2. Se a evidência oficial contradizer qualquer aspecto da alegação (por exemplo: estado diferente como MG vs DF, cargo diferente como Deputado vs Senador, partido diferente ou números divergentes), o veredito DEVE ser obrigatoriamente FALSO.
-3. Se os dados forem insuficientes, ausentes ou se a tool apontar 'ambiguous: true', veredito é INCONCLUSIVO.
-4. Seja conciso e cite expressamente os dados oficiais na justificativa.
-
-ALEGAÇÃO:
-"{payload.claim}"
-
-EVIDÊNCIA OFICIAL RETORNADA PELA TOOL ({payload.tool_used or 'N/A'}):
-{evidence_str}
-
-Responda ESTRITAMENTE em formato JSON com o seguinte formato:
-{{
-  "veredito": "VERDADEIRO" | "FALSO" | "INCONCLUSIVO",
-  "confianca": "ALTA" | "MÉDIA" | "BAIXA",
-  "justificativa": "Texto explicativo sucinto com no máximo 2 frases citando a fonte oficial.",
-  "fontes_primarias": ["Nome da Fonte Oficial / Órgão"]
-}}"""
+    prompt = get_prompt(
+        PROMPT_JUDGE,
+        JUDGE_PROMPT_TEMPLATE,
+        variables={
+            "claim": payload.claim,
+            "tool_used": payload.tool_used or "N/A",
+            "evidence": evidence_str,
+        },
+    )
 
     try:
         chat = llm_client.chat(
-            [{"role": "user", "content": prompt}],
+            [{"role": "user", "content": prompt.text}],
             model=JUDGE_MODEL,
             json_mode=True,
         )

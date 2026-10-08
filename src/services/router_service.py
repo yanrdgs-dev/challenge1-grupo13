@@ -23,6 +23,8 @@ from src.guardrails.actions import (
     check_input_specificity,
 )
 from src.observability import tracing
+from src.observability.prompts import get_prompt
+from src.prompts.defaults import PROMPT_ROUTER_SYSTEM
 from src.services.tool_args import validate_tool_args
 from src.services.sources import derive_sources, ensure_source_cited, evidence_failed, merge_sources
 from src.tools.gastos_tools import (
@@ -303,10 +305,11 @@ def _run_tool(tool_name: str, tool_args: Dict[str, Any]) -> Optional[Dict[str, A
 
 
 def _chat_for_routing(claim_text: str, tools: List[Dict[str, Any]], hint: str = "") -> Any:
+    system_prompt = get_prompt(PROMPT_ROUTER_SYSTEM, ROUTER_SYSTEM_PROMPT)
     try:
         return llm_client.chat(
             [
-                {"role": "system", "content": ROUTER_SYSTEM_PROMPT + hint},
+                {"role": "system", "content": system_prompt.text + hint},
                 {"role": "user", "content": claim_text},
             ],
             tools=tools,
