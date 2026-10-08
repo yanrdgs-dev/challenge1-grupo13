@@ -224,18 +224,18 @@ def test_verify_url_timeout_budget_control(mock_perf_counter, mock_get_pipeline,
     }
     mock_get_pipeline.return_value = mock_pipeline
 
-    # Simula passagem rápida de tempo (estouro de orçamento após o 1º item)
-    # Sequência: t_start=0.0, scraping_end=2.0, extraction_end=4.0, loop_claim1=5.0, loop_claim2=29.0 (excede 25s)
-    mock_perf_counter.side_effect = [
-        0.0,   # start
-        2.0,   # after scraping
-        4.0,   # after extraction
-        5.0,   # check timeout claim 1 (ok)
-        6.0,   # claim 1 done
-        29.0,  # check timeout claim 2 (estourou budget de 25s)
-        29.5,  # after batch
-        30.0,  # total end
-    ]
+    call_count = 0
+
+    def get_time():
+        nonlocal call_count
+        call_count += 1
+        # Primeiras chamadas: tempo inicial estável (1.0s)
+        # Quando a 1ª claim é concluída e o loop vai para a 2ª: tempo avança para 29.0s (estouro)
+        if call_count <= 8:
+            return 1.0
+        return 29.0
+
+    mock_perf_counter.side_effect = get_time
 
     response = client.post(
         "/api/v1/verify-url",
