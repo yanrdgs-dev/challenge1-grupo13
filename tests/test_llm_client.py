@@ -158,3 +158,136 @@ def test_call_provider_direct_openai(monkeypatch):
     with patch("httpx.Client.post", return_value=mock_resp):
         res = client._call_openai("Olá", timeout=5.0)
         assert res == "Direto via OpenAI"
+
+
+# --------------------------------------------------------------------------- #
+# LLMClient.chat: mensagens + tools, tool calls normalizadas e uso de tokens
+# --------------------------------------------------------------------------- #
+
+MESSAGES = [
+    {"role": "system", "content": "Você é um roteador."},
+    {"role": "user", "content": "Claim de teste"},
+]
+TOOLS = [{"type": "function", "function": {"name": "resolve_politician", "parameters": {}}}]
+
+
+def _ollama_chat_response():
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {
+        "model": "qwen2.5:7b",
+        "message": {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"function": {"name": "resolve_politician", "arguments": {"nome_busca": "Fulano"}}}
+            ],
+        },
+        "prompt_eval_count": 120,
+        "eval_count": 30,
+    }
+    return resp
+
+
+def test_chat_ollama_success_returns_tool_calls_and_usage():
+    client = LLMClient(primary_provider="ollama", fallback_provider="")
+
+    with patch("httpx.Client.post", return_value=_ollama_chat_response()) as mock_post:
+        result = client.chat(MESSAGES, tools=TOOLS, model="qwen2.5:7b")
+
+    assert "/api/chat" in mock_post.call_args[0][0]
+    body = mock_post.call_args[1]["json"]
+    assert body["model"] == "qwen2.5:7b"
+    assert body["tools"] == TOOLS
+    assert body["stream"] is False
+    assert result.provider == "ollama"
+    assert result.model == "qwen2.5:7b"
+    assert result.tool_calls == [
+        {"name": "resolve_politician", "arguments": {"nome_busca": "Fulano"}}
+    ]
+    assert result.usage == {"input_tokens": 120, "output_tokens": 30}
+    assert result.latency_ms >= 0
+
+
+def test_chat_without_tool_calls_returns_content():
+    client = LLMClient(primary_provider="ollama", fallback_provider="")
+    resp = MagicMock()
+    resp.json.return_value = {
+        "message": {"role": "assistant", "content": '{"veredito": "FALSO"}'},
+        "prompt_eval_count": 10,
+        "eval_count": 5,
+    }
+
+    with patch("httpx.Client.post", return_value=resp) as mock_post:
+        result = client.chat(MESSAGES, json_mode=True)
+
+    assert mock_post.call_args[1]["json"]["format"] == "json"
+    assert "tools" not in mock_post.call_args[1]["json"]
+    assert result.content == '{"veredito": "FALSO"}'
+    assert result.tool_calls == []
+
+
+def test_chat_timeout_without_fallback_raises_runtime_error():
+    client = LLMClient(primary_provider="ollama", fallback_provider="")
+
+    with patch("httpx.Client.post", side_effect=httpx.TimeoutException("timeout")):
+        with pytest.raises(RuntimeError, match="nenhum fallback"):
+            client.chat(MESSAGES, tools=TOOLS)
+
+
+def test_chat_falls_back_to_groq_and_parses_tool_arguments(monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_test_mock_key")
+    monkeypatch.setenv("GROQ_MODEL", "llama-3.1-8b-instant")
+    client = LLMClient(primary_provider="ollama", fallback_provider="groq")
+
+    groq_resp = MagicMock()
+    groq_resp.json.return_value = {
+        "model": "llama-3.1-8b-instant",
+        "choices": [
+            {
+                "message": {
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "function": {
+                                "name": "resolve_proposition",
+                                "arguments": '{"sigla_tipo": "PL", "numero": 1, "ano": 2023}',
+                            }
+                        }
+                    ],
+                }
+            }
+        ],
+        "usage": {"prompt_tokens": 200, "completion_tokens": 40},
+    }
+
+    def fake_post(url, *args, **kwargs):
+        if "localhost" in url:
+            raise httpx.TimeoutException("ollama fora do ar")
+        return groq_resp
+
+    with patch("httpx.Client.post", side_effect=fake_post):
+        result = client.chat(MESSAGES, tools=TOOLS, model="qwen2.5:7b")
+
+    assert result.provider == "groq"
+    assert result.model == "llama-3.1-8b-instant"
+    assert result.used_fallback is True
+    assert result.tool_calls == [
+        {"name": "resolve_proposition", "arguments": {"sigla_tipo": "PL", "numero": 1, "ano": 2023}}
+    ]
+    assert result.usage == {"input_tokens": 200, "output_tokens": 40}
+
+
+def test_chat_both_providers_fail_raises_runtime_error(monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_test_mock_key")
+    client = LLMClient(primary_provider="ollama", fallback_provider="groq")
+
+    with patch("httpx.Client.post", side_effect=httpx.ConnectError("sem rede")):
+        with pytest.raises(RuntimeError, match="Falha total"):
+            client.chat(MESSAGES)
+
+
+def test_chat_rejects_empty_messages():
+    client = LLMClient()
+    with pytest.raises(ValueError, match="messages"):
+        client.chat([])
