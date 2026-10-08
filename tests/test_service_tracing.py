@@ -1,7 +1,7 @@
 """Estrutura dos traces gerados pelo router e pelo judge (spans aninhados)."""
 
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -183,3 +183,76 @@ def test_judge_records_evaluate_span_with_verdict(trace_recorder):
     span = trace_recorder.get("judge.evaluate")
     assert span["kwargs"]["input"]["tool_used"] == "resolve_politician"
     assert trace_recorder.merged_updates("judge.evaluate")["output"]["veredito"] == "FALSO"
+
+
+# ------------------------- propagação router -> judge ------------------------- #
+
+TRACEPARENT = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+
+
+def test_router_sends_traceparent_to_judge(trace_recorder):
+    chat = _router_chat([{"name": "resolve_politician", "arguments": {"nome_busca": "Fulano"}}])
+    with patch.object(router_service, "llm_client") as llm, \
+         patch.object(router_service, "execute_tool", return_value={"ideCadastro": 1}), \
+         patch("src.observability.tracing.traceparent_header", return_value={"traceparent": TRACEPARENT}), \
+         patch.object(router_service, "_call_judge", return_value=JUDGE_OK) as judge:
+        llm.chat.return_value = chat
+        router_client.post("/check", json={"claim": CLAIM})
+
+    assert judge.call_args.kwargs["headers"] == {"traceparent": TRACEPARENT}
+
+
+def test_call_judge_forwards_headers_over_http():
+    resp = MagicMock()
+    resp.json.return_value = JUDGE_OK
+    with patch("httpx.Client.post", return_value=resp) as post:
+        out = router_service._call_judge("http://judge/judge", {"claim": "c"}, headers={"traceparent": TRACEPARENT})
+
+    assert out == JUDGE_OK
+    assert post.call_args.kwargs["headers"] == {"traceparent": TRACEPARENT}
+
+
+def test_judge_continues_trace_from_traceparent_header(trace_recorder):
+    result = ChatResult(content=json.dumps({"veredito": "FALSO", "fontes_primarias": ["TSE"]}),
+                        provider="ollama", model="qwen2.5:14b")
+    with patch.object(judge_service, "llm_client") as llm:
+        llm.chat.return_value = result
+        judge_client.post(
+            "/judge",
+            json={"claim": "c", "evidence": {"a": 1}, "tool_used": "resolve_politician"},
+            headers={"traceparent": TRACEPARENT},
+        )
+
+    assert trace_recorder.get("judge.evaluate")["kwargs"]["traceparent"] == TRACEPARENT
+
+
+def test_judge_without_header_starts_its_own_trace(trace_recorder):
+    result = ChatResult(content="{}", provider="ollama", model="qwen2.5:14b")
+    with patch.object(judge_service, "llm_client") as llm:
+        llm.chat.return_value = result
+        judge_client.post("/judge", json={"claim": "c"})
+
+    assert trace_recorder.get("judge.evaluate")["kwargs"]["traceparent"] is None
+
+
+def test_router_to_judge_end_to_end_shares_the_same_traceparent(trace_recorder):
+    """Simula a chamada HTTP: o header que o router envia é o que o judge recebe."""
+    chat = _router_chat([{"name": "resolve_politician", "arguments": {"nome_busca": "Fulano"}}])
+    judge_llm = ChatResult(content=json.dumps({"veredito": "VERDADEIRO", "fontes_primarias": ["TSE"],
+                                               "justificativa": "TSE confirma."}),
+                           provider="ollama", model="qwen2.5:14b")
+
+    def fake_call_judge(endpoint, payload, headers=None):
+        return judge_client.post("/judge", json=payload, headers=headers or {}).json()
+
+    with patch.object(router_service, "llm_client") as router_llm, \
+         patch.object(judge_service, "llm_client") as judge_llm_client, \
+         patch.object(router_service, "execute_tool", return_value={"ideCadastro": 1}), \
+         patch("src.observability.tracing.traceparent_header", return_value={"traceparent": TRACEPARENT}), \
+         patch.object(router_service, "_call_judge", side_effect=fake_call_judge):
+        router_llm.chat.return_value = chat
+        judge_llm_client.chat.return_value = judge_llm
+        resp = router_client.post("/check", json={"claim": CLAIM})
+
+    assert resp.json()["veredito"] == "VERDADEIRO"
+    assert trace_recorder.get("judge.evaluate")["kwargs"]["traceparent"] == TRACEPARENT

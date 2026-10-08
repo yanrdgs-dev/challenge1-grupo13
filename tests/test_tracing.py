@@ -141,3 +141,73 @@ def test_shutdown_calls_client_and_swallows_errors(client):
     client.shutdown.assert_called_once()
     client.shutdown.side_effect = Exception("timeout")
     tracing.shutdown()
+
+
+# ------------------ propagação entre serviços (W3C traceparent) ------------------ #
+
+TRACE_ID = "0af7651916cd43dd8448eb211c80319c"
+SPAN_ID = "b7ad6b7169203331"
+VALID = f"00-{TRACE_ID}-{SPAN_ID}-01"
+
+
+def test_traceparent_header_is_empty_when_disabled(monkeypatch):
+    monkeypatch.setenv("LANGFUSE_TRACING_ENABLED", "false")
+    with patch.object(tracing, "_get_client") as getter:
+        assert tracing.traceparent_header() == {}
+    getter.assert_not_called()
+
+
+def test_traceparent_header_from_current_span(client):
+    client.get_current_trace_id.return_value = TRACE_ID
+    client.get_current_observation_id.return_value = SPAN_ID
+    assert tracing.traceparent_header() == {"traceparent": VALID}
+
+
+@pytest.mark.parametrize("trace_id, span_id", [(None, SPAN_ID), (TRACE_ID, None), (None, None)])
+def test_traceparent_header_is_empty_without_active_span(client, trace_id, span_id):
+    client.get_current_trace_id.return_value = trace_id
+    client.get_current_observation_id.return_value = span_id
+    assert tracing.traceparent_header() == {}
+
+
+def test_traceparent_header_swallows_client_errors(enabled):
+    with patch.object(tracing, "_get_client", side_effect=Exception("sem rede")):
+        assert tracing.traceparent_header() == {}
+
+
+def test_parse_traceparent_valid():
+    assert tracing.parse_traceparent(VALID) == {"trace_id": TRACE_ID, "parent_span_id": SPAN_ID}
+
+
+@pytest.mark.parametrize("value", [
+    None, "", "lixo", "00-abc-def-01",
+    f"00-{'0' * 32}-{SPAN_ID}-01",           # trace_id zerado é inválido no W3C
+    f"00-{TRACE_ID}-{'0' * 16}-01",          # span_id zerado
+    f"00-{TRACE_ID.upper()}-{SPAN_ID}-01",   # W3C exige hexadecimal minúsculo
+    f"ff-{TRACE_ID}-{SPAN_ID}-01",           # versão ff é proibida
+    f"00-{TRACE_ID}-{SPAN_ID}",              # faltam as flags
+])
+def test_parse_traceparent_invalid_returns_none(value):
+    assert tracing.parse_traceparent(value) is None
+
+
+def test_observation_continues_trace_from_valid_traceparent(client):
+    with tracing.observation("judge.evaluate", traceparent=VALID):
+        pass
+    client.start_as_current_observation.assert_called_once_with(
+        name="judge.evaluate",
+        as_type="span",
+        trace_context={"trace_id": TRACE_ID, "parent_span_id": SPAN_ID},
+    )
+
+
+def test_observation_ignores_invalid_traceparent(client):
+    with tracing.observation("judge.evaluate", traceparent="lixo"):
+        pass
+    client.start_as_current_observation.assert_called_once_with(name="judge.evaluate", as_type="span")
+
+
+def test_observation_without_traceparent_is_unchanged(client):
+    with tracing.observation("x", traceparent=None):
+        pass
+    client.start_as_current_observation.assert_called_once_with(name="x", as_type="span")
