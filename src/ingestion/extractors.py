@@ -7,6 +7,7 @@ Módulo de extração de dados via Web Scraping e download estruturado dos porta
 3. Dados Abertos - Tribunal Superior Eleitoral (TSE)
 """
 
+# pyrefly: ignore [missing-import]
 import requests
 from bs4 import BeautifulSoup
 from typing import List, Dict, Any 
@@ -117,13 +118,22 @@ def scrape_dados_abertos_tse() -> List[Dict[str, Any]]:
                 title_elem = ds.find("h2", class_="dataset-heading")
                 if title_elem:
                     title = title_elem.get_text(strip=True)
-                    link = title_elem.find("a")["href"] if title_elem.find("a") else ""
+                    a_tag = title_elem.find("a")
+                    href = a_tag.get("href") if a_tag else ""
+                    if isinstance(href, str):
+                        link = href
+                    elif isinstance(href, list) and href:
+                        link = href[0]
+                    else:
+                        link = ""
+
+                    url_conjunto = f"https://dadosabertos.tse.jus.br{link}" if link.startswith("/") else link
                     
                     candidatos_data.append({
                         "id_fonte": f"TSE_{len(candidatos_data)+1}",
                         "fonte": "TSE - Dados Abertos",
                         "titulo_conjunto": title,
-                        "url_conjunto": f"https://dadosabertos.tse.jus.br{link}" if link.startswith("/") else link
+                        "url_conjunto": url_conjunto
                     })
     except Exception as e:
         print(f"Erro no scraping do portal do TSE: {e}")
@@ -149,3 +159,4 @@ if __name__ == "__main__":
     dados_tse = scrape_dados_abertos_tse()
     for d in dados_tse[:3]:
         print(f"[{d['fonte']}] Dataset: {d['titulo_conjunto']} -> URL: {d['url_conjunto']}")
+
