@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Optional, Set
 import httpx
 from dotenv import load_dotenv
 
+from src.observability import tracing
+
 # Carrega as variáveis do arquivo .env caso exista
 load_dotenv()
 
@@ -168,7 +170,7 @@ class LLMClient:
                 try:
                     result = self._chat_provider(
                         self.fallback_provider, messages, tools, None, json_mode,
-                        self.fallback_timeout,
+                        self.fallback_timeout, is_fallback=True,
                     )
                     result.used_fallback = True
                     return result
@@ -181,6 +183,14 @@ class LLMClient:
                 f"Falha no provedor '{self.primary_provider}' e nenhum fallback disponível: {e}"
             ) from e
 
+    def _default_model(self, provider: str) -> str:
+        """Modelo configurado no ambiente para o provedor."""
+        if provider == "ollama":
+            return os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+        if provider == "groq":
+            return os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+        return os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
     def _chat_provider(
         self,
         provider: str,
@@ -189,41 +199,88 @@ class LLMClient:
         model: Optional[str],
         json_mode: bool,
         timeout: float,
+        is_fallback: bool = False,
     ) -> ChatResult:
         if provider not in self.SUPPORTED_PROVIDERS:
             raise ValueError(
                 f"Provedor desconhecido: '{provider}'. Provedores suportados: {sorted(self.SUPPORTED_PROVIDERS)}"
             )
 
-        start = time.perf_counter()
-        if provider == "ollama":
-            base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
-            used_model = model or os.getenv("OLLAMA_MODEL", "llama3.1:8b")
-            body: Dict[str, Any] = {"model": used_model, "messages": messages, "stream": False}
-            if tools:
-                body["tools"] = tools
-            if json_mode:
-                body["format"] = "json"
-            with httpx.Client(timeout=timeout) as client:
-                resp = client.post(f"{base_url}/api/chat", json=body)
-                resp.raise_for_status()
-                data = resp.json()
-            message = data.get("message", {})
-            result = ChatResult(
-                content=message.get("content") or "",
-                tool_calls=self._normalize_tool_calls(message.get("tool_calls")),
-                usage={
-                    "input_tokens": data.get("prompt_eval_count"),
-                    "output_tokens": data.get("eval_count"),
-                },
-                provider=provider,
-                model=data.get("model") or used_model,
-            )
-        else:
-            result = self._chat_openai_compatible(provider, messages, tools, json_mode, timeout)
+        # Só o Ollama aceita o modelo informado; Groq/OpenAI usam o modelo do ambiente.
+        planned_model = (model if provider == "ollama" and model else None) or self._default_model(provider)
+        base_metadata = {
+            "provider": provider,
+            "fallback": is_fallback,
+            "json_mode": json_mode,
+            "with_tools": bool(tools),
+        }
 
-        result.latency_ms = round((time.perf_counter() - start) * 1000, 2)
-        return result
+        with tracing.observation(
+            "llm.chat",
+            as_type="generation",
+            model=planned_model,
+            input=messages,
+            metadata=base_metadata,
+        ) as generation:
+            start = time.perf_counter()
+            try:
+                if provider == "ollama":
+                    result = self._chat_ollama(messages, tools, planned_model, json_mode, timeout)
+                else:
+                    result = self._chat_openai_compatible(provider, messages, tools, json_mode, timeout)
+            except Exception as exc:
+                generation.update(level="ERROR", status_message=str(exc))
+                raise
+
+            result.latency_ms = round((time.perf_counter() - start) * 1000, 2)
+            usage = {
+                key: value
+                for key, value in (
+                    ("input", result.usage.get("input_tokens")),
+                    ("output", result.usage.get("output_tokens")),
+                )
+                if value is not None
+            }
+            update: Dict[str, Any] = {
+                "model": result.model,
+                "output": result.tool_calls or result.content,
+                "metadata": {**base_metadata, "latency_ms": result.latency_ms},
+            }
+            if usage:
+                update["usage_details"] = usage
+            generation.update(**update)
+            return result
+
+    def _chat_ollama(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]],
+        model: str,
+        json_mode: bool,
+        timeout: float,
+    ) -> ChatResult:
+        """Chat via API do Ollama (/api/chat)."""
+        base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+        body: Dict[str, Any] = {"model": model, "messages": messages, "stream": False}
+        if tools:
+            body["tools"] = tools
+        if json_mode:
+            body["format"] = "json"
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.post(f"{base_url}/api/chat", json=body)
+            resp.raise_for_status()
+            data = resp.json()
+        message = data.get("message", {})
+        return ChatResult(
+            content=message.get("content") or "",
+            tool_calls=self._normalize_tool_calls(message.get("tool_calls")),
+            usage={
+                "input_tokens": data.get("prompt_eval_count"),
+                "output_tokens": data.get("eval_count"),
+            },
+            provider="ollama",
+            model=data.get("model") or model,
+        )
 
     def _chat_openai_compatible(
         self,
