@@ -104,3 +104,31 @@ def test_dry_run_does_not_touch_the_client():
     assert summary == {"dataset": DATASET_NAME, "items": 2}
     client.create_dataset.assert_not_called()
     client.create_dataset_item.assert_not_called()
+
+
+# ------------------------------------ CLI ------------------------------------ #
+
+def test_cli_dry_run_validates_without_creating_a_client(capsys):
+    from scripts.langfuse_sync_dataset import main
+
+    factory = MagicMock()
+    assert main(["--dry-run"], client_factory=factory) == 0
+    factory.assert_not_called()
+    assert "30 itens" in capsys.readouterr().out
+
+
+def test_cli_syncs_with_the_provided_client():
+    from scripts.langfuse_sync_dataset import main
+
+    client = MagicMock()
+    assert main([], client_factory=lambda: client) == 0
+    assert client.create_dataset_item.call_count == 30
+
+
+def test_cli_returns_error_code_on_invalid_file(tmp_path, capsys):
+    from scripts.langfuse_sync_dataset import main
+
+    bad = tmp_path / "g.json"
+    bad.write_text("[]")
+    assert main(["--path", str(bad), "--dry-run"]) == 1
+    assert "ERRO" in capsys.readouterr().err
