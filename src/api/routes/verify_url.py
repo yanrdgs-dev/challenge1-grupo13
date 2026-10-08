@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from src.agents.nodes.article_aggregator import article_aggregator_node
 from src.agents.nodes.claim_extractor import claim_extractor_node
 from src.agents.pipeline import FactCheckingPipeline
 from src.api.routes.factcheck import get_pipeline
@@ -77,7 +78,9 @@ class VerifyUrlResponse(BaseModel):
     article: Optional[ArticleMetadata] = None
     claims_count: int = 0
     claims: List[ClaimVerificationResult] = []
-    overall_verdict: str  # VERDADEIRO | FALSO | PARCIALMENTE_FALSO | INCONCLUSIVO
+    overall_verdict: str  # VERDADEIRO | FALSO | PARCIALMENTE_FALSO | ENGANOSO | INCONCLUSIVO
+    reliability_score: float = 0.0
+    executive_summary: Optional[str] = None
     latency_seconds: LatencyBreakdown
     timeout_exceeded: bool = False
 
@@ -151,6 +154,7 @@ def verify_url_endpoint(request: VerifyUrlRequest) -> VerifyUrlResponse:
     # Se a matéria não possuir alegações verificáveis (ex.: editorial, opinião pura)
     if not atomic_claims:
         t_total = round(time.perf_counter() - t_start, 3)
+        empty_agg = article_aggregator_node(claims=[], article_title=article_metadata.title)
         return VerifyUrlResponse(
             url=clean_url,
             success=True,
@@ -159,6 +163,8 @@ def verify_url_endpoint(request: VerifyUrlRequest) -> VerifyUrlResponse:
             claims_count=0,
             claims=[],
             overall_verdict="INCONCLUSIVO",
+            reliability_score=0.0,
+            executive_summary=empty_agg.executive_summary,
             latency_seconds=LatencyBreakdown(
                 scraping=t_scraping,
                 claim_extraction=t_extraction,
@@ -236,7 +242,12 @@ def verify_url_endpoint(request: VerifyUrlRequest) -> VerifyUrlResponse:
 
     t_batch = round(time.perf_counter() - t_batch_start, 3)
     t_total = round(time.perf_counter() - t_start, 3)
-    overall_verdict = _compute_overall_verdict(verified_results)
+
+    # 5. Agregação Executiva de Veredito da Matéria
+    agg_result = article_aggregator_node(
+        claims=verified_results,
+        article_title=article_metadata.title,
+    )
 
     return VerifyUrlResponse(
         url=clean_url,
@@ -245,7 +256,9 @@ def verify_url_endpoint(request: VerifyUrlRequest) -> VerifyUrlResponse:
         article=article_metadata,
         claims_count=len(verified_results),
         claims=verified_results,
-        overall_verdict=overall_verdict,
+        overall_verdict=agg_result.overall_status,
+        reliability_score=agg_result.reliability_score,
+        executive_summary=agg_result.executive_summary,
         latency_seconds=LatencyBreakdown(
             scraping=t_scraping,
             claim_extraction=t_extraction,
