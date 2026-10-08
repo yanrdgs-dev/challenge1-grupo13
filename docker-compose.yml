@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  judge-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.judge
+    image: factcheck-judge:latest
+    container_name: factcheck-judge
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - JUDGE_MODEL=qwen2.5:14b
+    ports:
+      - "8001:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  router-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.router
+    image: factcheck-router:latest
+    container_name: factcheck-router
+    depends_on:
+      - judge-service
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - ROUTER_MODEL=qwen2.5:7b
+      - JUDGE_SERVICE_URL=http://judge-service:8000
+    ports:
+      - "8000:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

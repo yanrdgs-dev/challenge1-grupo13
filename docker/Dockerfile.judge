@@ -1,0 +1,27 @@
+# Imagem base oficial Python slim
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Instala ferramentas essenciais do sistema
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Instala dependências do projeto
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copia o código-fonte da aplicação
+ARG CACHEBUST=1
+RUN echo "Building version: $CACHEBUST"
+COPY src/ src/
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
+
+# Porta do serviço FastAPI
+EXPOSE 8000
+
+# Execução do microsserviço Julgador
+CMD ["uvicorn", "src.services.judge_service:app", "--host", "0.0.0.0", "--port", "8000"]
