@@ -14,6 +14,12 @@ from fastapi import FastAPI, HTTPException
 import httpx
 from pydantic import BaseModel, Field
 
+from src.core.llm_client import LLMClient
+from src.guardrails.actions import (
+    audit_traceable_evidence,
+    check_input_neutrality,
+    check_input_specificity,
+)
 from src.tools.resolve_politician import resolve_politician
 from src.tools.resolve_proposition import resolve_proposition
 from scripts.demo_qwen_tool_routing import ROUTER_SYSTEM_PROMPT, TOOLS_CATALOG
@@ -28,6 +34,7 @@ app = FastAPI(
 )
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+llm_client = LLMClient(timeout=float(os.getenv("ROUTER_LLM_TIMEOUT", "30.0")))
 ROUTER_MODEL = os.getenv("ROUTER_MODEL", "qwen2.5:7b")
 JUDGE_SERVICE_URL = os.getenv("JUDGE_SERVICE_URL", "http://judge-service:8000").rstrip("/")
 
@@ -95,6 +102,14 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
     }
 
 
+def _call_judge(endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Chama o Judge Service e devolve o JSON da resposta (levanta em erro HTTP ou de rede)."""
+    with httpx.Client(timeout=60.0) as client:
+        resp = client.post(endpoint, json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
+
 @app.post("/check", response_model=CheckClaimResponse)
 def check_claim(payload: CheckClaimRequest):
     """Orquestra o pipeline completo: Roteador -> Tool -> Julgador."""
@@ -104,44 +119,51 @@ def check_claim(payload: CheckClaimRequest):
     if not claim_text:
         raise HTTPException(status_code=400, detail="A claim não pode ser vazia.")
 
-    # 1. Roteamento via Ollama Function Calling
-    start_route = time.perf_counter()
-    ollama_url = f"{OLLAMA_BASE_URL}/api/chat"
-    chat_body = {
-        "model": ROUTER_MODEL,
-        "messages": [
-            {"role": "system", "content": ROUTER_SYSTEM_PROMPT},
-            {"role": "user", "content": claim_text},
-        ],
-        "tools": TOOLS_CATALOG,
-        "stream": False,
-    }
+    # 0. Input rails (Regras 3 e 6): bloqueiam antes de qualquer LLM ou tool
+    for rail in (check_input_neutrality, check_input_specificity):
+        rail_result = rail(claim_text)
+        if not rail_result["is_valid"]:
+            tempo_total_ms = (time.perf_counter() - start_total) * 1000
+            return CheckClaimResponse(
+                claim=claim_text,
+                tool_usada=None,
+                parametros_tool=None,
+                evidencia_coletada=None,
+                veredito="INCONCLUSIVO",
+                confianca="ALTA",
+                justificativa=rail_result["reason"],
+                fontes_primarias=["Constituição do Agente de Fact-Checking"],
+                tempo_total_ms=round(tempo_total_ms, 2),
+                tempo_roteamento_ms=0.0,
+            )
 
+    # 1. Roteamento via function calling (LLMClient, com fallback de provedor)
+    start_route = time.perf_counter()
     try:
-        with httpx.Client(timeout=30.0) as client:
-            resp = client.post(ollama_url, json=chat_body)
-            resp.raise_for_status()
-            data = resp.json()
+        chat = llm_client.chat(
+            [
+                {"role": "system", "content": ROUTER_SYSTEM_PROMPT},
+                {"role": "user", "content": claim_text},
+            ],
+            tools=TOOLS_CATALOG,
+            model=ROUTER_MODEL,
+        )
     except Exception as exc:
-        logger.error("Erro ao chamar Ollama para roteamento: %s", exc)
+        logger.error("Erro ao chamar o LLM para roteamento: %s", exc)
         raise HTTPException(
             status_code=503,
-            detail=f"Falha na comunicação com o Ollama ({OLLAMA_BASE_URL}): {exc}",
+            detail=f"Falha na comunicação com o provedor de LLM: {exc}",
         )
 
     tempo_roteamento_ms = (time.perf_counter() - start_route) * 1000
-
-    message = data.get("message", {})
-    tool_calls = message.get("tool_calls", [])
 
     tool_name: Optional[str] = None
     tool_args: Dict[str, Any] = {}
     evidence: Optional[Dict[str, Any]] = None
 
-    if tool_calls:
-        fn = tool_calls[0].get("function", {})
-        tool_name = fn.get("name")
-        tool_args = fn.get("arguments", {})
+    if chat.tool_calls:
+        tool_name = chat.tool_calls[0]["name"]
+        tool_args = chat.tool_calls[0]["arguments"]
         logger.info("Roteador selecionou tool '%s' com args %s", tool_name, tool_args)
 
         # 2. Execução da Tool
@@ -166,20 +188,27 @@ def check_claim(payload: CheckClaimRequest):
     tempo_julgamento_ms: Optional[float] = None
 
     try:
-        with httpx.Client(timeout=60.0) as client:
-            judge_resp = client.post(judge_endpoint, json=judge_payload)
-            if judge_resp.status_code == 200:
-                judge_data = judge_resp.json()
-                veredito = judge_data.get("veredito", "INCONCLUSIVO")
-                confianca = judge_data.get("confianca", "MÉDIA")
-                justificativa = judge_data.get("justificativa", "")
-                fontes = judge_data.get("fontes_primarias", [])
-                tempo_julgamento_ms = judge_data.get("tempo_julgamento_ms")
-            else:
-                logger.warning("Judge service retornou status HTTP %s", judge_resp.status_code)
+        judge_data = _call_judge(judge_endpoint, judge_payload)
+        veredito = judge_data.get("veredito", "INCONCLUSIVO")
+        confianca = judge_data.get("confianca", "MÉDIA")
+        justificativa = judge_data.get("justificativa", "")
+        fontes = judge_data.get("fontes_primarias", [])
+        tempo_julgamento_ms = judge_data.get("tempo_julgamento_ms")
     except Exception as exc:
         logger.warning("Falha ao comunicar com o Judge Service (%s): %s", judge_endpoint, exc)
         justificativa = f"Evidência coletada com sucesso, mas o serviço de julgamento estava inacessível: {exc}"
+
+    # 4. Output rail (Regra 1): veredito só se houve tool bem-sucedida e fonte citada
+    tool_executed = bool(tool_name) and not (evidence or {}).get("erro")
+    audit = audit_traceable_evidence(
+        verdict=veredito,
+        text=justificativa,
+        sources=fontes,
+        tool_executed=tool_executed,
+    )
+    if not audit["passed"]:
+        veredito = audit["final_verdict"]
+        justificativa = f"{audit['audit_note']} {justificativa}".strip()
 
     tempo_total_ms = (time.perf_counter() - start_total) * 1000
 

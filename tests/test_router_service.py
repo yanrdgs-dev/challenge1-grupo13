@@ -25,16 +25,13 @@ def _chat_result(tool_calls=None):
 
 
 def _judge_response(veredito="VERDADEIRO", fontes=None, justificativa="Conforme a Câmara dos Deputados, confirmado."):
-    resp = MagicMock()
-    resp.status_code = 200
-    resp.json.return_value = {
+    return {
         "veredito": veredito,
         "confianca": "ALTA",
         "justificativa": justificativa,
         "fontes_primarias": ["Câmara dos Deputados"] if fontes is None else fontes,
         "tempo_julgamento_ms": 12.0,
     }
-    return resp
 
 
 @pytest.fixture
@@ -48,7 +45,7 @@ def test_happy_path_routes_via_llm_client_and_judges(mock_llm):
         [{"name": "resolve_politician", "arguments": {"nome_busca": "Fulano de Tal"}}]
     )
     with patch.object(router_service, "execute_tool", return_value={"ideCadastro": 1}), \
-         patch("httpx.Client.post", return_value=_judge_response()):
+         patch.object(router_service, "_call_judge", return_value=_judge_response()):
         resp = client.post("/check", json={"claim": CLAIM_ESPECIFICA})
 
     assert resp.status_code == 200
@@ -90,7 +87,7 @@ def test_underspecified_claim_is_inconclusive_without_llm_or_tool(mock_llm):
 
 def test_rumour_claim_is_inconclusive_without_llm_or_tool(mock_llm):
     with patch.object(router_service, "execute_tool") as tool:
-        resp = client.post("/check", json={"claim": "Vi no WhatsApp que o deputado Fulano votou a favor."})
+        resp = client.post("/check", json={"claim": "Segundo comentários nas redes sociais, o deputado Fulano votou a favor."})
 
     assert resp.json()["veredito"] == "INCONCLUSIVO"
     mock_llm.chat.assert_not_called()
@@ -106,7 +103,7 @@ def test_partisan_opinion_is_inconclusive_without_llm(mock_llm):
 def test_output_rail_overrides_verdict_without_tool(mock_llm):
     """Regra 1: veredito FALSO/VERDADEIRO sem tool executada vira INCONCLUSIVO."""
     mock_llm.chat.return_value = _chat_result([])  # roteador não escolheu tool
-    with patch("httpx.Client.post", return_value=_judge_response(veredito="FALSO")):
+    with patch.object(router_service, "_call_judge", return_value=_judge_response(veredito="FALSO")):
         resp = client.post("/check", json={"claim": CLAIM_ESPECIFICA})
 
     data = resp.json()
@@ -119,7 +116,7 @@ def test_output_rail_overrides_verdict_without_sources(mock_llm):
         [{"name": "resolve_politician", "arguments": {"nome_busca": "Fulano de Tal"}}]
     )
     with patch.object(router_service, "execute_tool", return_value={"ideCadastro": 1}), \
-         patch("httpx.Client.post", return_value=_judge_response(veredito="FALSO", fontes=[])):
+         patch.object(router_service, "_call_judge", return_value=_judge_response(veredito="FALSO", fontes=[])):
         resp = client.post("/check", json={"claim": CLAIM_ESPECIFICA})
 
     assert resp.json()["veredito"] == "INCONCLUSIVO"
@@ -130,7 +127,7 @@ def test_judge_unreachable_degrades_to_inconclusive(mock_llm):
         [{"name": "resolve_politician", "arguments": {"nome_busca": "Fulano de Tal"}}]
     )
     with patch.object(router_service, "execute_tool", return_value={"ideCadastro": 1}), \
-         patch("httpx.Client.post", side_effect=Exception("judge fora do ar")):
+         patch.object(router_service, "_call_judge", side_effect=Exception("judge fora do ar")):
         resp = client.post("/check", json={"claim": CLAIM_ESPECIFICA})
 
     assert resp.status_code == 200
