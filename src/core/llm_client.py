@@ -1,8 +1,11 @@
 """Cliente de inferência LLM com suporte a múltiplos provedores e contingência automática."""
 
+import json
 import logging
 import os
-from typing import Optional, Set
+import time
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Set
 import httpx
 from dotenv import load_dotenv
 
@@ -15,6 +18,19 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("LLMClient")
+
+
+@dataclass
+class ChatResult:
+    """Resultado normalizado de uma chamada de chat, independente do provedor."""
+
+    content: str
+    tool_calls: List[Dict[str, Any]] = field(default_factory=list)
+    usage: Dict[str, Optional[int]] = field(default_factory=dict)
+    provider: str = ""
+    model: str = ""
+    latency_ms: float = 0.0
+    used_fallback: bool = False
 
 
 class LLMClient:
@@ -116,6 +132,160 @@ class LLMClient:
                 raise RuntimeError(
                     f"Falha no provedor '{self.primary_provider}' e nenhum fallback disponível: {e}"
                 ) from e
+
+    def chat(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        model: Optional[str] = None,
+        json_mode: bool = False,
+    ) -> ChatResult:
+        """Executa um chat com mensagens (e tools opcionais), com fallback automático.
+
+        Args:
+            messages: Mensagens no formato role/content.
+            tools: Catálogo de tools para function calling (opcional).
+            model: Modelo a usar no provedor primário (o fallback usa o modelo do seu .env).
+            json_mode: Se True, solicita saída JSON ao provedor.
+
+        Returns:
+            ChatResult com texto, tool calls normalizadas, uso de tokens e metadados.
+
+        Raises:
+            ValueError: Se a lista de mensagens for vazia.
+            RuntimeError: Quando a inferência e o fallback falharem.
+        """
+        if not messages or not isinstance(messages, list):
+            raise ValueError("messages deve ser uma lista não vazia.")
+
+        try:
+            return self._chat_provider(
+                self.primary_provider, messages, tools, model, json_mode, self.timeout
+            )
+        except Exception as e:
+            logger.warning("Falha no provedor '%s' (chat): %s", self.primary_provider, e)
+            if self.fallback_provider and self.fallback_provider != self.primary_provider:
+                try:
+                    result = self._chat_provider(
+                        self.fallback_provider, messages, tools, None, json_mode,
+                        self.fallback_timeout,
+                    )
+                    result.used_fallback = True
+                    return result
+                except Exception as fallback_err:
+                    raise RuntimeError(
+                        f"Falha total nos serviços de LLM: provedor '{self.primary_provider}' "
+                        f"({e}) e fallback '{self.fallback_provider}' ({fallback_err}) falharam."
+                    ) from fallback_err
+            raise RuntimeError(
+                f"Falha no provedor '{self.primary_provider}' e nenhum fallback disponível: {e}"
+            ) from e
+
+    def _chat_provider(
+        self,
+        provider: str,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]],
+        model: Optional[str],
+        json_mode: bool,
+        timeout: float,
+    ) -> ChatResult:
+        if provider not in self.SUPPORTED_PROVIDERS:
+            raise ValueError(
+                f"Provedor desconhecido: '{provider}'. Provedores suportados: {sorted(self.SUPPORTED_PROVIDERS)}"
+            )
+
+        start = time.perf_counter()
+        if provider == "ollama":
+            base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+            used_model = model or os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+            body: Dict[str, Any] = {"model": used_model, "messages": messages, "stream": False}
+            if tools:
+                body["tools"] = tools
+            if json_mode:
+                body["format"] = "json"
+            with httpx.Client(timeout=timeout) as client:
+                resp = client.post(f"{base_url}/api/chat", json=body)
+                resp.raise_for_status()
+                data = resp.json()
+            message = data.get("message", {})
+            result = ChatResult(
+                content=message.get("content") or "",
+                tool_calls=self._normalize_tool_calls(message.get("tool_calls")),
+                usage={
+                    "input_tokens": data.get("prompt_eval_count"),
+                    "output_tokens": data.get("eval_count"),
+                },
+                provider=provider,
+                model=data.get("model") or used_model,
+            )
+        else:
+            result = self._chat_openai_compatible(provider, messages, tools, json_mode, timeout)
+
+        result.latency_ms = round((time.perf_counter() - start) * 1000, 2)
+        return result
+
+    def _chat_openai_compatible(
+        self,
+        provider: str,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]],
+        json_mode: bool,
+        timeout: float,
+    ) -> ChatResult:
+        """Chat via APIs compatíveis com OpenAI (Groq e OpenAI)."""
+        if provider == "groq":
+            api_key = os.getenv("GROQ_API_KEY")
+            if not api_key or api_key == "sua_chave_groq_aqui":
+                raise ValueError("GROQ_API_KEY não configurada ou inválida no arquivo .env")
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            used_model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+        else:
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key or api_key == "sua_chave_openai_aqui":
+                raise ValueError("OPENAI_API_KEY não configurada ou inválida no arquivo .env")
+            url = "https://api.openai.com/v1/chat/completions"
+            used_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+        body: Dict[str, Any] = {"model": used_model, "messages": messages}
+        if tools:
+            body["tools"] = tools
+        if json_mode:
+            body["response_format"] = {"type": "json_object"}
+
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.post(url, headers=headers, json=body)
+            resp.raise_for_status()
+            data = resp.json()
+
+        message = data["choices"][0]["message"]
+        usage = data.get("usage") or {}
+        return ChatResult(
+            content=message.get("content") or "",
+            tool_calls=self._normalize_tool_calls(message.get("tool_calls")),
+            usage={
+                "input_tokens": usage.get("prompt_tokens"),
+                "output_tokens": usage.get("completion_tokens"),
+            },
+            provider=provider,
+            model=data.get("model") or used_model,
+        )
+
+    @staticmethod
+    def _normalize_tool_calls(raw_calls: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+        """Converte tool calls de qualquer provedor para {name, arguments(dict)}."""
+        normalized: List[Dict[str, Any]] = []
+        for call in raw_calls or []:
+            fn = call.get("function", {})
+            args = fn.get("arguments", {})
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args) if args.strip() else {}
+                except json.JSONDecodeError:
+                    args = {}
+            normalized.append({"name": fn.get("name"), "arguments": args})
+        return normalized
 
     def _call_provider(self, provider: str, prompt: str, timeout: float) -> str:
         """Roteia a chamada para a função correspondente ao provedor.
