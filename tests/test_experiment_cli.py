@@ -62,7 +62,7 @@ def test_default_gate_enforces_constitution_rules_even_without_flags(claims, cap
 def test_thresholds_file_is_applied(claims, tmp_path):
     path = tmp_path / "t.json"
     path.write_text(json.dumps({"verdict_match": 1.0}))
-    code, _ = main(["--local", "--thresholds-file", str(path)], client_factory=lambda: FakeLangfuse(),
+    code = main(["--local", "--thresholds-file", str(path)], client_factory=lambda: FakeLangfuse(),
                    check_fn_factory=lambda u, s: (lambda claim: {"veredito": "FALSO", "tool_usada": "get_top_ceap_spender",
                                                                   "evidencia_coletada": {"a": 1}, "fontes_primarias": ["x"]}))
     assert code == 1
