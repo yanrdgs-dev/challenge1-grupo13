@@ -1,0 +1,7 @@
+{
+  "verdict_match": 0.8,
+  "tool_category_match": 0.95,
+  "no_wrong_definitive": 1.0,
+  "has_traceable_evidence": 1.0,
+  "inconclusive_without_tool": 1.0
+}
