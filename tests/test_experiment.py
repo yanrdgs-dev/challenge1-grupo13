@@ -281,3 +281,20 @@ def test_committed_baseline_passes_the_committed_gate():
     assert wrong == 0
     summary["scores"]["no_wrong_definitive"] = {"mean": 1.0 if wrong == 0 else 0.0, "n": 30}
     assert check_gate(summary, load_thresholds(ROOT / "evaluation" / "thresholds.json")) == []
+
+
+def test_committed_baseline_v2_improves_on_v1_and_passes_the_gate():
+    v1 = json.loads((ROOT / "evaluation" / "baseline_v1.json").read_text(encoding="utf-8"))["summary"]
+    v2 = json.loads((ROOT / "evaluation" / "baseline_v2.json").read_text(encoding="utf-8"))["summary"]
+    assert v2["total"] == 30
+    assert v2["scores"]["verdict_match"]["mean"] >= v1["scores"]["verdict_match"]["mean"]
+    assert v2["scores"]["no_wrong_definitive"]["mean"] == 1.0
+    assert check_gate(v2, load_thresholds(ROOT / "evaluation" / "thresholds.json")) == []
+
+
+def test_verdict_threshold_follows_the_latest_baseline_with_margin():
+    """O gate sobe junto com a acurácia, mas deixa margem de uma claim para variação do modelo."""
+    v2 = json.loads((ROOT / "evaluation" / "baseline_v2.json").read_text(encoding="utf-8"))["summary"]
+    threshold = load_thresholds(ROOT / "evaluation" / "thresholds.json")["verdict_match"]
+    accuracy = v2["scores"]["verdict_match"]["mean"]
+    assert accuracy - 1 / 30 - 1e-9 <= threshold <= accuracy
