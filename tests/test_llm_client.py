@@ -291,3 +291,122 @@ def test_chat_rejects_empty_messages():
     client = LLMClient()
     with pytest.raises(ValueError, match="messages"):
         client.chat([])
+
+
+# --------------------------------------------------------------------------- #
+# Instrumentação: cada tentativa de chat vira uma generation no Langfuse
+# --------------------------------------------------------------------------- #
+
+from contextlib import contextmanager
+
+
+class _FakeObs:
+    def __init__(self, name, as_type, kwargs):
+        self.name, self.as_type, self.kwargs = name, as_type, kwargs
+        self.updates = []
+
+    def update(self, **kw):
+        self.updates.append(kw)
+
+    @property
+    def last(self):
+        merged = {}
+        for u in self.updates:
+            merged.update(u)
+        return merged
+
+
+@pytest.fixture
+def observations():
+    """Substitui tracing.observation e registra as generations abertas."""
+    recorded = []
+
+    @contextmanager
+    def fake(name, as_type="span", **kwargs):
+        obs = _FakeObs(name, as_type, kwargs)
+        recorded.append(obs)
+        yield obs
+
+    with patch("src.core.llm_client.tracing.observation", fake):
+        yield recorded
+
+
+def test_chat_records_generation_with_model_tokens_and_provider(observations):
+    client = LLMClient(primary_provider="ollama", fallback_provider="")
+
+    with patch("httpx.Client.post", return_value=_ollama_chat_response()):
+        client.chat(MESSAGES, tools=TOOLS, model="qwen2.5:7b")
+
+    assert len(observations) == 1
+    gen = observations[0]
+    assert (gen.name, gen.as_type) == ("llm.chat", "generation")
+    assert gen.kwargs["model"] == "qwen2.5:7b"
+    assert gen.kwargs["input"] == MESSAGES
+    assert gen.kwargs["metadata"]["provider"] == "ollama"
+    assert gen.kwargs["metadata"]["fallback"] is False
+    assert gen.last["usage_details"] == {"input": 120, "output": 30}
+    assert gen.last["output"] == [
+        {"name": "resolve_politician", "arguments": {"nome_busca": "Fulano"}}
+    ]
+    assert gen.last["metadata"]["latency_ms"] >= 0
+
+
+def test_chat_records_text_output_when_no_tool_calls(observations):
+    client = LLMClient(primary_provider="ollama", fallback_provider="")
+    resp = MagicMock()
+    resp.json.return_value = {
+        "message": {"role": "assistant", "content": "texto"},
+        "prompt_eval_count": 3,
+        "eval_count": 4,
+    }
+    with patch("httpx.Client.post", return_value=resp):
+        client.chat(MESSAGES)
+    assert observations[0].last["output"] == "texto"
+
+
+def test_chat_omits_usage_when_provider_does_not_report(observations):
+    client = LLMClient(primary_provider="ollama", fallback_provider="")
+    resp = MagicMock()
+    resp.json.return_value = {"message": {"role": "assistant", "content": "x"}}
+    with patch("httpx.Client.post", return_value=resp):
+        client.chat(MESSAGES)
+    assert "usage_details" not in observations[0].last
+
+
+def test_chat_fallback_records_failed_and_successful_generations(observations, monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_test_mock_key")
+    monkeypatch.setenv("GROQ_MODEL", "llama-3.1-8b-instant")
+    client = LLMClient(primary_provider="ollama", fallback_provider="groq")
+
+    groq_resp = MagicMock()
+    groq_resp.json.return_value = {
+        "model": "llama-3.1-8b-instant",
+        "choices": [{"message": {"content": "ok"}}],
+        "usage": {"prompt_tokens": 7, "completion_tokens": 2},
+    }
+
+    def fake_post(url, *args, **kwargs):
+        if "localhost" in url:
+            raise httpx.TimeoutException("ollama fora do ar")
+        return groq_resp
+
+    with patch("httpx.Client.post", side_effect=fake_post):
+        client.chat(MESSAGES, model="qwen2.5:7b")
+
+    assert len(observations) == 2
+    failed, ok = observations
+    assert failed.kwargs["metadata"]["provider"] == "ollama"
+    assert failed.last["level"] == "ERROR"
+    assert "ollama fora do ar" in failed.last["status_message"]
+    assert ok.kwargs["metadata"]["provider"] == "groq"
+    assert ok.kwargs["metadata"]["fallback"] is True
+    assert ok.kwargs["model"] == "llama-3.1-8b-instant"
+    assert ok.last["usage_details"] == {"input": 7, "output": 2}
+
+
+def test_chat_result_is_unchanged_when_tracing_is_disabled():
+    """Com o tracing desligado (padrão nos testes), o resultado é o mesmo."""
+    client = LLMClient(primary_provider="ollama", fallback_provider="")
+    with patch("httpx.Client.post", return_value=_ollama_chat_response()):
+        result = client.chat(MESSAGES, tools=TOOLS)
+    assert result.tool_calls[0]["name"] == "resolve_politician"
