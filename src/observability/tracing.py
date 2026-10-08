@@ -8,9 +8,10 @@ Garantias:
 
 import logging
 import os
+import re
 import sys
 from contextlib import contextmanager
-from typing import Any, Iterator, Optional
+from typing import Any, Dict, Iterator, Optional
 
 from dotenv import load_dotenv
 
@@ -24,6 +25,42 @@ def is_enabled() -> bool:
     if os.getenv("LANGFUSE_TRACING_ENABLED", "true").strip().lower() == "false":
         return False
     return bool(os.getenv("LANGFUSE_PUBLIC_KEY") and os.getenv("LANGFUSE_SECRET_KEY"))
+
+
+# W3C Trace Context: versão-trace_id(32 hex)-span_id(16 hex)-flags. Hexadecimal minúsculo.
+_TRACEPARENT_RE = re.compile(r"^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$")
+
+
+def parse_traceparent(value: Optional[str]) -> Optional[Dict[str, str]]:
+    """Converte um header ``traceparent`` em ``TraceContext`` do Langfuse; None se inválido."""
+    if not value:
+        return None
+    match = _TRACEPARENT_RE.match(value.strip())
+    if not match:
+        return None
+    version, trace_id, span_id, _flags = match.groups()
+    if version == "ff" or set(trace_id) == {"0"} or set(span_id) == {"0"}:
+        return None
+    return {"trace_id": trace_id, "parent_span_id": span_id}
+
+
+def traceparent_header() -> Dict[str, str]:
+    """Header ``traceparent`` do span atual, para propagar o trace a outro serviço.
+
+    Devolve ``{}`` se o tracing estiver desligado, não houver span ativo ou o SDK falhar.
+    """
+    if not is_enabled():
+        return {}
+    try:
+        client = _get_client()
+        trace_id = client.get_current_trace_id()
+        span_id = client.get_current_observation_id()
+    except Exception as exc:
+        logger.warning("Falha ao montar traceparent: %s", exc)
+        return {}
+    if not trace_id or not span_id:
+        return {}
+    return {"traceparent": f"00-{trace_id}-{span_id}-01"}
 
 
 def _get_client() -> Any:
@@ -52,11 +89,22 @@ class _Handle:
 
 
 @contextmanager
-def observation(name: str, as_type: str = "span", **kwargs: Any) -> Iterator[_Handle]:
-    """Abre um span/generation/etc. como contexto atual; no-op se o tracing estiver desligado."""
+def observation(
+    name: str,
+    as_type: str = "span",
+    traceparent: Optional[str] = None,
+    **kwargs: Any,
+) -> Iterator[_Handle]:
+    """Abre um span/generation/etc. como contexto atual; no-op se o tracing estiver desligado.
+
+    Com ``traceparent`` válido, continua o trace de outro serviço (o span fica sob o span remoto).
+    """
     cm = None
     handle = _Handle()
     if is_enabled():
+        trace_context = parse_traceparent(traceparent)
+        if trace_context:
+            kwargs["trace_context"] = trace_context
         try:
             cm = _get_client().start_as_current_observation(name=name, as_type=as_type, **kwargs)
             handle = _Handle(cm.__enter__())
