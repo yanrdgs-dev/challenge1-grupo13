@@ -97,6 +97,16 @@ class _Handle:
             logger.warning("Falha ao atualizar observação do Langfuse: %s", exc)
 
 
+    def score_trace(self, **kwargs: Any) -> None:
+        """Registra um score no trace (ex.: veredito categórico). Nunca levanta."""
+        if self._obs is None:
+            return
+        try:
+            self._obs.score_trace(**kwargs)
+        except Exception as exc:
+            logger.warning("Falha ao registrar score no Langfuse: %s", exc)
+
+
 @contextmanager
 def observation(
     name: str,
@@ -137,6 +147,55 @@ def _safe_exit(cm: Any, name: str, exc_type: Any, exc: Any, tb: Any) -> None:
         cm.__exit__(exc_type, exc, tb)
     except Exception as err:
         logger.warning("Falha ao fechar observação '%s' no Langfuse: %s", name, err)
+
+
+# Limite do Langfuse: ids de usuário e sessão acima de 200 caracteres são descartados.
+_MAX_ID_LENGTH = 200
+
+
+def _clean_id(value: Optional[str]) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    return value if value and len(value) <= _MAX_ID_LENGTH else None
+
+
+def _propagate_attributes(**kwargs: Any) -> Any:
+    from langfuse import propagate_attributes
+
+    return propagate_attributes(**kwargs)
+
+
+@contextmanager
+def trace_attributes(
+    user_id: Optional[str] = None, session_id: Optional[str] = None
+) -> Iterator[None]:
+    """Associa ``user_id`` e ``session_id`` a todos os spans criados dentro do contexto.
+
+    Ambos são opcionais: sem eles (usuário deslogado), ou com tracing desligado, não faz nada.
+    Deve envolver a criação do span raiz.
+    """
+    attrs = {
+        key: cleaned
+        for key, cleaned in (("user_id", _clean_id(user_id)), ("session_id", _clean_id(session_id)))
+        if cleaned
+    }
+    cm = None
+    if attrs and is_enabled():
+        try:
+            cm = _propagate_attributes(**attrs)
+            cm.__enter__()
+        except Exception as exc:
+            logger.warning("Falha ao propagar user_id/session_id no Langfuse: %s", exc)
+            cm = None
+
+    try:
+        yield
+    except BaseException:
+        _safe_exit(cm, "trace_attributes", *sys.exc_info())
+        raise
+    else:
+        _safe_exit(cm, "trace_attributes", None, None, None)
 
 
 def current_trace_id() -> Optional[str]:
