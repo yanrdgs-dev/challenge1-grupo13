@@ -14,6 +14,8 @@ dependencies = [
     "fastapi>=0.110.0",
     "uvicorn>=0.28.0",
     "nemoguardrails>=0.17.0",
+    "requests>=2.31.0",
+    "beautifulsoup4>=4.12.0",
 ]
 
 [dependency-groups]
