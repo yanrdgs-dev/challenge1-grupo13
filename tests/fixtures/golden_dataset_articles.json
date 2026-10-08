@@ -1,0 +1,122 @@
+[
+    {
+        "id": "news_001",
+        "title": "Vacina de RNA mensageiro altera o DNA humano",
+        "url": "https://noticias.exemplo.com/saude/boato-vacina-rnam-altera-dna",
+        "fact_check_url": "https://lupa.uol.com.br/jornalismo/2020/12/04/verificamos-vacina-rna-dna",
+        "text": "Conteúdo circulando em redes sociais afirma que vacinas de RNAm contra COVID-19 alteram a estrutura genética do ser humano de forma irreversível.",
+        "fact_check_agency": "Agência Lupa",
+        "verdict": "FALSO",
+        "expected_claims": [
+            "Vacinas de RNA mensageiro alteram o DNA humano de forma irreversível"
+        ]
+    },
+    {
+        "id": "news_002",
+        "title": "Urna eletrônica sem impressão de voto não é auditável",
+        "url": "https://noticias.exemplo.com/politica/urnas-sem-voto-impresso",
+        "fact_check_url": "https://www.aosfatos.org/noticias/urnas-eletronicas-sao-auditaveis-mesmo-sem-voto-impresso/",
+        "text": "Mensagens em grupos alegam que as urnas eletrônicas brasileiras sem comprovante impresso não permitem auditagem nem recontagem dos votos.",
+        "fact_check_agency": "Aos Fatos",
+        "verdict": "FALSO",
+        "expected_claims": [
+            "Urnas eletrônicas sem voto impresso não permitem auditagem"
+        ]
+    },
+    {
+        "id": "news_003",
+        "title": "Chá de folha de abacate cura diabetes tipo 1",
+        "url": "https://noticias.exemplo.com/saude/cha-abacate-diabetes-cura",
+        "fact_check_url": "https://g1.globo.com/fato-ou-fake/noticia/2021/08/13/e-fake-que-cha-de-folha-de-abacate-cura-diabetes-e-substitui-insulina.ghtml",
+        "text": "Vídeo no TikTok sustenta que o consumo diário de chá de folha de abacate substitui completamente a necessidade de insulina no tratamento de diabetes tipo 1.",
+        "fact_check_agency": "G1 Fato ou Fake",
+        "verdict": "FALSO",
+        "expected_claims": [
+            "Chá de folha de abacate substitui a insulina e cura diabetes tipo 1"
+        ]
+    },
+    {
+        "id": "news_004",
+        "title": "OMS decreta fim da emergência global de COVID-19 em maio de 2023",
+        "url": "https://noticias.exemplo.com/mundo/oms-fim-emergencia-covid-19",
+        "fact_check_url": "https://lupa.uol.com.br/jornalismo/2023/05/05/oms-declara-fim-da-emergencia-de-covid-19",
+        "text": "A Organização Mundial da Saúde declarou que a COVID-19 não constitui mais uma Emergência de Saúde Pública de Importância Internacional.",
+        "fact_check_agency": "Agência Lupa",
+        "verdict": "VERDADEIRO",
+        "expected_claims": [
+            "OMS declarou o fim da emergência de saúde pública de importância internacional da COVID-19"
+        ]
+    },
+    {
+        "id": "news_005",
+        "title": "5G causa a proliferação do coronavírus no organismo",
+        "url": "https://noticias.exemplo.com/tecnologia/5g-radiacao-coronavirus",
+        "fact_check_url": "https://www.aosfatos.org/noticias/e-falso-que-redes-5g-tenham-relacao-com-novo-coronavirus/",
+        "text": "Publicações alegam que as antenas de tecnologia 5G emitem radiação capaz de enfraquecer o sistema imunológico e criar o vírus Sars-CoV-2.",
+        "fact_check_agency": "Aos Fatos",
+        "verdict": "FALSO",
+        "expected_claims": [
+            "Tecnologia 5G emite radiação que cria ou espalha o coronavírus"
+        ]
+    },
+    {
+        "id": "news_006",
+        "title": "Governo vai cobrar imposto sobre PIX de pessoas físicas",
+        "url": "https://noticias.exemplo.com/economia/taxacao-pix-pessoas-fisicas",
+        "fact_check_url": "https://g1.globo.com/fato-ou-fake/noticia/2022/11/24/e-fake-que-governo-vai-cobrar-imposto-sobre-pix-de-pessoas-fisicas.ghtml",
+        "text": "Corrente no WhatsApp afirma que uma nova portaria passa a taxar todas as transferências realizadas via PIX entre pessoas físicas.",
+        "fact_check_agency": "G1 Fato ou Fake",
+        "verdict": "FALSO",
+        "expected_claims": [
+            "O governo iniciou cobrança de imposto sobre transações de PIX para pessoas físicas"
+        ]
+    },
+    {
+        "id": "news_007",
+        "title": "Adoçante aspartame é classificado como possivelmente cancerígeno pela OMS",
+        "url": "https://noticias.exemplo.com/saude/oms-aspartame-cancerigeno",
+        "fact_check_url": "https://lupa.uol.com.br/jornalismo/2023/07/14/oms-classifica-aspartame-possivelmente-cancerigeno",
+        "text": "Agência Internacional de Pesquisa sobre o Câncer (IARC) incluiu o aspartame na categoria de substâncias possivelmente cancerígenas para humanos.",
+        "fact_check_agency": "Agência Lupa",
+        "verdict": "VERDADEIRO",
+        "expected_claims": [
+            "Aspartame foi classificado pela OMS/IARC como possivelmente cancerígeno"
+        ]
+    },
+    {
+        "id": "news_008",
+        "title": "Brasil registra aumento na taxa de desmatamento da Amazônia em 2021",
+        "url": "https://noticias.exemplo.com/ambiente/prodes-inpe-desmatamento-amazonia-2021",
+        "fact_check_url": "https://www.aosfatos.org/noticias/desmatamento-na-amazonia-bate-recorde-em-2021-segundo-prodes/",
+        "text": "Dados oficiais do sistema PRODES/INPE indicam que a taxa de desmatamento na Amazônia Legal superou os 13 mil km² no período monitorado.",
+        "fact_check_agency": "Aos Fatos",
+        "verdict": "VERDADEIRO",
+        "expected_claims": [
+            "Desmatamento na Amazônia teve alta e superou 13 mil km² em 2021"
+        ]
+    },
+    {
+        "id": "news_009",
+        "title": "Luz azul do celular cega permanentemente em 6 meses",
+        "url": "https://noticias.exemplo.com/saude/luz-azul-celular-retina-cegueira",
+        "fact_check_url": "https://g1.globo.com/fato-ou-fake/noticia/2020/09/25/e-fake-que-luz-azul-de-celulares-cause-cegueira-irreversivel.ghtml",
+        "text": "Posts afirmam que o uso de telas de smartphone à noite destrói as células da retina e causa cegueira irreversível no curto prazo.",
+        "fact_check_agency": "G1 Fato ou Fake",
+        "verdict": "FALSO",
+        "expected_claims": [
+            "Luz azul emitida por smartphones causa cegueira permanente em poucos meses"
+        ]
+    },
+    {
+        "id": "news_010",
+        "title": "Aquecimento global é causado por ciclos naturais do sol e não pelo homem",
+        "url": "https://noticias.exemplo.com/clima/aquecimento-global-ciclos-solares",
+        "fact_check_url": "https://lupa.uol.com.br/jornalismo/2021/08/10/aquecimento-global-ciclos-solares-ipcc",
+        "text": "Artigo alega que as emissões humanas de CO2 não têm impacto no clima e que o aquecimento atual é puramente decorrente de ciclos solares.",
+        "fact_check_agency": "Agência Lupa",
+        "verdict": "FALSO",
+        "expected_claims": [
+            "Aquecimento global é exclusivamente um fenômeno solar natural sem interferência humana"
+        ]
+    }
+]
