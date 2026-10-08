@@ -182,10 +182,12 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
     return {"erro": f"Tool '{tool_name}' não implementada no roteador."}
 
 
-def _call_judge(endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def _call_judge(
+    endpoint: str, payload: Dict[str, Any], headers: Optional[Dict[str, str]] = None
+) -> Dict[str, Any]:
     """Chama o Judge Service e devolve o JSON da resposta (levanta em erro HTTP ou de rede)."""
     with httpx.Client(timeout=60.0) as client:
-        resp = client.post(endpoint, json=payload)
+        resp = client.post(endpoint, json=payload, headers=headers or {})
         resp.raise_for_status()
         return resp.json()
 
@@ -292,7 +294,10 @@ def _run_check(claim_text: str, start_total: float) -> CheckClaimResponse:
 
     with tracing.observation("judge.call", input=judge_payload) as judge_span:
         try:
-            judge_data = _call_judge(judge_endpoint, judge_payload)
+            # O traceparent é lido dentro do span judge.call: o judge se pendura nele.
+            judge_data = _call_judge(
+                judge_endpoint, judge_payload, headers=tracing.traceparent_header()
+            )
             veredito = judge_data.get("veredito", "INCONCLUSIVO")
             confianca = judge_data.get("confianca", "MÉDIA")
             justificativa = judge_data.get("justificativa", "")

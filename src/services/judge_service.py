@@ -9,7 +9,7 @@ import logging
 import os
 import time
 from typing import Any, Dict, List, Optional
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from src.core.llm_client import LLMClient
@@ -50,10 +50,11 @@ def health_check():
 
 
 @app.post("/judge", response_model=JudgeResponse)
-def judge_claim(payload: JudgeRequest):
+def judge_claim(payload: JudgeRequest, traceparent: Optional[str] = Header(default=None)):
     """Julga uma alegação confrontando-a com as evidências factuais."""
     with tracing.observation(
         "judge.evaluate",
+        traceparent=traceparent,
         input={"claim": payload.claim, "tool_used": payload.tool_used, "evidence": payload.evidence},
     ) as span:
         response = _evaluate(payload)
