@@ -22,6 +22,7 @@ from src.guardrails.actions import (
     check_input_specificity,
 )
 from src.observability import tracing
+from src.services.tool_args import validate_tool_args
 from src.services.sources import derive_sources, ensure_source_cited, evidence_failed, merge_sources
 from src.tools.gastos_tools import (
     check_parliamentary_expenses,
@@ -155,6 +156,15 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
     O span ``tool.<nome>`` é aberto pelo chamador. Tools de dados que recebem uma entidade
     abrem o span ``resolve_*`` dentro dele e nunca são chamadas sem ID canônico (regra 2).
     """
+    args, problem = validate_tool_args(tool_name, args)
+    if problem:
+        return {
+            "status": "parametros_invalidos",
+            "erro": problem,
+            "tool": tool_name,
+            "parametros_recebidos": args if isinstance(args, dict) else None,
+        }
+
     if tool_name == "resolve_politician":
         return _resolve_politician_with_fallback(args)
     if tool_name == "resolve_proposition":
@@ -318,6 +328,9 @@ def _run_check(claim_text: str, start_total: float) -> CheckClaimResponse:
             try:
                 evidence = execute_tool(tool_name, tool_args)
                 tool_span.update(output=evidence)
+                if evidence_failed(evidence):
+                    reason = (evidence or {}).get("erro") or (evidence or {}).get("status") or "sem evidência"
+                    tool_span.update(level="WARNING", status_message=str(reason))
             except Exception as e:
                 logger.error("Erro ao executar tool '%s': %s", tool_name, e)
                 evidence = {"erro": str(e)}

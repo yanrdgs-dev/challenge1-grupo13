@@ -176,7 +176,10 @@ def test_vote_result_without_canonical_id_never_calls_data_tool(args):
         result = execute_tool("get_proposition_vote_result", args)
 
     tool.assert_not_called()
-    assert result["status"] == "entidade_nao_resolvida"
+    from src.services.sources import evidence_failed
+
+    assert evidence_failed(result)
+    assert result["status"] in ("entidade_nao_resolvida", "parametros_invalidos")
 
 
 # ------------------------------ fluxo completo /check ------------------------------ #
