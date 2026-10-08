@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import time
+from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
@@ -18,7 +19,15 @@ from src.observability import tracing
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("JudgeService")
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Ao encerrar (SIGTERM do Kubernetes), envia ao Langfuse os traces ainda pendentes."""
+    yield
+    tracing.shutdown()
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title="Fact-Checking Judge Service",
     description="Agente Julgador que emite o veredito final com base em evidências primárias.",
     version="1.0.0",

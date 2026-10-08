@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import time
+from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, HTTPException
 import httpx
@@ -34,7 +35,15 @@ from scripts.demo_qwen_tool_routing import ROUTER_SYSTEM_PROMPT, TOOLS_CATALOG
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("RouterService")
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Ao encerrar (SIGTERM do Kubernetes), envia ao Langfuse os traces ainda pendentes."""
+    yield
+    tracing.shutdown()
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title="Fact-Checking Router Service",
     description="Agente Roteador e orquestrador de tools do pipeline de fact-checking.",
     version="1.0.0",
