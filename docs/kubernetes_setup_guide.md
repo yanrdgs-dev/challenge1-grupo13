@@ -10,13 +10,13 @@ Se você já usou Docker Compose, o Kubernetes faz exatamente o mesmo papel, por
 
 | Conceito no Docker Compose | Equivalente no Kubernetes | Função no Sistema de Fact-Checking |
 |---|---|---|
-| `services.judge-service` | **Deployment** (`k8s/judge-deployment.yaml`) | Declara quantas réplicas do container rodar e qual imagem usar. |
-| `ports: 8000:8000` | **Service** (`k8s/judge-deployment.yaml`) | Cria um nome de rede DNS interno (`http://judge-service:8000`) estável para os pods conversarem. |
-| `environment:` | **ConfigMap** (`k8s/configmap.yaml`) | Armazena configurações compartilhadas (como `OLLAMA_BASE_URL` e nomes dos modelos). |
-| `docker compose up -d` | **`kubectl apply -f k8s/`** | Envia todos os manifestos para o cluster criar os pods e serviços. |
+| `services.judge-service` | **Deployment** (`k8s/base/judge-deployment.yaml`) | Declara quantas réplicas do container rodar e qual imagem usar. |
+| `ports: 8000:8000` | **Service** (`k8s/base/judge-deployment.yaml`) | Cria um nome de rede DNS interno (`http://judge-service:8000`) estável para os pods conversarem. |
+| `environment:` | **ConfigMap** (`k8s/base/configmap.yaml`) | Armazena configurações compartilhadas (como `OLLAMA_BASE_URL` e nomes dos modelos). |
+| `docker compose up -d` | **`kubectl apply -k k8s/overlays/dev`** | Envia todos os manifestos para o cluster criar os pods e serviços. |
 | `docker compose ps` | **`kubectl get pods,svc`** | Lista os pods em execução, status de saúde e portas expostas. |
 | `docker compose logs -f` | **`kubectl logs -f <nome-do-pod>`** | Exibe os logs do container em tempo real. |
-| `docker compose down` | **`kubectl delete -f k8s/`** | Remove os pods e serviços do cluster. |
+| `docker compose down` | **`kubectl delete -k k8s/overlays/dev`** | Remove os pods e serviços do cluster. |
 
 ---
 
@@ -28,10 +28,14 @@ Se você já usou Docker Compose, o Kubernetes faz exatamente o mesmo papel, por
 │   └── Dockerfile.judge         # Container do Agente Julgador (FastAPI na porta 8000)
 ├── docker-compose.yml           # Orquestração local simples via Docker Compose (para testes rápidos)
 ├── k8s/
-│   ├── configmap.yaml           # Variáveis de ambiente compartilhadas
-│   ├── router-deployment.yaml   # Deployment e Service (NodePort: 30080) do Roteador
-│   ├── judge-deployment.yaml    # Deployment e Service (ClusterIP interno) do Julgador
-│   └── kustomization.yaml       # Agrupador Kustomize
+│   ├── base/                    # Manifests comuns a todos os ambientes (sem tag de imagem)
+│   │   ├── configmap.yaml           # Variáveis de ambiente compartilhadas
+│   │   ├── router-deployment.yaml   # Deployment e Service (LoadBalancer) do Roteador
+│   │   ├── judge-deployment.yaml    # Deployment e Service (ClusterIP interno) do Julgador
+│   │   └── kustomization.yaml       # Lista os recursos da base
+│   └── overlays/
+│       └── dev/
+│           └── kustomization.yaml   # Ambiente local: aponta para a base e define as tags das imagens
 ├── src/services/
 │   ├── router_service.py        # Código do microsserviço Roteador
 │   └── judge_service.py         # Código do microsserviço Julgador
@@ -88,7 +92,13 @@ ollama list
 Com as imagens construídas e o Kubernetes ativo, aplique os manifestos com um único comando:
 
 ```bash
-kubectl apply -f k8s/
+kubectl apply -k k8s/overlays/dev
+```
+
+O `-k` usa o Kustomize embutido no `kubectl`. As tags das imagens (`factcheck-router` e `factcheck-judge`) ficam em `k8s/overlays/dev/kustomization.yaml`, no campo `images`, e não mais dentro dos Deployments. Para trocar a versão, edite essa tag. Para conferir o resultado antes de aplicar:
+
+```bash
+kubectl kustomize k8s/overlays/dev
 ```
 
 Para verificar o status dos containers subindo:
@@ -105,7 +115,7 @@ Saída esperada:
 ```text
 NAME             TYPE        CLUSTER-IP       PORT(S)          AGE
 judge-service    ClusterIP   10.96.120.45     8000/TCP         1m
-router-service   NodePort    10.96.210.12     8000:30080/TCP   1m
+router-service   LoadBalancer    10.96.210.12     8000:30080/TCP   1m
 ```
 
 ---
@@ -138,7 +148,7 @@ curl -X POST http://localhost:8000/check \
 | Ver logs do Julgador | `kubectl logs -l app=judge-service -f` |
 | Reiniciar um serviço | `kubectl rollout restart deployment router-deployment` |
 | Escalar o Julgador para 2 réplicas | `kubectl scale deployment judge-deployment --replicas=2` |
-| Destruir os pods e limpar o cluster | `kubectl delete -f k8s/` |
+| Destruir os pods e limpar o cluster | `kubectl delete -k k8s/overlays/dev` |
 
 ---
 
