@@ -19,8 +19,9 @@ import pytest  # noqa: E402
 class SpanRecorder:
     """Registra as observações abertas, com o pai de cada uma, para testar a estrutura do trace."""
 
-    def __init__(self):
+    def __init__(self, trace_id=None):
         self.spans = []
+        self.trace_id = trace_id
         self._stack = []
 
     @contextmanager
@@ -35,8 +36,12 @@ class SpanRecorder:
         self.spans.append(record)
         self._stack.append(name)
 
+        recorder = self
+
         class _Handle:
-            trace_id = None
+            @property
+            def trace_id(self_inner):
+                return recorder.trace_id
 
             def update(self_inner, **update):
                 record["updates"].append(update)

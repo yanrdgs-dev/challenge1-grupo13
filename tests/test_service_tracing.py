@@ -256,3 +256,50 @@ def test_router_to_judge_end_to_end_shares_the_same_traceparent(trace_recorder):
 
     assert resp.json()["veredito"] == "VERDADEIRO"
     assert trace_recorder.get("judge.evaluate")["kwargs"]["traceparent"] == TRACEPARENT
+
+
+# ---------------------- trace_id, veredito, tool e release ---------------------- #
+
+def _run_full_check(trace_recorder_arg=None):
+    chat = _router_chat([{"name": "resolve_politician", "arguments": {"nome_busca": "Fulano"}}])
+    with patch.object(router_service, "llm_client") as llm, \
+         patch.object(router_service, "execute_tool", return_value={"ideCadastro": 1}), \
+         patch.object(router_service, "_call_judge", return_value=JUDGE_OK):
+        llm.chat.return_value = chat
+        return router_client.post("/check", json={"claim": CLAIM})
+
+
+def test_response_exposes_trace_id_from_root_span(trace_recorder):
+    trace_recorder.trace_id = "0af7651916cd43dd8448eb211c80319c"
+    resp = _run_full_check()
+    assert resp.json()["trace_id"] == "0af7651916cd43dd8448eb211c80319c"
+
+
+def test_trace_id_is_null_when_tracing_is_off():
+    resp = _run_full_check()  # sem trace_recorder: tracing desligado pelo conftest
+    assert "trace_id" in resp.json()
+    assert resp.json()["trace_id"] is None
+
+
+def test_input_rail_block_response_also_carries_trace_id(trace_recorder):
+    trace_recorder.trace_id = "t-bloqueio"
+    resp = router_client.post(
+        "/check", json={"claim": "Um deputado gastou muito dinheiro público recentemente."}
+    )
+    assert resp.json()["veredito"] == "INCONCLUSIVO"
+    assert resp.json()["trace_id"] == "t-bloqueio"
+
+
+def test_root_span_records_verdict_tool_and_release(trace_recorder, monkeypatch):
+    monkeypatch.setenv("GIT_SHA", "abc1234")
+    _run_full_check()
+    metadata = trace_recorder.merged_updates("check_claim")["metadata"]
+    assert metadata == {"veredito": "VERDADEIRO", "tool_usada": "resolve_politician", "release": "abc1234"}
+
+
+def test_root_span_metadata_for_blocked_claim_has_no_tool(trace_recorder, monkeypatch):
+    monkeypatch.delenv("GIT_SHA", raising=False)
+    monkeypatch.delenv("LANGFUSE_RELEASE", raising=False)
+    router_client.post("/check", json={"claim": "Um deputado gastou muito dinheiro público recentemente."})
+    metadata = trace_recorder.merged_updates("check_claim")["metadata"]
+    assert metadata == {"veredito": "INCONCLUSIVO", "tool_usada": None, "release": None}

@@ -211,3 +211,44 @@ def test_observation_without_traceparent_is_unchanged(client):
     with tracing.observation("x", traceparent=None):
         pass
     client.start_as_current_observation.assert_called_once_with(name="x", as_type="span")
+
+
+# ------------------------------ release (GIT_SHA) ------------------------------ #
+
+def test_release_prefers_git_sha(monkeypatch):
+    monkeypatch.setenv("GIT_SHA", "abc1234")
+    monkeypatch.setenv("LANGFUSE_RELEASE", "outro")
+    assert tracing.release() == "abc1234"
+
+
+def test_release_falls_back_to_langfuse_release_then_none(monkeypatch):
+    monkeypatch.delenv("GIT_SHA", raising=False)
+    monkeypatch.setenv("LANGFUSE_RELEASE", "v1")
+    assert tracing.release() == "v1"
+    monkeypatch.delenv("LANGFUSE_RELEASE")
+    assert tracing.release() is None
+
+
+def test_get_client_maps_git_sha_to_langfuse_release(enabled, monkeypatch):
+    monkeypatch.setenv("GIT_SHA", "abc1234")
+    monkeypatch.delenv("LANGFUSE_RELEASE", raising=False)
+    seen = {}
+
+    def fake_get_client():
+        import os
+        seen["release"] = os.environ.get("LANGFUSE_RELEASE")
+        return MagicMock()
+
+    with patch("langfuse.get_client", fake_get_client):
+        tracing._get_client()
+    assert seen["release"] == "abc1234"
+    monkeypatch.delenv("LANGFUSE_RELEASE", raising=False)
+
+
+def test_get_client_does_not_override_explicit_langfuse_release(enabled, monkeypatch):
+    monkeypatch.setenv("GIT_SHA", "abc1234")
+    monkeypatch.setenv("LANGFUSE_RELEASE", "explicito")
+    with patch("langfuse.get_client", return_value=MagicMock()):
+        tracing._get_client()
+    import os
+    assert os.environ["LANGFUSE_RELEASE"] == "explicito"
