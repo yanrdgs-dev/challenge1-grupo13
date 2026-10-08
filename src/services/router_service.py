@@ -20,6 +20,7 @@ from src.guardrails.actions import (
     check_input_neutrality,
     check_input_specificity,
 )
+from src.observability import tracing
 from src.tools.resolve_politician import resolve_politician
 from src.tools.resolve_proposition import resolve_proposition
 from scripts.demo_qwen_tool_routing import ROUTER_SYSTEM_PROMPT, TOOLS_CATALOG
@@ -68,34 +69,44 @@ def health_check():
     }
 
 
-def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Executa a tool Python real mapeada pelo Roteador."""
-    if tool_name == "resolve_politician":
-        res = resolve_politician(
+def _resolve_politician_with_fallback(args: Dict[str, Any]) -> Dict[str, Any]:
+    res = resolve_politician(
+        nome_busca=args.get("nome_busca", ""),
+        uf=args.get("uf"),
+        cargo=args.get("cargo"),
+        ano=args.get("ano"),
+    )
+    # Fallback defensivo: se não encontrou com a UF fornecida, tenta sem a UF
+    # para os casos em que a claim afirmava o estado errado
+    if (res.get("ideCadastro") is None and res.get("sq_candidato") is None) and args.get("uf"):
+        fallback = resolve_politician(
             nome_busca=args.get("nome_busca", ""),
-            uf=args.get("uf"),
             cargo=args.get("cargo"),
             ano=args.get("ano"),
         )
-        # Fallback defensivo: se não encontrou com a UF fornecida, tenta sem a UF
-        # para os casos em que a claim afirmava o estado errado
-        if (res.get("ideCadastro") is None and res.get("sq_candidato") is None) and args.get("uf"):
-            fallback = resolve_politician(
-                nome_busca=args.get("nome_busca", ""),
-                cargo=args.get("cargo"),
-                ano=args.get("ano"),
-            )
-            if fallback.get("ideCadastro") or fallback.get("sq_candidato"):
-                return fallback
-        return res
+        if fallback.get("ideCadastro") or fallback.get("sq_candidato"):
+            return fallback
+    return res
+
+
+def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Executa a tool Python real mapeada pelo Roteador."""
+    if tool_name == "resolve_politician":
+        with tracing.observation("resolve_politician", input=args) as span:
+            res = _resolve_politician_with_fallback(args)
+            span.update(output=res)
+            return res
     elif tool_name == "resolve_proposition":
-        return resolve_proposition(
-            casa=args.get("casa", "camara"),
-            sigla_tipo=args.get("sigla_tipo"),
-            numero=args.get("numero"),
-            ano=args.get("ano"),
-            termo_busca=args.get("termo_busca"),
-        )
+        with tracing.observation("resolve_proposition", input=args) as span:
+            res = resolve_proposition(
+                casa=args.get("casa", "camara"),
+                sigla_tipo=args.get("sigla_tipo"),
+                numero=args.get("numero"),
+                ano=args.get("ano"),
+                termo_busca=args.get("termo_busca"),
+            )
+            span.update(output=res)
+            return res
     return {
         "status": "tool_simulada",
         "mensagem": f"Tool '{tool_name}' mapeada com parâmetros: {args}",
@@ -119,23 +130,43 @@ def check_claim(payload: CheckClaimRequest):
     if not claim_text:
         raise HTTPException(status_code=400, detail="A claim não pode ser vazia.")
 
-    # 0. Input rails (Regras 3 e 6): bloqueiam antes de qualquer LLM ou tool
-    for rail in (check_input_neutrality, check_input_specificity):
-        rail_result = rail(claim_text)
-        if not rail_result["is_valid"]:
-            tempo_total_ms = (time.perf_counter() - start_total) * 1000
-            return CheckClaimResponse(
-                claim=claim_text,
-                tool_usada=None,
-                parametros_tool=None,
-                evidencia_coletada=None,
-                veredito="INCONCLUSIVO",
-                confianca="ALTA",
-                justificativa=rail_result["reason"],
-                fontes_primarias=["Constituição do Agente de Fact-Checking"],
-                tempo_total_ms=round(tempo_total_ms, 2),
-                tempo_roteamento_ms=0.0,
-            )
+    with tracing.observation("check_claim", input=claim_text) as root:
+        response = _run_check(claim_text, start_total)
+        root.update(output={"veredito": response.veredito, "tool_usada": response.tool_usada})
+        return response
+
+
+def _run_input_rails(claim_text: str) -> Optional[Dict[str, Any]]:
+    """Input rails (Regras 3 e 6). Devolve o resultado do rail que bloqueou, ou None."""
+    with tracing.observation("guardrails.input", input=claim_text) as span:
+        for rail in (check_input_neutrality, check_input_specificity):
+            rail_result = rail(claim_text)
+            if not rail_result["is_valid"]:
+                span.update(
+                    output={"blocked": True, "rule_matched": rail_result.get("rule_matched")}
+                )
+                return rail_result
+        span.update(output={"blocked": False, "rule_matched": None})
+    return None
+
+
+def _run_check(claim_text: str, start_total: float) -> CheckClaimResponse:
+    # 0. Input rails: bloqueiam antes de qualquer LLM ou tool
+    blocked = _run_input_rails(claim_text)
+    if blocked:
+        tempo_total_ms = (time.perf_counter() - start_total) * 1000
+        return CheckClaimResponse(
+            claim=claim_text,
+            tool_usada=None,
+            parametros_tool=None,
+            evidencia_coletada=None,
+            veredito="INCONCLUSIVO",
+            confianca="ALTA",
+            justificativa=blocked["reason"],
+            fontes_primarias=["Constituição do Agente de Fact-Checking"],
+            tempo_total_ms=round(tempo_total_ms, 2),
+            tempo_roteamento_ms=0.0,
+        )
 
     # 1. Roteamento via function calling (LLMClient, com fallback de provedor)
     start_route = time.perf_counter()
@@ -167,11 +198,14 @@ def check_claim(payload: CheckClaimRequest):
         logger.info("Roteador selecionou tool '%s' com args %s", tool_name, tool_args)
 
         # 2. Execução da Tool
-        try:
-            evidence = execute_tool(tool_name, tool_args)
-        except Exception as e:
-            logger.error("Erro ao executar tool '%s': %s", tool_name, e)
-            evidence = {"erro": str(e)}
+        with tracing.observation(f"tool.{tool_name}", input=tool_args) as tool_span:
+            try:
+                evidence = execute_tool(tool_name, tool_args)
+                tool_span.update(output=evidence)
+            except Exception as e:
+                logger.error("Erro ao executar tool '%s': %s", tool_name, e)
+                evidence = {"erro": str(e)}
+                tool_span.update(level="ERROR", status_message=str(e))
 
     # 3. Comunicação com o Agente Julgador no Kubernetes
     judge_endpoint = f"{JUDGE_SERVICE_URL}/judge"
@@ -187,28 +221,43 @@ def check_claim(payload: CheckClaimRequest):
     fontes: List[str] = []
     tempo_julgamento_ms: Optional[float] = None
 
-    try:
-        judge_data = _call_judge(judge_endpoint, judge_payload)
-        veredito = judge_data.get("veredito", "INCONCLUSIVO")
-        confianca = judge_data.get("confianca", "MÉDIA")
-        justificativa = judge_data.get("justificativa", "")
-        fontes = judge_data.get("fontes_primarias", [])
-        tempo_julgamento_ms = judge_data.get("tempo_julgamento_ms")
-    except Exception as exc:
-        logger.warning("Falha ao comunicar com o Judge Service (%s): %s", judge_endpoint, exc)
-        justificativa = f"Evidência coletada com sucesso, mas o serviço de julgamento estava inacessível: {exc}"
+    with tracing.observation("judge.call", input=judge_payload) as judge_span:
+        try:
+            judge_data = _call_judge(judge_endpoint, judge_payload)
+            veredito = judge_data.get("veredito", "INCONCLUSIVO")
+            confianca = judge_data.get("confianca", "MÉDIA")
+            justificativa = judge_data.get("justificativa", "")
+            fontes = judge_data.get("fontes_primarias", [])
+            tempo_julgamento_ms = judge_data.get("tempo_julgamento_ms")
+            judge_span.update(output=judge_data)
+        except Exception as exc:
+            logger.warning("Falha ao comunicar com o Judge Service (%s): %s", judge_endpoint, exc)
+            justificativa = f"Evidência coletada com sucesso, mas o serviço de julgamento estava inacessível: {exc}"
+            judge_span.update(level="ERROR", status_message=str(exc))
 
     # 4. Output rail (Regra 1): veredito só se houve tool bem-sucedida e fonte citada
     tool_executed = bool(tool_name) and not (evidence or {}).get("erro")
-    audit = audit_traceable_evidence(
-        verdict=veredito,
-        text=justificativa,
-        sources=fontes,
-        tool_executed=tool_executed,
-    )
-    if not audit["passed"]:
-        veredito = audit["final_verdict"]
-        justificativa = f"{audit['audit_note']} {justificativa}".strip()
+    with tracing.observation(
+        "guardrails.output",
+        input={"verdict": veredito, "tool_executed": tool_executed, "sources": fontes},
+    ) as output_span:
+        audit = audit_traceable_evidence(
+            verdict=veredito,
+            text=justificativa,
+            sources=fontes,
+            tool_executed=tool_executed,
+        )
+        output_span.update(
+            output={
+                "passed": audit["passed"],
+                "verdict_before": veredito,
+                "final_verdict": audit["final_verdict"],
+                "audit_note": audit["audit_note"],
+            }
+        )
+        if not audit["passed"]:
+            veredito = audit["final_verdict"]
+            justificativa = f"{audit['audit_note']} {justificativa}".strip()
 
     tempo_total_ms = (time.perf_counter() - start_total) * 1000
 
