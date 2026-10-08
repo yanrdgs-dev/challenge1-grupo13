@@ -303,3 +303,58 @@ def test_root_span_metadata_for_blocked_claim_has_no_tool(trace_recorder, monkey
     router_client.post("/check", json={"claim": "Um deputado gastou muito dinheiro público recentemente."})
     metadata = trace_recorder.merged_updates("check_claim")["metadata"]
     assert metadata == {"veredito": "INCONCLUSIVO", "tool_usada": None, "release": None}
+
+
+# ------------------- score categórico e session_id/user_id ------------------- #
+
+def _check(body):
+    chat = _router_chat([{"name": "resolve_politician", "arguments": {"nome_busca": "Fulano"}}])
+    with patch.object(router_service, "llm_client") as llm, \
+         patch.object(router_service, "execute_tool", return_value={"ideCadastro": 1}), \
+         patch.object(router_service, "_call_judge", return_value=JUDGE_OK):
+        llm.chat.return_value = chat
+        return router_client.post("/check", json=body)
+
+
+def test_categorical_verdict_score_is_recorded_on_the_trace(trace_recorder):
+    _check({"claim": CLAIM})
+    assert trace_recorder.get("check_claim")["scores"] == [{"name": "veredito", "value": "VERDADEIRO"}]
+
+
+def test_score_reflects_the_final_verdict_after_output_rail(trace_recorder):
+    chat = _router_chat([])  # sem tool: o output rail rebaixa FALSO para INCONCLUSIVO
+    with patch.object(router_service, "llm_client") as llm, \
+         patch.object(router_service, "_call_judge", return_value={**JUDGE_OK, "veredito": "FALSO"}):
+        llm.chat.return_value = chat
+        router_client.post("/check", json={"claim": CLAIM})
+    assert trace_recorder.get("check_claim")["scores"] == [{"name": "veredito", "value": "INCONCLUSIVO"}]
+
+
+def test_score_is_recorded_for_blocked_claims(trace_recorder):
+    router_client.post("/check", json={"claim": "Um deputado gastou muito dinheiro público recentemente."})
+    assert trace_recorder.get("check_claim")["scores"] == [{"name": "veredito", "value": "INCONCLUSIVO"}]
+
+
+def test_session_and_user_are_propagated_when_provided(trace_recorder):
+    resp = _check({"claim": CLAIM, "session_id": "sess-1", "user_id": "user-9"})
+    assert resp.status_code == 200
+    assert trace_recorder.trace_attrs == [{"user_id": "user-9", "session_id": "sess-1"}]
+
+
+def test_anonymous_request_without_ids_still_works(trace_recorder):
+    resp = _check({"claim": CLAIM})
+    assert resp.status_code == 200
+    assert resp.json()["veredito"] == "VERDADEIRO"
+    assert trace_recorder.trace_attrs == [{"user_id": None, "session_id": None}]
+
+
+def test_anonymous_user_can_still_keep_a_session(trace_recorder):
+    resp = _check({"claim": CLAIM, "session_id": "sess-anonima"})
+    assert resp.status_code == 200
+    assert trace_recorder.trace_attrs == [{"user_id": None, "session_id": "sess-anonima"}]
+
+
+def test_ids_work_with_tracing_off():
+    resp = _check({"claim": CLAIM, "session_id": "s", "user_id": "u"})
+    assert resp.status_code == 200
+    assert resp.json()["trace_id"] is None

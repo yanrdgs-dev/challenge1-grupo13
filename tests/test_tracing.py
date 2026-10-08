@@ -252,3 +252,91 @@ def test_get_client_does_not_override_explicit_langfuse_release(enabled, monkeyp
         tracing._get_client()
     import os
     assert os.environ["LANGFUSE_RELEASE"] == "explicito"
+
+
+# ------------------------------ score categórico ------------------------------ #
+
+def test_handle_score_trace_forwards_to_observation(client):
+    with tracing.observation("x") as obs:
+        obs.score_trace(name="veredito", value="FALSO")
+    client._obs.score_trace.assert_called_once_with(name="veredito", value="FALSO")
+
+
+def test_handle_score_trace_swallows_errors(client):
+    client._obs.score_trace.side_effect = Exception("falha no score")
+    with tracing.observation("x") as obs:
+        obs.score_trace(name="veredito", value="FALSO")
+
+
+def test_handle_score_trace_is_noop_when_disabled(monkeypatch):
+    monkeypatch.setenv("LANGFUSE_TRACING_ENABLED", "false")
+    with tracing.observation("x") as obs:
+        obs.score_trace(name="veredito", value="FALSO")
+
+
+# ------------------------- session_id e user_id opcionais ------------------------- #
+
+@pytest.fixture
+def propagate(enabled):
+    with patch.object(tracing, "_propagate_attributes") as mock:
+        mock.return_value.__enter__ = MagicMock(return_value=None)
+        mock.return_value.__exit__ = MagicMock(return_value=False)
+        yield mock
+
+
+def test_trace_attributes_propagates_user_and_session(propagate):
+    ran = []
+    with tracing.trace_attributes(user_id="u-1", session_id="s-1"):
+        ran.append(True)
+    assert ran == [True]
+    propagate.assert_called_once_with(user_id="u-1", session_id="s-1")
+
+
+def test_trace_attributes_sends_only_what_was_provided(propagate):
+    with tracing.trace_attributes(user_id=None, session_id="s-1"):
+        pass
+    propagate.assert_called_once_with(session_id="s-1")
+
+
+def test_trace_attributes_anonymous_does_not_touch_langfuse(propagate):
+    with tracing.trace_attributes(user_id=None, session_id=None):
+        pass
+    propagate.assert_not_called()
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("  s-1  ", "s-1"),
+    ("", None),
+    ("   ", None),
+    ("x" * 201, None),       # o Langfuse descarta ids com mais de 200 caracteres
+    ("x" * 200, "x" * 200),
+])
+def test_trace_attributes_sanitizes_ids(propagate, raw, expected):
+    with tracing.trace_attributes(session_id=raw):
+        pass
+    if expected is None:
+        propagate.assert_not_called()
+    else:
+        propagate.assert_called_once_with(session_id=expected)
+
+
+def test_trace_attributes_disabled_makes_no_calls(monkeypatch):
+    monkeypatch.setenv("LANGFUSE_TRACING_ENABLED", "false")
+    with patch.object(tracing, "_propagate_attributes") as mock:
+        with tracing.trace_attributes(user_id="u", session_id="s"):
+            pass
+    mock.assert_not_called()
+
+
+def test_trace_attributes_failure_does_not_break_body(enabled):
+    with patch.object(tracing, "_propagate_attributes", side_effect=Exception("falha")):
+        ran = []
+        with tracing.trace_attributes(user_id="u", session_id="s"):
+            ran.append(True)
+    assert ran == [True]
+
+
+def test_trace_attributes_body_exception_propagates(propagate):
+    with pytest.raises(ValueError, match="do corpo"):
+        with tracing.trace_attributes(user_id="u"):
+            raise ValueError("do corpo")

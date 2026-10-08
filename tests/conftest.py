@@ -22,6 +22,7 @@ class SpanRecorder:
     def __init__(self, trace_id=None):
         self.spans = []
         self.trace_id = trace_id
+        self.trace_attrs = []
         self._stack = []
 
     @contextmanager
@@ -32,6 +33,7 @@ class SpanRecorder:
             "parent": self._stack[-1] if self._stack else None,
             "kwargs": kwargs,
             "updates": [],
+            "scores": [],
         }
         self.spans.append(record)
         self._stack.append(name)
@@ -46,10 +48,18 @@ class SpanRecorder:
             def update(self_inner, **update):
                 record["updates"].append(update)
 
+            def score_trace(self_inner, **score):
+                record["scores"].append(score)
+
         try:
             yield _Handle()
         finally:
             self._stack.pop()
+
+    @contextmanager
+    def trace_attributes(self, **attrs):
+        self.trace_attrs.append(attrs)
+        yield
 
     def tree(self):
         """Lista de (nome, pai) na ordem de abertura."""
@@ -68,5 +78,6 @@ class SpanRecorder:
 @pytest.fixture
 def trace_recorder():
     recorder = SpanRecorder()
-    with patch("src.observability.tracing.observation", recorder.observation):
+    with patch("src.observability.tracing.observation", recorder.observation), \
+         patch("src.observability.tracing.trace_attributes", recorder.trace_attributes):
         yield recorder
