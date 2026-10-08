@@ -10,6 +10,7 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, HTTPException
 import httpx
@@ -82,6 +83,10 @@ class CheckClaimResponse(BaseModel):
     tempo_total_ms: float
     tempo_roteamento_ms: float
     tempo_julgamento_ms: Optional[float] = None
+    ferramentas_usadas: List[str] = Field(
+        default_factory=list,
+        description="Tools executadas, em ordem (ex.: resolve_proposition, get_proposition_vote_result).",
+    )
     trace_id: Optional[str] = Field(
         default=None, description="ID do trace no Langfuse (nulo com o tracing desligado)."
     )
@@ -255,11 +260,118 @@ def check_claim(payload: CheckClaimRequest):
             metadata={
                 "veredito": response.veredito,
                 "tool_usada": response.tool_usada,
+                "ferramentas_usadas": response.ferramentas_usadas,
                 "release": tracing.release(),
             },
         )
         root.score_trace(name="veredito", value=response.veredito)
         return response
+
+
+@dataclass
+class RoutingOutcome:
+    """Resultado do roteamento: a tool final (a que sustenta a evidência) e as etapas executadas."""
+
+    tool_name: Optional[str] = None
+    tool_args: Dict[str, Any] = field(default_factory=dict)
+    evidence: Optional[Dict[str, Any]] = None
+    tools_used: List[str] = field(default_factory=list)
+    routing_ms: float = 0.0
+
+
+_RESOLVER_ONLY_CATALOG = [t for t in TOOLS_CATALOG if t["function"]["name"] == "resolve_proposition"]
+_RESOLVE_FIRST_HINT = (
+    "\n\nA alegação cita uma votação de proposição. Chame OBRIGATORIAMENTE 'resolve_proposition' "
+    "com os dados citados (sigla, número, ano ou nome popular). Nunca informe um ID."
+)
+
+
+def _run_tool(tool_name: str, tool_args: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Executa uma tool dentro do span ``tool.<nome>``; falha vira evidência com ``erro``."""
+    with tracing.observation(f"tool.{tool_name}", input=tool_args) as tool_span:
+        try:
+            evidence = execute_tool(tool_name, tool_args)
+            tool_span.update(output=evidence)
+            if evidence_failed(evidence):
+                reason = (evidence or {}).get("erro") or (evidence or {}).get("status") or "sem evidência"
+                tool_span.update(level="WARNING", status_message=str(reason))
+        except Exception as exc:
+            logger.error("Erro ao executar tool '%s': %s", tool_name, exc)
+            evidence = {"erro": str(exc)}
+            tool_span.update(level="ERROR", status_message=str(exc))
+        return evidence
+
+
+def _chat_for_routing(claim_text: str, tools: List[Dict[str, Any]], hint: str = "") -> Any:
+    try:
+        return llm_client.chat(
+            [
+                {"role": "system", "content": ROUTER_SYSTEM_PROMPT + hint},
+                {"role": "user", "content": claim_text},
+            ],
+            tools=tools,
+            model=ROUTER_MODEL,
+        )
+    except Exception as exc:
+        logger.error("Erro ao chamar o LLM para roteamento: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail=f"Falha na comunicação com o provedor de LLM: {exc}",
+        )
+
+
+def _route_and_execute(claim_text: str) -> RoutingOutcome:
+    """Escolhe a tool com o LLM e a executa. Para votações, encadeia resolver → dado (regra 2).
+
+    O ``id_proposicao`` da tool de votação nunca vem do LLM: vem sempre do ``resolve_proposition``.
+    """
+    start = time.perf_counter()
+    chat = _chat_for_routing(claim_text, TOOLS_CATALOG)
+
+    if not chat.tool_calls:
+        return RoutingOutcome(routing_ms=(time.perf_counter() - start) * 1000)
+
+    call = chat.tool_calls[0]
+    tool_name, tool_args = call["name"], call["arguments"]
+    logger.info("Roteador selecionou tool '%s' com args %s", tool_name, tool_args)
+
+    # Guarda da regra 2: um ID de proposição escolhido pelo LLM não é confiável. Descarta e refaz
+    # o roteamento com o catálogo restrito ao resolver.
+    if tool_name == "get_proposition_vote_result":
+        logger.warning("LLM chamou a tool de votação direto (ID %s); refazendo via resolver.", tool_args.get("id_proposicao"))
+        retry = _chat_for_routing(claim_text, _RESOLVER_ONLY_CATALOG, _RESOLVE_FIRST_HINT)
+        resolver_call = next((c for c in retry.tool_calls if c["name"] == "resolve_proposition"), None)
+        if resolver_call is None:
+            evidence = {
+                "status": "entidade_nao_resolvida",
+                "ambiguous": False,
+                "motivo": "A proposição não foi resolvida por resolve_proposition; o ID informado pelo LLM foi descartado.",
+            }
+            return RoutingOutcome("get_proposition_vote_result", {}, evidence, [],
+                                  (time.perf_counter() - start) * 1000)
+        tool_name, tool_args = "resolve_proposition", resolver_call["arguments"]
+
+    routing_ms = (time.perf_counter() - start) * 1000
+    evidence = _run_tool(tool_name, tool_args)
+    outcome = RoutingOutcome(tool_name, tool_args, evidence, [tool_name], routing_ms)
+
+    # Etapa 2: com a proposição resolvida, consulta a votação usando o ID do resolver.
+    resolved_casa = (evidence or {}).get("casa")
+    if (
+        tool_name == "resolve_proposition"
+        and not evidence_failed(evidence)
+        and resolved_casa in ("camara", "senado")
+    ):
+        vote_args = {"casa": resolved_casa, "id_proposicao": evidence["id_proposicao"]}
+        vote_evidence = _run_tool("get_proposition_vote_result", vote_args)
+        resolution = {
+            k: evidence.get(k) for k in ("id_proposicao", "sigla_tipo", "numero", "ano", "casa", "ementa")
+        }
+        outcome.tool_name = "get_proposition_vote_result"
+        outcome.tool_args = vote_args
+        outcome.evidence = {**(vote_evidence or {}), "entidade_resolvida": resolution}
+        outcome.tools_used.append("get_proposition_vote_result")
+    return outcome
 
 
 def _run_input_rails(claim_text: str) -> Optional[Dict[str, Any]]:
@@ -294,47 +406,10 @@ def _run_check(claim_text: str, start_total: float) -> CheckClaimResponse:
             tempo_roteamento_ms=0.0,
         )
 
-    # 1. Roteamento via function calling (LLMClient, com fallback de provedor)
-    start_route = time.perf_counter()
-    try:
-        chat = llm_client.chat(
-            [
-                {"role": "system", "content": ROUTER_SYSTEM_PROMPT},
-                {"role": "user", "content": claim_text},
-            ],
-            tools=TOOLS_CATALOG,
-            model=ROUTER_MODEL,
-        )
-    except Exception as exc:
-        logger.error("Erro ao chamar o LLM para roteamento: %s", exc)
-        raise HTTPException(
-            status_code=503,
-            detail=f"Falha na comunicação com o provedor de LLM: {exc}",
-        )
-
-    tempo_roteamento_ms = (time.perf_counter() - start_route) * 1000
-
-    tool_name: Optional[str] = None
-    tool_args: Dict[str, Any] = {}
-    evidence: Optional[Dict[str, Any]] = None
-
-    if chat.tool_calls:
-        tool_name = chat.tool_calls[0]["name"]
-        tool_args = chat.tool_calls[0]["arguments"]
-        logger.info("Roteador selecionou tool '%s' com args %s", tool_name, tool_args)
-
-        # 2. Execução da Tool
-        with tracing.observation(f"tool.{tool_name}", input=tool_args) as tool_span:
-            try:
-                evidence = execute_tool(tool_name, tool_args)
-                tool_span.update(output=evidence)
-                if evidence_failed(evidence):
-                    reason = (evidence or {}).get("erro") or (evidence or {}).get("status") or "sem evidência"
-                    tool_span.update(level="WARNING", status_message=str(reason))
-            except Exception as e:
-                logger.error("Erro ao executar tool '%s': %s", tool_name, e)
-                evidence = {"erro": str(e)}
-                tool_span.update(level="ERROR", status_message=str(e))
+    # 1 e 2. Roteamento via function calling + execução da(s) tool(s)
+    outcome = _route_and_execute(claim_text)
+    tool_name, tool_args, evidence = outcome.tool_name, outcome.tool_args, outcome.evidence
+    tempo_roteamento_ms = outcome.routing_ms
 
     # 3. Comunicação com o Agente Julgador no Kubernetes
     judge_endpoint = f"{JUDGE_SERVICE_URL}/judge"
@@ -412,6 +487,7 @@ def _run_check(claim_text: str, start_total: float) -> CheckClaimResponse:
         tempo_total_ms=round(tempo_total_ms, 2),
         tempo_roteamento_ms=round(tempo_roteamento_ms, 2),
         tempo_julgamento_ms=tempo_julgamento_ms,
+        ferramentas_usadas=outcome.tools_used,
     )
 
 

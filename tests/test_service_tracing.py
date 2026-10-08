@@ -294,7 +294,8 @@ def test_root_span_records_verdict_tool_and_release(trace_recorder, monkeypatch)
     monkeypatch.setenv("GIT_SHA", "abc1234")
     _run_full_check()
     metadata = trace_recorder.merged_updates("check_claim")["metadata"]
-    assert metadata == {"veredito": "VERDADEIRO", "tool_usada": "resolve_politician", "release": "abc1234"}
+    assert metadata == {"veredito": "VERDADEIRO", "tool_usada": "resolve_politician",
+                        "ferramentas_usadas": ["resolve_politician"], "release": "abc1234"}
 
 
 def test_root_span_metadata_for_blocked_claim_has_no_tool(trace_recorder, monkeypatch):
@@ -302,7 +303,7 @@ def test_root_span_metadata_for_blocked_claim_has_no_tool(trace_recorder, monkey
     monkeypatch.delenv("LANGFUSE_RELEASE", raising=False)
     router_client.post("/check", json={"claim": "Um deputado gastou muito dinheiro público recentemente."})
     metadata = trace_recorder.merged_updates("check_claim")["metadata"]
-    assert metadata == {"veredito": "INCONCLUSIVO", "tool_usada": None, "release": None}
+    assert metadata == {"veredito": "INCONCLUSIVO", "tool_usada": None, "ferramentas_usadas": [], "release": None}
 
 
 # ------------------- score categórico e session_id/user_id ------------------- #
