@@ -13,6 +13,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from src.core.llm_client import LLMClient
+from src.observability import tracing
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("JudgeService")
@@ -51,6 +52,22 @@ def health_check():
 @app.post("/judge", response_model=JudgeResponse)
 def judge_claim(payload: JudgeRequest):
     """Julga uma alegação confrontando-a com as evidências factuais."""
+    with tracing.observation(
+        "judge.evaluate",
+        input={"claim": payload.claim, "tool_used": payload.tool_used, "evidence": payload.evidence},
+    ) as span:
+        response = _evaluate(payload)
+        span.update(
+            output={
+                "veredito": response.veredito,
+                "confianca": response.confianca,
+                "fontes_primarias": response.fontes_primarias,
+            }
+        )
+        return response
+
+
+def _evaluate(payload: JudgeRequest) -> JudgeResponse:
     logger.info("Recebida requisição de julgamento para claim: '%s'", payload.claim[:60])
     start_time = time.perf_counter()
 
