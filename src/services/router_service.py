@@ -22,6 +22,7 @@ from src.guardrails.actions import (
     check_input_specificity,
 )
 from src.observability import tracing
+from src.services.sources import derive_sources, ensure_source_cited, evidence_failed, merge_sources
 from src.tools.gastos_tools import (
     check_parliamentary_expenses,
     get_top_ceap_spender,
@@ -339,8 +340,15 @@ def _run_check(claim_text: str, start_total: float) -> CheckClaimResponse:
             justificativa = f"Evidência coletada com sucesso, mas o serviço de julgamento estava inacessível: {exc}"
             judge_span.update(level="ERROR", status_message=str(exc))
 
-    # 4. Output rail (Regra 1): veredito só se houve tool bem-sucedida e fonte citada
-    tool_executed = bool(tool_name) and not (evidence or {}).get("erro")
+    # 4. Output rail (Regra 1): veredito só se houve tool bem-sucedida e fonte citada.
+    # A fonte primária vem da tool que executou, não do texto do judge.
+    tool_executed = bool(tool_name) and not evidence_failed(evidence)
+    fontes = (
+        merge_sources(derive_sources(tool_name, tool_args, evidence), fontes, tool_name)
+        if tool_executed
+        else []
+    )
+    justificativa = ensure_source_cited(justificativa, fontes)
     with tracing.observation(
         "guardrails.output",
         input={"verdict": veredito, "tool_executed": tool_executed, "sources": fontes},

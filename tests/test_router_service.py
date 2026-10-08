@@ -111,11 +111,13 @@ def test_output_rail_overrides_verdict_without_tool(mock_llm):
     assert data["tool_usada"] is None
 
 
-def test_output_rail_overrides_verdict_without_sources(mock_llm):
+def test_output_rail_overrides_verdict_when_no_source_can_be_attributed(mock_llm):
+    """Sem fonte do judge e sem fonte derivável da tool (nenhum identificador), não há veredito."""
     mock_llm.chat.return_value = _chat_result(
         [{"name": "resolve_politician", "arguments": {"nome_busca": "Fulano de Tal"}}]
     )
-    with patch.object(router_service, "execute_tool", return_value={"ideCadastro": 1}), \
+    no_ids = {"ideCadastro": None, "cod_senador": None, "sq_candidato": None, "ambiguous": False}
+    with patch.object(router_service, "execute_tool", return_value=no_ids), \
          patch.object(router_service, "_call_judge", return_value=_judge_response(veredito="FALSO", fontes=[])):
         resp = client.post("/check", json={"claim": CLAIM_ESPECIFICA})
 
