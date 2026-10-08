@@ -32,3 +32,12 @@ eda = [
 
 [tool.uv]
 package = false
+
+[tool.pyrefly]
+search-path = ["."]
+python-interpreter-path = ".venv/bin/python"
+
+[tool.pyright]
+extraPaths = ["."]
+venvPath = "."
+venv = ".venv"
