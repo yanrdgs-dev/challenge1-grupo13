@@ -444,3 +444,42 @@ def test_expenses_internal_id_no_longer_identifies_parliamentarian(real_schema_c
 def test_top_spender_exposes_ide_cadastro_as_id(real_schema_ceap_dir: Path):
     resultado = get_top_ceap_spender(casa="camara", ano=2023, base_dir=real_schema_ceap_dir)
     assert resultado.gastadores[0].id_parlamentar == "73486"
+
+
+@pytest.fixture
+def real_schema_ceaps_dir(tmp_path: Path) -> Path:
+    """CEAPS com o schema real do parquet: sem UF/PARTIDO e com NOME_FORNECEDOR."""
+    base_dir = tmp_path / "data" / "processed"
+    senado_dir = base_dir / "senado" / "ceaps" / "ano=2023"
+    senado_dir.mkdir(parents=True, exist_ok=True)
+    pl.DataFrame({
+        "ID": [1, 2, 3],
+        "TIPO_DOCUMENTO": ["Nota Fiscal"] * 3,
+        "ANO": [2023, 2023, 2023],
+        "MÊS": [1, 2, 3],
+        "COD_SENADOR": [5012, 5012, 6000],
+        "NOME_SENADOR": ["Beltrana", "Beltrana", "Sicrano"],
+        "TIPO_DESPESA": ["Passagens aéreas", "Aluguel de imóvel", "Passagens aéreas"],
+        "CPF_CNPJ_FORNECEDOR": ["1", "2", "3"],
+        "NOME_FORNECEDOR": ["GOL", "IMOBILIARIA", "AZUL"],
+        "VALOR_REEMBOLSADO": [100.0, 900.0, 50.0],
+    }).write_parquet(senado_dir / "ceaps_2023.parquet")
+    return base_dir
+
+
+def test_top_spender_senado_works_with_real_schema(real_schema_ceaps_dir: Path):
+    resultado = get_top_ceap_spender(casa="senado", ano=2023, base_dir=real_schema_ceaps_dir)
+    top = resultado.gastadores[0]
+    assert top.nome_parlamentar == "Beltrana"
+    assert top.id_parlamentar == "5012"
+    assert top.valor_total == 1000.0
+    assert top.uf == "" and top.partido == ""
+
+
+def test_expenses_senado_filters_by_cod_senador_with_real_schema(real_schema_ceaps_dir: Path):
+    resultado = check_parliamentary_expenses(
+        casa="senado", ano=2023, parlamentar_id="5012", base_dir=real_schema_ceaps_dir
+    )
+    assert resultado.qtd_lancamentos == 2
+    assert resultado.valor_total == 1000.0
+    assert resultado.amostra[0]["fornecedor"] in {"GOL", "IMOBILIARIA"}
