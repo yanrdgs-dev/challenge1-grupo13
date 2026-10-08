@@ -73,9 +73,9 @@ def test_old_flat_manifests_were_moved():
 # Langfuse Cloud: host na ConfigMap e chaves num Secret opcional
 # --------------------------------------------------------------------------- #
 
-def test_configmap_has_langfuse_host_and_tracing_flag():
+def test_configmap_has_langfuse_base_url():
     cfg = by_kind(render(K8S / "overlays/dev"), "ConfigMap")[0]["data"]
-    assert cfg["LANGFUSE_HOST"].startswith("https://")
+    assert cfg["LANGFUSE_BASE_URL"].startswith("https://")
     assert "LANGFUSE_PUBLIC_KEY" not in cfg and "LANGFUSE_SECRET_KEY" not in cfg
 
 
