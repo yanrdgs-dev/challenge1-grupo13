@@ -1,5 +1,6 @@
 """Pacote de schemas de validação e contratos de dados."""
 
+from src.schemas.claims import AtomicClaim
 from src.schemas.data_schemas import (
     CAMARA_CEAP_COLUMNS,
     CAMARA_VOTACOES_COLUMNS,
@@ -12,6 +13,7 @@ from src.schemas.data_schemas import (
 )
 
 __all__ = [
+    "AtomicClaim",
     "DATA_SCHEMAS",
     "TSE_DESPESAS_COLUMNS",
     "TSE_CANDIDATOS_COLUMNS",
