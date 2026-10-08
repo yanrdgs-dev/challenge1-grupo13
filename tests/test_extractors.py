@@ -145,3 +145,34 @@ def test_scrape_dados_abertos_tse_erro_requisicao():
     with patch("requests.get", side_effect=Exception("Erro de conexão")):
         resultado = scrape_dados_abertos_tse()
         assert resultado == []
+
+
+def test_scrape_dados_abertos_tse_sem_link_ou_sem_href():
+    """Valida que datasets sem tag <a> ou sem atributo href não quebram o scraping e retornam url vazia."""
+    html_content = """
+    <html>
+        <body>
+            <li class="dataset-item">
+                <h2 class="dataset-heading">Sem Tag Link</h2>
+            </li>
+            <li class="dataset-item">
+                <h2 class="dataset-heading">
+                    <a>Tag Link Sem Href</a>
+                </h2>
+            </li>
+        </body>
+    </html>
+    """
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.text = html_content
+
+    with patch("requests.get", return_value=mock_response):
+        resultado = scrape_dados_abertos_tse()
+        assert len(resultado) == 2
+        assert resultado[0]["titulo_conjunto"] == "Sem Tag Link"
+        assert resultado[0]["url_conjunto"] == ""
+        assert resultado[1]["titulo_conjunto"] == "Tag Link Sem Href"
+        assert resultado[1]["url_conjunto"] == ""
+
+
