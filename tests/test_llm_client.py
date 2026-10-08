@@ -410,3 +410,50 @@ def test_chat_result_is_unchanged_when_tracing_is_disabled():
     with patch("httpx.Client.post", return_value=_ollama_chat_response()):
         result = client.chat(MESSAGES, tools=TOOLS)
     assert result.tool_calls[0]["name"] == "resolve_politician"
+
+
+# --------------------------------------------------------------------------- #
+# Determinismo: temperatura 0 por padrão (baseline comparável entre execuções)
+# --------------------------------------------------------------------------- #
+
+def test_ollama_chat_uses_temperature_zero_by_default(monkeypatch):
+    monkeypatch.delenv("LLM_TEMPERATURE", raising=False)
+    client = LLMClient(primary_provider="ollama", fallback_provider="")
+    with patch("httpx.Client.post", return_value=_ollama_chat_response()) as mock_post:
+        client.chat(MESSAGES)
+    assert mock_post.call_args[1]["json"]["options"] == {"temperature": 0.0}
+
+
+def test_temperature_is_configurable_by_env(monkeypatch):
+    monkeypatch.setenv("LLM_TEMPERATURE", "0.7")
+    client = LLMClient(primary_provider="ollama", fallback_provider="")
+    with patch("httpx.Client.post", return_value=_ollama_chat_response()) as mock_post:
+        client.chat(MESSAGES)
+    assert mock_post.call_args[1]["json"]["options"] == {"temperature": 0.7}
+
+
+def test_invalid_temperature_env_falls_back_to_zero(monkeypatch):
+    monkeypatch.setenv("LLM_TEMPERATURE", "abc")
+    client = LLMClient(primary_provider="ollama", fallback_provider="")
+    with patch("httpx.Client.post", return_value=_ollama_chat_response()) as mock_post:
+        client.chat(MESSAGES)
+    assert mock_post.call_args[1]["json"]["options"] == {"temperature": 0.0}
+
+
+def test_groq_chat_also_uses_temperature(monkeypatch):
+    monkeypatch.setenv("GROQ_API_KEY", "gsk_test_mock_key")
+    monkeypatch.delenv("LLM_TEMPERATURE", raising=False)
+    client = LLMClient(primary_provider="groq", fallback_provider="")
+    resp = MagicMock()
+    resp.json.return_value = {"choices": [{"message": {"content": "ok"}}]}
+    with patch("httpx.Client.post", return_value=resp) as mock_post:
+        client.chat(MESSAGES)
+    assert mock_post.call_args[1]["json"]["temperature"] == 0.0
+
+
+def test_generation_metadata_records_the_temperature(observations, monkeypatch):
+    monkeypatch.delenv("LLM_TEMPERATURE", raising=False)
+    client = LLMClient(primary_provider="ollama", fallback_provider="")
+    with patch("httpx.Client.post", return_value=_ollama_chat_response()):
+        client.chat(MESSAGES)
+    assert observations[0].kwargs["model_parameters"] == {"temperature": 0.0}
