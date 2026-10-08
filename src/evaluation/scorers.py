@@ -5,7 +5,7 @@ Entrada: ``output`` é o JSON do ``/check`` do router e ``expected`` é uma clai
 deve ser registrado no Langfuse.
 
 Mapeamento para a constituição (AGENTS.md): ``verdict_match`` (regra 5),
-``has_traceable_evidence`` (regra 1), ``inconclusive_without_tool`` (regra 3) e
+``no_wrong_definitive`` (regras 1 e 6), ``has_traceable_evidence`` (regra 1), ``inconclusive_without_tool`` (regra 3) e
 ``tool_category_match`` (regra 4).
 """
 
@@ -51,6 +51,14 @@ def verdict_match(output: Dict[str, Any], expected: Dict[str, Any]) -> Score:
     return Score("verdict_match", 1.0 if got and got == want else 0.0, f"obtido={got or '-'} esperado={want or '-'}")
 
 
+def no_wrong_definitive(output: Dict[str, Any], expected: Dict[str, Any]) -> Score:
+    """Nunca emitir um veredito definitivo errado: errar para ``INCONCLUSIVO`` é aceitável, errar
+    afirmando ``VERDADEIRO``/``FALSO`` diferente do esperado não é (regras 1 e 6)."""
+    got, want = _verdict(output), _expected_verdict(expected)
+    wrong = got in ("VERDADEIRO", "FALSO") and got != want
+    return Score("no_wrong_definitive", 0.0 if wrong else 1.0, f"obtido={got or '-'} esperado={want or '-'}" if wrong else "")
+
+
 def has_traceable_evidence(output: Dict[str, Any], expected: Dict[str, Any]) -> Score:
     """Veredito definitivo exige tool executada, evidência utilizável e fonte primária (regra 1)."""
     if _verdict(output) == INCONCLUSIVE:
@@ -93,9 +101,10 @@ def tool_category_match(output: Dict[str, Any], expected: Dict[str, Any]) -> Sco
 
 
 def run_all_scorers(output: Dict[str, Any], expected: Dict[str, Any]) -> List[Score]:
-    """Executa os quatro scorers determinísticos, nesta ordem."""
+    """Executa os scorers determinísticos, nesta ordem."""
     return [
         verdict_match(output, expected),
+        no_wrong_definitive(output, expected),
         has_traceable_evidence(output, expected),
         inconclusive_without_tool(output, expected),
         tool_category_match(output, expected),
