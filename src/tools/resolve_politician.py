@@ -32,6 +32,51 @@ def _empty_response(ambiguous: bool = False) -> Dict[str, Any]:
     }
 
 
+def _query_api_fallback(nome: str, uf: Optional[str] = None, cargo: Optional[str] = None) -> Dict[str, Any]:
+    """Consulta as APIs públicas da Câmara e do Senado se o parlamentar não for encontrado localmente."""
+    try:
+        import httpx
+        import urllib.parse
+        encoded = urllib.parse.quote(nome.strip())
+        # Tenta Câmara dos Deputados
+        url_camara = f"https://dadosabertos.camara.leg.br/api/v2/deputados?nome={encoded}"
+        resp = httpx.get(url_camara, timeout=4.0)
+        if resp.status_code == 200:
+            dados = resp.json().get("dados", [])
+            if dados:
+                cand = dados[0]
+                return _format_response({
+                    "ideCadastro": cand.get("id"),
+                    "nome_civil": cand.get("nome"),
+                    "nome_urna": cand.get("nome"),
+                    "uf": cand.get("siglaUf"),
+                    "partido": cand.get("siglaPartido"),
+                    "casa": "Câmara dos Deputados",
+                    "cargo": "Deputado Federal",
+                }, match_score=100.0, ambiguous=False)
+        # Tenta Senado Federal
+        url_senado = "https://legis.senado.leg.br/dadosabertos/senador/lista/atual"
+        resp_sen = httpx.get(url_senado, timeout=4.0)
+        if resp_sen.status_code == 200:
+            senadores = resp_sen.json().get("ListaParlamentarEmExercicio", {}).get("Parlamentares", {}).get("Parlamentar", [])
+            for s in senadores:
+                ident = s.get("IdentificacaoParlamentar", {})
+                nome_s = ident.get("NomeParlamentar", "")
+                if normalize_text(nome) in normalize_text(nome_s) or normalize_text(nome_s) in normalize_text(nome):
+                    return _format_response({
+                        "cod_senador": ident.get("CodigoParlamentar"),
+                        "nome_civil": ident.get("NomeCompletoParlamentar"),
+                        "nome_urna": ident.get("NomeParlamentar"),
+                        "uf": ident.get("SiglaUfParlamentar"),
+                        "partido": ident.get("SiglaPartidoParlamentar"),
+                        "casa": "Senado Federal",
+                        "cargo": "Senador",
+                    }, match_score=100.0, ambiguous=False)
+    except Exception:
+        pass
+    return _empty_response()
+
+
 def _format_candidate_summary(cand: Dict[str, Any]) -> Dict[str, Any]:
     """Extrai campos resumidos para o array de candidatos_alternativos."""
     return {
@@ -120,6 +165,9 @@ def resolve_politician(
     # Obtém cache em memória (T008 / T011)
     cache = PoliticianCache.get_instance(parquet_path)
     if not cache.records:
+        api_res = _query_api_fallback(nome_busca_clean, uf_clean, cargo_clean)
+        if api_res.get("ideCadastro") or api_res.get("cod_senador"):
+            return api_res
         return _empty_response()
 
     # ==========================================================================
@@ -173,6 +221,9 @@ def resolve_politician(
             scored_candidates.append((best_score, cand))
 
     if not scored_candidates:
+        api_res = _query_api_fallback(nome_busca_clean, uf_clean, cargo_clean)
+        if api_res.get("ideCadastro") or api_res.get("cod_senador"):
+            return api_res
         return _empty_response()
 
     # Ordena por maior score
@@ -198,4 +249,7 @@ def resolve_politician(
         }
     else:
         # Se os filtros eliminaram todos do cluster
+        api_res = _query_api_fallback(nome_busca_clean, uf_clean, cargo_clean)
+        if api_res.get("ideCadastro") or api_res.get("cod_senador"):
+            return api_res
         return _empty_response()

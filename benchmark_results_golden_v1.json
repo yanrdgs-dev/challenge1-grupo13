@@ -1,0 +1,905 @@
+{
+  "total_claims": 30,
+  "correct_count": 28,
+  "accuracy_percent": 93.33333333333333,
+  "total_time_seconds": 220.60510658299972,
+  "average_time_per_claim_seconds": 7.353503552766657,
+  "categories": {
+    "GASTOS": {
+      "total": 18,
+      "correct": 18
+    },
+    "VOTACOES": {
+      "total": 12,
+      "correct": 10
+    }
+  },
+  "results": [
+    {
+      "id": 1,
+      "claim": "Em 2023, o deputado que mais gastou a cota parlamentar (CEAP) foi Pompeo de Mattos (PDT-RS).",
+      "category": "GASTOS",
+      "expected_verdict": "VERDADEIRO",
+      "actual_verdict": "VERDADEIRO",
+      "match": true,
+      "explanation": "Os dados oficiais da Câmara dos Deputados confirmam que Pompeo de Mattos (PDT-RS) foi o maior gastador da CEAP em 2023.",
+      "sources_cited": [
+        "Câmara dos Deputados"
+      ],
+      "plan": {
+        "action": "call_tools",
+        "reasoning": "A alegação requer dados específicos sobre quem gastou mais na CEAP em 2023, o que pode ser obtido através de ferramentas.",
+        "steps": [
+          {
+            "tool": "get_top_ceap_spender",
+            "params": {
+              "casa": "camara",
+              "ano": 2023,
+              "top_n": 1
+            }
+          }
+        ]
+      },
+      "latency_seconds": {
+        "orchestrator": 2.837,
+        "tools": 0.049,
+        "synthesizer": 3.903,
+        "total": 6.789
+      }
+    },
+    {
+      "id": 2,
+      "claim": "Senadores podem usar a verba indenizatória (CEAPS) para pagar consultorias e assessorias técnicas para o mandato.",
+      "category": "GASTOS",
+      "expected_verdict": "VERDADEIRO",
+      "actual_verdict": "VERDADEIRO",
+      "match": true,
+      "explanation": "A categoria de despesas 'Contratação de consultorias, assessorias, pesquisas, trabalhos técnicos e outros serviços de apoio ao exercício do mandato parlamentar' está listada nas categorias permitidas na cota dos senadores.",
+      "sources_cited": [
+        "Categorias de despesas permitidas na cota (senado)"
+      ],
+      "plan": {
+        "action": "call_tools",
+        "reasoning": "Alegação envolve uso da CEAP por senadores, necessitando de dados específicos.",
+        "steps": [
+          {
+            "tool": "get_top_ceap_spender",
+            "params": {
+              "casa": "senado",
+              "ano": 2023,
+              "top_n": 1
+            }
+          },
+          {
+            "tool": "list_expense_categories",
+            "params": {
+              "casa": "senado"
+            }
+          }
+        ]
+      },
+      "latency_seconds": {
+        "orchestrator": 2.692,
+        "tools": 0.032,
+        "synthesizer": 6.561,
+        "total": 9.285
+      }
+    },
+    {
+      "id": 3,
+      "claim": "Dá para consultar no Portal da Transparência quanto cada ministério gastou com diárias e passagens em viagens oficiais.",
+      "category": "GASTOS",
+      "expected_verdict": "VERDADEIRO",
+      "actual_verdict": "VERDADEIRO",
+      "match": true,
+      "explanation": "Os dados sobre gastos com diárias e passagens em viagens oficiais por ministério estão disponíveis no Portal da Transparência.",
+      "sources_cited": [
+        "Portal da Transparência"
+      ],
+      "plan": {
+        "action": "call_tools",
+        "reasoning": "A alegação pede dados específicos sobre gastos de viagens, que podem ser obtidos através do Portal da Transparência.",
+        "steps": [
+          {
+            "tool": "check_data_source_coverage",
+            "params": {
+              "fonte": "portal_transparencia",
+              "tipo_dado": "diarias_passagens_ministros"
+            }
+          }
+        ]
+      },
+      "latency_seconds": {
+        "orchestrator": 2.577,
+        "tools": 0.002,
+        "synthesizer": 4.374,
+        "total": 6.953
+      }
+    },
+    {
+      "id": 4,
+      "claim": "A urgência do PL 2630/2020, o chamado 'PL das Fake News', foi aprovada pelo Plenário da Câmara dos Deputados.",
+      "category": "VOTACOES",
+      "expected_verdict": "VERDADEIRO",
+      "actual_verdict": "VERDADEIRO",
+      "match": true,
+      "explanation": "O Requerimento de Urgência do PL 2630/2020 foi aprovado pelo Plenário da Câmara dos Deputados em votação realizada no dia 25 de abril de 2023.",
+      "sources_cited": [
+        "Evento de Votação (Data: 2023-04-25)"
+      ],
+      "plan": {
+        "action": "call_tools",
+        "reasoning": "Alegação sobre aprovação de PL requer verificação específica.",
+        "steps": [
+          {
+            "tool": "get_proposition_vote_result",
+            "params": {
+              "casa": "camara",
+              "id_proposicao": "2256735"
+            }
+          }
+        ]
+      },
+      "latency_seconds": {
+        "orchestrator": 2.147,
+        "tools": 3.48,
+        "synthesizer": 9.36,
+        "total": 14.987
+      }
+    },
+    {
+      "id": 5,
+      "claim": "O Senado aprovou, em votação nominal, o texto-base da PEC da Reforma Tributária em 2023.",
+      "category": "VOTACOES",
+      "expected_verdict": "VERDADEIRO",
+      "actual_verdict": "FALSO",
+      "match": false,
+      "explanation": "A votação ocorreu para várias emendas e subemendas, mas não há evidência específica de uma votação nominal do texto-base da PEC da Reforma Tributária.",
+      "sources_cited": [
+        "Evento de Votação (Data: 2023-11-08)"
+      ],
+      "plan": {
+        "action": "call_tools",
+        "reasoning": "Alegação refere-se a uma votação específica no Senado. Precisamos verificar se houve realmente uma votação nominal para o texto-base da PEC da Reforma Tributária em 2023.",
+        "steps": [
+          {
+            "tool": "get_proposition_vote_result",
+            "params": {
+              "casa": "senado",
+              "id_proposicao": "158930"
+            }
+          }
+        ]
+      },
+      "latency_seconds": {
+        "orchestrator": 2.706,
+        "tools": 0.222,
+        "synthesizer": 6.204,
+        "total": 9.133
+      }
+    },
+    {
+      "id": 6,
+      "claim": "O valor da cota parlamentar que cada deputado recebe por mês muda de acordo com o estado que ele representa.",
+      "category": "GASTOS",
+      "expected_verdict": "VERDADEIRO",
+      "actual_verdict": "VERDADEIRO",
+      "match": true,
+      "explanation": "A cota parlamentar varia conforme o estado de representação dos deputados, com valores diferenciados para estados mais distantes do DF.",
+      "sources_cited": [
+        "Ato da Mesa da Câmara dos Deputados nº 43/2009"
+      ],
+      "plan": {
+        "action": "call_tools",
+        "reasoning": "A alegação requer verificação específica sobre como a cota varia por estado, necessitando da utilização de ferramentas específicas.",
+        "steps": [
+          {
+            "tool": "check_institutional_rule",
+            "params": {
+              "topico": "calculo_cota_por_uf"
+            }
+          }
+        ]
+      },
+      "latency_seconds": {
+        "orchestrator": 2.163,
+        "tools": 0.001,
+        "synthesizer": 5.422,
+        "total": 7.587
+      }
+    },
+    {
+      "id": 7,
+      "claim": "É possível consultar publicamente quais deputados faltaram às sessões do Plenário da Câmara.",
+      "category": "VOTACOES",
+      "expected_verdict": "VERDADEIRO",
+      "actual_verdict": "VERDADEIRO",
+      "match": true,
+      "explanation": "As faltas/frequências dos deputados em sessões do Plenário da Câmara estão publicamente disponíveis no portal oficial e API de Dados Abertos.",
+      "sources_cited": [
+        "Regimento Interno da Câmara dos Deputados (RICD), arts. 226 a 229",
+        "LAI"
+      ],
+      "plan": {
+        "action": "call_tools",
+        "reasoning": "Necessário verificar a disponibilidade pública das faltas/frequências dos deputados na Câmara.",
+        "steps": [
+          {
+            "tool": "check_data_source_coverage",
+            "params": {
+              "fonte": "camara_frequencia",
+              "tipo_dado": "frequencia_plenario"
+            }
+          }
+        ]
+      },
+      "latency_seconds": {
+        "orchestrator": 2.309,
+        "tools": 0.0,
+        "synthesizer": 5.574,
+        "total": 7.883
+      }
+    },
+    {
+      "id": 8,
+      "claim": "Os repasses do chamado 'orçamento secreto' (emendas de relator, RP9) foram detalhados no Portal da Transparência depois de decisão do STF.",
+      "category": "GASTOS",
+      "expected_verdict": "VERDADEIRO",
+      "actual_verdict": "VERDADEIRO",
+      "match": true,
+      "explanation": "Os repasses de emendas de relator-geral (RP9) passaram a ser divulgados com identificação dos parlamentares no Portal da Transparência conforme decisão do STF.",
+      "sources_cited": [
+        "Decisão do STF na ADPF 850 e ADPF 854; Portaria Interministerial ME/SEGOV nº 1/2021"
+      ],
+      "plan": {
+        "action": "call_tools",
+        "reasoning": "Alegação envolve dados do Portal da Transparência e decisão do STF, requer verificação específica desses elementos.",
+        "steps": [
+          {
+            "tool": "check_data_source_coverage",
+            "params": {
+              "fonte": "portal_transparencia",
+              "tipo_dado": "emendas_relator_rp9"
+            }
+          },
+          {
+            "tool": "check_institutional_rule",
+            "params": {
+              "topico": "prestacao_contas_partido"
+            }
+          }
+        ]
+      },
+      "latency_seconds": {
+        "orchestrator": 3.194,
+        "tools": 0.0,
+        "synthesizer": 7.514,
+        "total": 10.709
+      }
+    },
+    {
+      "id": 9,
+      "claim": "Dá para ver no site do TSE quanto cada candidato declarou ter gastado na campanha eleitoral.",
+      "category": "GASTOS",
+      "expected_verdict": "VERDADEIRO",
+      "actual_verdict": "VERDADEIRO",
+      "match": true,
+      "explanation": "As despesas campanha dos candidatos estão disponíveis publicamente no portal DivulgaCandContas e no Repositório de Dados Eleitorais do TSE.",
+      "sources_cited": [
+        "TSE - DivulgaCandContas",
+        "TSE - Repositório de Dados Eleitorais"
+      ],
+      "plan": {
+        "action": "call_tools",
+        "reasoning": "Checar despesas de campanha dos candidatos pelo TSE.",
+        "steps": [
+          {
+            "tool": "check_data_source_coverage",
+            "params": {
+              "fonte": "tse_prestacao_contas",
+              "tipo_dado": "despesas_campanha_candidatos"
+            }
+          }
+        ]
+      },
+      "latency_seconds": {
+        "orchestrator": 2.295,
+        "tools": 0.0,
+        "synthesizer": 5.678,
+        "total": 7.974
+      }
+    },
+    {
+      "id": 10,
+      "claim": "A confirmação de ministros do Supremo Tribunal Federal pelo plenário do Senado é feita por votação secreta.",
+      "category": "VOTACOES",
+      "expected_verdict": "VERDADEIRO",
+      "actual_verdict": "VERDADEIRO",
+      "match": true,
+      "explanation": "A aprovação de indicados a ministro do Supremo Tribunal Federal pelo plenário do Senado é realizada por votação secreta conforme estabelecido na Constituição Federal e Regimento Interno do Senado.",
+      "sources_cited": [
+        "Constituição Federal de 1988, art. 52, inciso III, alínea 'a';",
+        "Regimento Interno do Senado Federal (RISF), art. 383."
+      ],
+      "plan": {
+        "action": "call_tools",
+        "reasoning": "verificar a natureza da votação de confirmação de ministros no STF pelo Senado",
+        "steps": [
+          {
+            "tool": "check_institutional_rule",
+            "params": {
+              "topico": "sabatina_stf"
+            }
+          }
+        ]
+      },
+      "latency_seconds": {
+        "orchestrator": 1.97,
+        "tools": 0.0,
+        "synthesizer": 7.438,
+        "total": 9.408
+      }
+    },
+    {
+      "id": 11,
+      "claim": "Deputados podem pedir reembolso de gastos com alimentação usando a cota parlamentar.",
+      "category": "GASTOS",
+      "expected_verdict": "VERDADEIRO",
+      "actual_verdict": "VERDADEIRO",
+      "match": true,
+      "explanation": "A categoria de despesa 'Fornecimento de alimentação do parlamentar' está listada nas categorias permitidas na cota parlamentar.",
+      "sources_cited": [
+        "Categorias de despesas permitidas na cota (camara)"
+      ],
+      "plan": {
+        "action": "call_tools",
+        "reasoning": "Alegação envolve uso da cota parlamentar, necessita verificar categorias permitidas.",
+        "steps": [
+          {
+            "tool": "list_expense_categories",
+            "params": {
+              "casa": "camara"
+            }
+          }
+        ]
+      },
+      "latency_seconds": {
+        "orchestrator": 1.932,
+        "tools": 0.023,
+        "synthesizer": 6.087,
+        "total": 8.042
+      }
+    },
+    {
+      "id": 12,
+      "claim": "Quando os líderes partidários já estão de acordo, a Câmara pode aprovar um projeto por votação simbólica, sem que cada deputado vote individualmente.",
+      "category": "VOTACOES",
+      "expected_verdict": "VERDADEIRO",
+      "actual_verdict": "VERDADEIRO",
+      "match": true,
+      "explanation": "A regra institucional permite a aprovação por votação simbólica quando há acordo entre os líderes partidários.",
+      "sources_cited": [
+        "Regimento Interno da Câmara dos Deputados (RICD), arts. 185 e 186"
+      ],
+      "plan": {
+        "action": "call_tools",
+        "reasoning": "Alegação envolve regras gerais do funcionamento da Câmara.",
+        "steps": [
+          {
+            "tool": "check_institutional_rule",
+            "params": {
+              "topico": "votacao_simbolica"
+            }
+          }
+        ]
+      },
+      "latency_seconds": {
+        "orchestrator": 1.99,
+        "tools": 0.0,
+        "synthesizer": 5.49,
+        "total": 7.48
+      }
+    },
+    {
+      "id": 13,
+      "claim": "Todo deputado federal tem um teto fixo de R$ 500,00 por ano para gastar com combustível pela cota parlamentar.",
+      "category": "GASTOS",
+      "expected_verdict": "FALSO",
+      "actual_verdict": "FALSO",
+      "match": true,
+      "explanation": "Não existe teto fixo anual de R$ 500,00 para despesas de combustível na cota parlamentar da Câmara. O limite é mensal e fixado em até R$ 9.392,00.",
+      "sources_cited": [
+        "Ato da Mesa da Câmara dos Deputados nº 43/2009"
+      ],
+      "plan": {
+        "action": "call_tools",
+        "reasoning": "Alegação sobre teto de gastos específico precisa ser verificada usando ferramentas específicas.",
+        "steps": [
+          {
+            "tool": "check_institutional_rule",
+            "params": {
+              "topico": "teto_categoria_combustivel"
+            }
+          }
+        ]
+      },
+      "latency_seconds": {
+        "orchestrator": 2.099,
+        "tools": 0.0,
+        "synthesizer": 6.675,
+        "total": 8.775
+      }
+    },
+    {
+      "id": 14,
+      "claim": "O Portal da Transparência escondeu 100% das despesas com viagens internacionais dos ministros em 2023.",
+      "category": "GASTOS",
+      "expected_verdict": "FALSO",
+      "actual_verdict": "FALSO",
+      "match": true,
+      "explanation": "As despesas com viagens internacionais dos ministros em 2023 estão disponíveis publicamente no Portal da Transparência.",
+      "sources_cited": [
+        "Disponibilidade de dados (portal_transparencia)"
+      ],
+      "plan": {
+        "action": "call_tools",
+        "reasoning": "A alegação requer informações específicas sobre as despesas de viagem internacionais dos ministros, que podem estar ocultadas no Portal da Transparência.",
+        "steps": [
+          {
+            "tool": "check_data_source_coverage",
+            "params": {
+              "fonte": "portal_transparencia",
+              "tipo_dado": "viagens_internacionais_ministros"
+            }
+          }
+        ]
+      },
+      "latency_seconds": {
+        "orchestrator": 2.792,
+        "tools": 0.0,
+        "synthesizer": 5.142,
+        "total": 7.934
+      }
+    },
+    {
+      "id": 15,
+      "claim": "A votação do Marco Temporal na Câmara dos Deputados em 2023 foi unânime, sem nenhum deputado votando contra.",
+      "category": "VOTACOES",
+      "expected_verdict": "FALSO",
+      "actual_verdict": "INCONCLUSIVO",
+      "match": false,
+      "explanation": "Não foram encontradas evidências sobre a votação específica do Marco Temporal na Câmara dos Deputados em 2023.",
+      "sources_cited": [],
+      "plan": {
+        "action": "call_tools",
+        "reasoning": "Necessário verificar a votação específica do Marco Temporal na Câmara dos Deputados em 2023.",
+        "steps": [
+          {
+            "tool": "get_proposition_vote_result",
+            "params": {
+              "casa": "camara",
+              "id_proposicao": "2256735"
+            }
+          }
+        ]
+      },
+      "latency_seconds": {
+        "orchestrator": 2.849,
+        "tools": 1.931,
+        "synthesizer": 7.003,
+        "total": 11.783
+      }
+    },
+    {
+      "id": 16,
+      "claim": "Um deputado pode usar a cota parlamentar para comprar um imóvel em seu próprio nome.",
+      "category": "GASTOS",
+      "expected_verdict": "FALSO",
+      "actual_verdict": "FALSO",
+      "match": true,
+      "explanation": "A cota parlamentar não pode ser utilizada para comprar imóveis em nome pessoal, conforme regra institucional.",
+      "sources_cited": [
+        "Ato da Mesa da Câmara dos Deputados nº 43/2009",
+        "Lei nº 8.429/1992"
+      ],
+      "plan": {
+        "action": "call_tools",
+        "reasoning": "Alegação envolve uso da cota parlamentar, necessita de verificação específica.",
+        "steps": [
+          {
+            "tool": "check_institutional_rule",
+            "params": {
+              "topico": "cota_compra_bens"
+            }
+          }
+        ]
+      },
+      "latency_seconds": {
+        "orchestrator": 4.726,
+        "tools": 0.0,
+        "synthesizer": 12.374,
+        "total": 17.1
+      }
+    },
+    {
+      "id": 17,
+      "claim": "O Senado proibiu totalmente o uso da cota de gastos (CEAPS) para pagar passagens aéreas.",
+      "category": "GASTOS",
+      "expected_verdict": "FALSO",
+      "actual_verdict": "FALSO",
+      "match": true,
+      "explanation": "A cota CEAPS permite o uso para passagens aéreas, conforme listado nas categorias de despesas permitidas.",
+      "sources_cited": [
+        "Categorias de despesas permitidas na cota (senado)"
+      ],
+      "plan": {
+        "action": "call_tools",
+        "reasoning": "Alegação sobre restrição total à cota CEAPS, necessita de verificação através de ferramentas específicas.",
+        "steps": [
+          {
+            "tool": "check_institutional_rule",
+            "params": {
+              "topico": "teto_categoria_combustivel"
+            }
+          },
+          {
+            "tool": "list_expense_categories",
+            "params": {
+              "casa": "senado"
+            }
+          }
+        ]
+      },
+      "latency_seconds": {
+        "orchestrator": 2.887,
+        "tools": 0.016,
+        "synthesizer": 5.921,
+        "total": 8.824
+      }
+    },
+    {
+      "id": 18,
+      "claim": "Nenhum projeto de lei aprovado na Câmara dos Deputados passa por votação nas comissões temáticas.",
+      "category": "VOTACOES",
+      "expected_verdict": "FALSO",
+      "actual_verdict": "FALSO",
+      "match": true,
+      "explanation": "Os projetos de lei na Câmara dos Deputados passam obrigatoriamente por votação nas comissões temáticas, conforme estabelecido no Regimento Interno da Câmara (RICD).",
+      "sources_cited": [
+        "Regimento Interno da Câmara dos Deputados (RICD), arts. 24, 32 e 54"
+      ],
+      "plan": {
+        "action": "call_tools",
+        "reasoning": "Alegação refere-se à tramitação de projetos de lei, que pode ser verificada através dos sistemas disponíveis.",
+        "steps": [
+          {
+            "tool": "check_data_source_coverage",
+            "params": {
+              "fonte": "camara_tramitacao_projetos",
+              "tipo_dado": "comissao_tematica"
+            }
+          }
+        ]
+      },
+      "latency_seconds": {
+        "orchestrator": 2.491,
+        "tools": 0.0,
+        "synthesizer": 6.35,
+        "total": 8.841
+      }
+    },
+    {
+      "id": 19,
+      "claim": "Um partido pode receber a cota do Fundo Partidário sem prestar contas ao TSE de como gastou o dinheiro.",
+      "category": "GASTOS",
+      "expected_verdict": "FALSO",
+      "actual_verdict": "FALSO",
+      "match": true,
+      "explanation": "Partidos políticos são obrigados a prestar contas anualmente à Justiça Eleitoral sobre o uso dos recursos do Fundo Partidário.",
+      "sources_cited": [
+        "Lei nº 9.096/1995 (Lei dos Partidos Políticos), art. 32; e Resolução TSE nº 23.604/2019"
+      ],
+      "plan": {
+        "action": "call_tools",
+        "reasoning": "Alegação envolve prestação de contas ao TSE, que pode ser verificada com dados do portal_transparencia.",
+        "steps": [
+          {
+            "tool": "check_data_source_coverage",
+            "params": {
+              "fonte": "portal_transparencia",
+              "tipo_dado": "prestacao_contas_partido"
+            }
+          }
+        ]
+      },
+      "latency_seconds": {
+        "orchestrator": 1.966,
+        "tools": 0.0,
+        "synthesizer": 7.07,
+        "total": 9.036
+      }
+    },
+    {
+      "id": 20,
+      "claim": "O Senado Federal nunca votou a derrubada ou manutenção de um veto presidencial em sessão do Congresso.",
+      "category": "VOTACOES",
+      "expected_verdict": "FALSO",
+      "actual_verdict": "FALSO",
+      "match": true,
+      "explanation": "O Senado Federal já votou em sessões conjuntas para apreciar vetos presidenciais conforme estabelecido na Constituição Federal e no Regimento Comum do Congresso Nacional.",
+      "sources_cited": [
+        "Constituição Federal de 1988, art. 66, § 4º",
+        "Regimento Comum do Congresso Nacional (RCCN)"
+      ],
+      "plan": {
+        "action": "call_tools",
+        "reasoning": "Alegação sobre o processo específico de veto presidencial no Senado requer verificação através de ferramentas.",
+        "steps": [
+          {
+            "tool": "check_institutional_rule",
+            "params": {
+              "topico": "veto_presidencial"
+            }
+          }
+        ]
+      },
+      "latency_seconds": {
+        "orchestrator": 1.964,
+        "tools": 0.0,
+        "synthesizer": 6.459,
+        "total": 8.424
+      }
+    },
+    {
+      "id": 21,
+      "claim": "É preciso pagar uma assinatura para acessar os dados abertos de licitações no Portal da Transparência.",
+      "category": "GASTOS",
+      "expected_verdict": "FALSO",
+      "actual_verdict": "FALSO",
+      "match": true,
+      "explanation": "Os dados de licitações no Portal da Transparência são totalmente públicos e gratuitos, sem necessidade de assinatura.",
+      "sources_cited": [
+        "portal_transparencia"
+      ],
+      "plan": {
+        "action": "call_tools",
+        "reasoning": "A alegação requer verificação dos dados abertos de licitações no Portal da Transparência.",
+        "steps": [
+          {
+            "tool": "check_data_source_coverage",
+            "params": {
+              "fonte": "portal_transparencia",
+              "tipo_dado": "licitacoes_dados_abertos"
+            }
+          }
+        ]
+      },
+      "latency_seconds": {
+        "orchestrator": 2.307,
+        "tools": 0.0,
+        "synthesizer": 4.221,
+        "total": 6.527
+      }
+    },
+    {
+      "id": 22,
+      "claim": "Um senador pode usar a cota parlamentar para pagar os gastos da própria campanha eleitoral.",
+      "category": "GASTOS",
+      "expected_verdict": "FALSO",
+      "actual_verdict": "FALSO",
+      "match": true,
+      "explanation": "É proibido usar a cota parlamentar para custear despesas de campanha eleitoral.",
+      "sources_cited": [
+        "Ato da Mesa da Câmara nº 43/2009, art. 2º",
+        "Regulamento da CEAPS do Senado (Ato da Comissão Diretora nº 3/2003)"
+      ],
+      "plan": {
+        "action": "call_tools",
+        "reasoning": "Alegação envolve uso de cota parlamentar para despesas de campanha, requer verificação específica.",
+        "steps": [
+          {
+            "tool": "check_institutional_rule",
+            "params": {
+              "topico": "cota_campanha_vs_mandato"
+            }
+          }
+        ]
+      },
+      "latency_seconds": {
+        "orchestrator": 2.24,
+        "tools": 0.0,
+        "synthesizer": 6.628,
+        "total": 8.868
+      }
+    },
+    {
+      "id": 23,
+      "claim": "As sessões do Plenário da Câmara dos Deputados não ficam registradas em nenhuma ata ou sistema eletrônico.",
+      "category": "VOTACOES",
+      "expected_verdict": "FALSO",
+      "actual_verdict": "FALSO",
+      "match": true,
+      "explanation": "As sessões do Plenário da Câmara dos Deputados são registradas em notas taquigráficas e no Diário da Câmara, conforme estabelecido na RICD e Constituição Federal.",
+      "sources_cited": [
+        "camara_notas_taquigraficas"
+      ],
+      "plan": {
+        "action": "call_tools",
+        "reasoning": "Alegação refere-se a registros de sessões do Plenário, que pode ser verificado através dos sistemas de atas e registros.",
+        "steps": [
+          {
+            "tool": "check_data_source_coverage",
+            "params": {
+              "fonte": "camara_notas_taquigraficas",
+              "tipo_dado": "atas_discursos_plenario"
+            }
+          }
+        ]
+      },
+      "latency_seconds": {
+        "orchestrator": 2.44,
+        "tools": 0.0,
+        "synthesizer": 5.245,
+        "total": 7.685
+      }
+    },
+    {
+      "id": 24,
+      "claim": "O TSE proíbe que se divulgue publicamente o teto de gastos de campanha para presidente e governador.",
+      "category": "GASTOS",
+      "expected_verdict": "FALSO",
+      "actual_verdict": "FALSO",
+      "match": true,
+      "explanation": "As evidências mostram que o TSE publica e divulga obrigatoriamente os limites máximos de gastos para campanhas eleitorais.",
+      "sources_cited": [
+        "Lei nº 9.504/1997, arts. 18 e 18-C; Resoluções específicas do TSE",
+        "Disponibilidade de dados (tse_prestacao_contas)"
+      ],
+      "plan": {
+        "action": "call_tools",
+        "reasoning": "A alegação pede informações sobre um teto de gastos de campanha, que é uma informação específica e potencialmente protegida. Para checar essa informação precisa, devemos usar ferramentas específicas.",
+        "steps": [
+          {
+            "tool": "check_data_source_coverage",
+            "params": {
+              "fonte": "tse_prestacao_contas",
+              "tipo_dado": "teto_gastos_campanha"
+            }
+          }
+        ]
+      },
+      "latency_seconds": {
+        "orchestrator": 2.87,
+        "tools": 0.0,
+        "synthesizer": 7.705,
+        "total": 10.575
+      }
+    },
+    {
+      "id": 25,
+      "claim": "Um deputado gastou uma quantia muito alta com passagem aérea usando a cota parlamentar recentemente.",
+      "category": "GASTOS",
+      "expected_verdict": "INCONCLUSIVO",
+      "actual_verdict": "INCONCLUSIVO",
+      "match": true,
+      "explanation": "Alegação subespecificada ou não ancorada em parlamentar, data ou proposição específica.",
+      "sources_cited": [],
+      "plan": {
+        "action": "direct_verdict",
+        "verdict": "INCONCLUSIVO",
+        "reasoning": "Subespecificação detectada via heurística do Princípio III."
+      },
+      "latency_seconds": {
+        "orchestrator": 0.0,
+        "tools": 0.0,
+        "synthesizer": 0.0,
+        "total": 0.0
+      }
+    },
+    {
+      "id": 26,
+      "claim": "Um grupo de senadores votou contra uma proposta polêmica sobre segurança pública que estava sendo discutida no Senado.",
+      "category": "VOTACOES",
+      "expected_verdict": "INCONCLUSIVO",
+      "actual_verdict": "INCONCLUSIVO",
+      "match": true,
+      "explanation": "Alegação subespecificada ou não ancorada em parlamentar, data ou proposição específica.",
+      "sources_cited": [],
+      "plan": {
+        "action": "direct_verdict",
+        "verdict": "INCONCLUSIVO",
+        "reasoning": "Subespecificação detectada via heurística do Princípio III."
+      },
+      "latency_seconds": {
+        "orchestrator": 0.0,
+        "tools": 0.0,
+        "synthesizer": 0.0,
+        "total": 0.0
+      }
+    },
+    {
+      "id": 27,
+      "claim": "Nas redes sociais estão dizendo que um deputado usou a cota parlamentar para pagar despesas pessoais da família.",
+      "category": "GASTOS",
+      "expected_verdict": "INCONCLUSIVO",
+      "actual_verdict": "INCONCLUSIVO",
+      "match": true,
+      "explanation": "Alegação subespecificada ou não ancorada em parlamentar, data ou proposição específica.",
+      "sources_cited": [],
+      "plan": {
+        "action": "direct_verdict",
+        "verdict": "INCONCLUSIVO",
+        "reasoning": "Subespecificação detectada via heurística do Princípio III."
+      },
+      "latency_seconds": {
+        "orchestrator": 0.0,
+        "tools": 0.0,
+        "synthesizer": 0.0,
+        "total": 0.0
+      }
+    },
+    {
+      "id": 28,
+      "claim": "A Câmara dos Deputados deve votar em breve um projeto de lei sobre inteligência artificial.",
+      "category": "VOTACOES",
+      "expected_verdict": "INCONCLUSIVO",
+      "actual_verdict": "INCONCLUSIVO",
+      "match": true,
+      "explanation": "Alegação subespecificada ou não ancorada em parlamentar, data ou proposição específica.",
+      "sources_cited": [],
+      "plan": {
+        "action": "direct_verdict",
+        "verdict": "INCONCLUSIVO",
+        "reasoning": "Subespecificação detectada via heurística do Princípio III."
+      },
+      "latency_seconds": {
+        "orchestrator": 0.0,
+        "tools": 0.0,
+        "synthesizer": 0.0,
+        "total": 0.0
+      }
+    },
+    {
+      "id": 29,
+      "claim": "Um senador teria gastado muito dinheiro público com contratos de consultoria no ano passado.",
+      "category": "GASTOS",
+      "expected_verdict": "INCONCLUSIVO",
+      "actual_verdict": "INCONCLUSIVO",
+      "match": true,
+      "explanation": "Alegação subespecificada ou não ancorada em parlamentar, data ou proposição específica.",
+      "sources_cited": [],
+      "plan": {
+        "action": "direct_verdict",
+        "verdict": "INCONCLUSIVO",
+        "reasoning": "Subespecificação detectada via heurística do Princípio III."
+      },
+      "latency_seconds": {
+        "orchestrator": 0.0,
+        "tools": 0.0,
+        "synthesizer": 0.0,
+        "total": 0.0
+      }
+    },
+    {
+      "id": 30,
+      "claim": "Segundo comentários na imprensa, houve uma votação apertada na Câmara dos Deputados sobre um projeto ligado à área fiscal.",
+      "category": "VOTACOES",
+      "expected_verdict": "INCONCLUSIVO",
+      "actual_verdict": "INCONCLUSIVO",
+      "match": true,
+      "explanation": "Alegação subespecificada ou não ancorada em parlamentar, data ou proposição específica.",
+      "sources_cited": [],
+      "plan": {
+        "action": "direct_verdict",
+        "verdict": "INCONCLUSIVO",
+        "reasoning": "Subespecificação detectada via heurística do Princípio III."
+      },
+      "latency_seconds": {
+        "orchestrator": 0.0,
+        "tools": 0.0,
+        "synthesizer": 0.0,
+        "total": 0.0
+      }
+    }
+  ]
+}
