@@ -221,6 +221,7 @@ class LLMClient:
             model=planned_model,
             input=messages,
             metadata=base_metadata,
+            model_parameters={"temperature": self._temperature()},
         ) as generation:
             start = time.perf_counter()
             try:
@@ -261,7 +262,12 @@ class LLMClient:
     ) -> ChatResult:
         """Chat via API do Ollama (/api/chat)."""
         base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
-        body: Dict[str, Any] = {"model": model, "messages": messages, "stream": False}
+        body: Dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "options": {"temperature": self._temperature()},
+        }
         if tools:
             body["tools"] = tools
         if json_mode:
@@ -304,7 +310,11 @@ class LLMClient:
             url = "https://api.openai.com/v1/chat/completions"
             used_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
-        body: Dict[str, Any] = {"model": used_model, "messages": messages}
+        body: Dict[str, Any] = {
+            "model": used_model,
+            "messages": messages,
+            "temperature": self._temperature(),
+        }
         if tools:
             body["tools"] = tools
         if json_mode:
@@ -328,6 +338,14 @@ class LLMClient:
             provider=provider,
             model=data.get("model") or used_model,
         )
+
+    @staticmethod
+    def _temperature() -> float:
+        """Temperatura de amostragem (``LLM_TEMPERATURE``). Padrão 0: respostas reproduzíveis."""
+        try:
+            return float(os.getenv("LLM_TEMPERATURE", "0"))
+        except ValueError:
+            return 0.0
 
     @staticmethod
     def _normalize_tool_calls(raw_calls: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
