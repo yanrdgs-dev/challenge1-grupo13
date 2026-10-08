@@ -10,8 +10,9 @@ import os
 import time
 from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, HTTPException
-import httpx
 from pydantic import BaseModel, Field
+
+from src.core.llm_client import LLMClient
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("JudgeService")
@@ -22,8 +23,9 @@ app = FastAPI(
     version="1.0.0",
 )
 
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
 JUDGE_MODEL = os.getenv("JUDGE_MODEL", "qwen2.5:14b")
+# Timeout maior que o padrão: o julgamento com modelo 14b é mais lento que o roteamento.
+llm_client = LLMClient(timeout=float(os.getenv("JUDGE_LLM_TIMEOUT", "60.0")))
 
 
 class JudgeRequest(BaseModel):
@@ -81,25 +83,18 @@ Responda ESTRITAMENTE em formato JSON com o seguinte formato:
   "fontes_primarias": ["Nome da Fonte Oficial / Órgão"]
 }}"""
 
-    ollama_url = f"{OLLAMA_BASE_URL}/api/generate"
-    req_body = {
-        "model": JUDGE_MODEL,
-        "prompt": prompt,
-        "format": "json",
-        "stream": False,
-    }
-
     try:
-        with httpx.Client(timeout=60.0) as client:
-            resp = client.post(ollama_url, json=req_body)
-            resp.raise_for_status()
-            data = resp.json()
-            raw_response = data.get("response", "{}")
+        chat = llm_client.chat(
+            [{"role": "user", "content": prompt}],
+            model=JUDGE_MODEL,
+            json_mode=True,
+        )
+        raw_response = chat.content or "{}"
     except Exception as exc:
-        logger.error("Erro ao chamar Ollama para julgamento: %s", exc)
+        logger.error("Erro ao chamar o LLM para julgamento: %s", exc)
         raise HTTPException(
             status_code=503,
-            detail=f"Falha na comunicação com o modelo local Ollama ({OLLAMA_BASE_URL}): {exc}",
+            detail=f"Falha na comunicação com o provedor de LLM: {exc}",
         )
 
     tempo_ms = (time.perf_counter() - start_time) * 1000
