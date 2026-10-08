@@ -11,3 +11,4 @@ __all__ = [
     "scrape_dados_abertos_senado",
     "scrape_dados_abertos_tse",
 ]
+
