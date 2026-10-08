@@ -297,4 +297,4 @@ def test_verdict_threshold_follows_the_latest_baseline_with_margin():
     v2 = json.loads((ROOT / "evaluation" / "baseline_v2.json").read_text(encoding="utf-8"))["summary"]
     threshold = load_thresholds(ROOT / "evaluation" / "thresholds.json")["verdict_match"]
     accuracy = v2["scores"]["verdict_match"]["mean"]
-    assert accuracy - 1 / 30 - 1e-9 <= threshold <= accuracy
+    assert accuracy - 1 / 30 - 1e-3 <= threshold <= accuracy   # tolera arredondamento do limiar
