@@ -9,3 +9,5 @@ data:
   ROUTER_MODEL: "qwen2.5:7b"
   JUDGE_MODEL: "qwen2.5:14b"
   JUDGE_SERVICE_URL: "http://judge-service:8000"
+  # Langfuse Cloud. Região EU; para a região US use https://us.cloud.langfuse.com
+  LANGFUSE_HOST: "https://cloud.langfuse.com"

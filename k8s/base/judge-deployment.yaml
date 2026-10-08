@@ -23,6 +23,10 @@ spec:
           envFrom:
             - configMapRef:
                 name: factcheck-config
+            # Chaves do Langfuse. Opcional: sem o Secret, os pods sobem com tracing desligado.
+            - secretRef:
+                name: factcheck-langfuse
+                optional: true
           resources:
             requests:
               cpu: "250m"
