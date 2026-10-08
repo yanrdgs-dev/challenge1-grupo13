@@ -680,6 +680,7 @@ dependencies = [
 dev = [
     { name = "pytest" },
     { name = "pytest-mock" },
+    { name = "pyyaml" },
 ]
 eda = [
     { name = "matplotlib" },
@@ -706,6 +707,7 @@ requires-dist = [
 dev = [
     { name = "pytest", specifier = ">=8.0.0" },
     { name = "pytest-mock", specifier = ">=3.14.0" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
 ]
 eda = [
     { name = "matplotlib", specifier = ">=3.8.0" },
