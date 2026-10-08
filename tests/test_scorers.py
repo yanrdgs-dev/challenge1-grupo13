@@ -6,6 +6,7 @@ from src.evaluation.scorers import (
     Score,
     has_traceable_evidence,
     inconclusive_without_tool,
+    no_wrong_definitive,
     run_all_scorers,
     tool_category_match,
     verdict_match,
@@ -126,10 +127,35 @@ def test_not_applicable_when_inconclusive_is_expected():
 
 # -------------------------------- run_all_scorers -------------------------------- #
 
-def test_run_all_scorers_returns_the_four_deterministic_scores():
+# ------------------------------- no_wrong_definitive ------------------------------- #
+
+@pytest.mark.parametrize("got, want, value", [
+    ("VERDADEIRO", "VERDADEIRO", 1.0),     # acertou
+    ("FALSO", "FALSO", 1.0),
+    ("INCONCLUSIVO", "INCONCLUSIVO", 1.0),
+    ("INCONCLUSIVO", "VERDADEIRO", 1.0),   # cauteloso: errou para o lado seguro
+    ("INCONCLUSIVO", "FALSO", 1.0),
+    ("FALSO", "VERDADEIRO", 0.0),          # definitivo e contraditório
+    ("VERDADEIRO", "FALSO", 0.0),
+    ("VERDADEIRO", "INCONCLUSIVO", 0.0),   # afirmou o que devia deixar em aberto
+    ("FALSO", "INCONCLUSIVO", 0.0),
+])
+def test_no_wrong_definitive(got, want, value):
+    score = no_wrong_definitive(out(got), exp(want))
+    assert score.name == "no_wrong_definitive"
+    assert score.value == value
+
+
+def test_missing_verdict_is_not_a_wrong_definitive():
+    """Falha de infraestrutura (sem veredito) já é pontuada em verdict_match, não aqui."""
+    assert no_wrong_definitive({"veredito": None, "erro": "timeout"}, exp("FALSO")).value == 1.0
+
+
+def test_run_all_scorers_returns_the_deterministic_scores():
     scores = run_all_scorers(out("VERDADEIRO"), exp("VERDADEIRO"))
     assert [s.name for s in scores] == [
-        "verdict_match", "has_traceable_evidence", "inconclusive_without_tool", "tool_category_match",
+        "verdict_match", "no_wrong_definitive", "has_traceable_evidence",
+        "inconclusive_without_tool", "tool_category_match",
     ]
     assert all(isinstance(s, Score) for s in scores)
 

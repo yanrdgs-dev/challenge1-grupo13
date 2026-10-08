@@ -127,7 +127,8 @@ def test_evaluator_runs_scorers_with_category_from_metadata_and_skips_not_applic
         expected_output={"expected_verdict": "VERDADEIRO"}, metadata={"category": "GASTOS"},
     )
     assert {e.name: e.value for e in evals} == {
-        "verdict_match": 1.0, "has_traceable_evidence": 1.0, "tool_category_match": 1.0,
+        "verdict_match": 1.0, "no_wrong_definitive": 1.0,
+        "has_traceable_evidence": 1.0, "tool_category_match": 1.0,
     }  # inconclusive_without_tool não se aplica (None) e não é registrado
 
 
@@ -254,3 +255,29 @@ def test_dataset_mode_reads_items_from_langfuse():
         client, None, check_fn=perfect_check(claims), run_name="ds", thresholds={"verdict_match": 1.0},
         use_langfuse_dataset=True)
     assert summary["total"] == 30 and failures == []
+
+
+# --------------------- limiares versionados e baseline (3.4) --------------------- #
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_committed_thresholds_are_valid_and_keep_the_non_negotiable_rules():
+    thresholds = load_thresholds(ROOT / "evaluation" / "thresholds.json")
+    assert all(0.0 <= v <= 1.0 for v in thresholds.values())
+    assert thresholds["has_traceable_evidence"] == 1.0        # regra 1
+    assert thresholds["inconclusive_without_tool"] == 1.0     # regra 3
+    assert thresholds["no_wrong_definitive"] == 1.0           # nunca confiantemente errado
+    assert 0.0 < thresholds["verdict_match"] < 1.0            # vem do baseline
+
+
+def test_committed_baseline_passes_the_committed_gate():
+    baseline = json.loads((ROOT / "evaluation" / "baseline_v1.json").read_text(encoding="utf-8"))
+    summary = baseline["summary"]
+    assert summary["total"] == 30
+    # O baseline foi medido antes do scorer no_wrong_definitive: deriva-se da matriz de confusão.
+    matrix = summary["matrix"]
+    wrong = sum(matrix[e][g] for e in matrix for g in ("VERDADEIRO", "FALSO") if g != e)
+    assert wrong == 0
+    summary["scores"]["no_wrong_definitive"] = {"mean": 1.0 if wrong == 0 else 0.0, "n": 30}
+    assert check_gate(summary, load_thresholds(ROOT / "evaluation" / "thresholds.json")) == []
