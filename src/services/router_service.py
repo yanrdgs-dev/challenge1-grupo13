@@ -48,6 +48,14 @@ JUDGE_SERVICE_URL = os.getenv("JUDGE_SERVICE_URL", "http://judge-service:8000").
 
 class CheckClaimRequest(BaseModel):
     claim: str = Field(..., description="Frase ou alegação política a ser checada.")
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Identificador opaco da conversa (opcional; vale também para usuário deslogado).",
+    )
+    user_id: Optional[str] = Field(
+        default=None,
+        description="Identificador opaco do usuário logado (opcional). Não envie e-mail nem CPF.",
+    )
 
 
 class CheckClaimResponse(BaseModel):
@@ -204,7 +212,8 @@ def check_claim(payload: CheckClaimRequest):
     if not claim_text:
         raise HTTPException(status_code=400, detail="A claim não pode ser vazia.")
 
-    with tracing.observation("check_claim", input=claim_text) as root:
+    with tracing.trace_attributes(user_id=payload.user_id, session_id=payload.session_id), \
+         tracing.observation("check_claim", input=claim_text) as root:
         response = _run_check(claim_text, start_total)
         response.trace_id = root.trace_id
         root.update(
@@ -215,6 +224,7 @@ def check_claim(payload: CheckClaimRequest):
                 "release": tracing.release(),
             },
         )
+        root.score_trace(name="veredito", value=response.veredito)
         return response
 
 
