@@ -10,8 +10,14 @@ import json
 import os
 import sys
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 import httpx
+
+# Permite rodar o script diretamente (python scripts/demo_qwen_tool_routing.py)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from src.tools.knowledge_tools import DATA_SOURCES, INSTITUTIONAL_TOPICS, available_data_types  # noqa: E402
 
 # Adiciona o diretório raiz ao PYTHONPATH
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -209,6 +215,73 @@ TOOLS_CATALOG: List[Dict[str, Any]] = [
     },
 ]
 
+_TOPIC_HINTS = (
+    "calculo_cota_por_uf (o valor da cota parlamentar varia por UF), "
+    "sabatina_stf (como o Senado aprova ministros do STF), "
+    "votacao_simbolica (aprovação por acordo de líderes), "
+    "teto_categoria_combustivel (existe teto fixo para combustível), "
+    "prestacao_contas_partido (partido prestar contas ao TSE / Fundo Partidário), "
+    "veto_presidencial (como o Congresso aprecia vetos), "
+    "lai_gratuidade (acesso gratuito a dados públicos), "
+    "cota_campanha_vs_mandato (usar a cota parlamentar em campanha), "
+    "teto_gastos_campanha (divulgação do teto de gastos de campanha), "
+    "cota_compra_bens (usar a cota para comprar bens/imóveis), "
+    "tramitacao_comissoes (passagem de projetos por comissões temáticas), "
+    "consultoria_ceaps (senadores contratarem consultoria com a verba CEAPS)"
+)
+
+TOOLS_CATALOG.extend([
+    {
+        "type": "function",
+        "function": {
+            "name": "check_institutional_rule",
+            "description": (
+                "Consulta a base normativa curada para claims sobre o que é PERMITIDO ou COMO FUNCIONA "
+                "um procedimento (regimento, legislação, normas da cota parlamentar e eleitorais). "
+                "NÃO use para valores, rankings ou votos que aconteceram (para isso use as tools de dados). "
+                f"Tópicos: {_TOPIC_HINTS}."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "topico": {
+                        "type": "string",
+                        "enum": list(INSTITUTIONAL_TOPICS),
+                        "description": "Tópico normativo que melhor corresponde à claim.",
+                    },
+                },
+                "required": ["topico"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_data_source_coverage",
+            "description": (
+                "Confirma se um tipo de dado público está DISPONÍVEL (e se é gratuito/público) numa fonte oficial. "
+                "Usar para claims do tipo 'dá para consultar X no Portal da Transparência/TSE/Câmara'."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "fonte": {
+                        "type": "string",
+                        "enum": list(DATA_SOURCES),
+                        "description": "Fonte oficial citada na claim.",
+                    },
+                    "tipo_dado": {
+                        "type": "string",
+                        "enum": list(available_data_types()),
+                        "description": "Recorte do dado cuja disponibilidade se quer confirmar.",
+                    },
+                },
+                "required": ["fonte", "tipo_dado"],
+            },
+        },
+    },
+])
+
 ROUTER_SYSTEM_PROMPT = (
     "Você é o Agente Roteador do sistema de fact-checking político brasileiro.\n"
     "Seu papel é analisar a alegação (claim) fornecida e escolher a ferramenta (tool) "
@@ -222,6 +295,9 @@ ROUTER_SYSTEM_PROMPT = (
     "- Se a alegação pergunta sobre ranking de gastos ou 'quem mais gastou a cota (CEAP/CEAPS)', utilize 'get_top_ceap_spender'.\n"
     "- Se a alegação questiona se um tipo de gasto é permitido ou elegível (ex: consultoria, combustível), utilize 'list_expense_categories'.\n"
     "- Se a alegação cita limites monetários numéricos de gastos (ex: 'R$ 500 por mês'), utilize 'check_parliamentary_expenses'.\n"
+    "- Se a alegação trata do que é PERMITIDO ou de COMO FUNCIONA um procedimento (regra, regimento, lei), utilize 'check_institutional_rule' com o tópico mais próximo. "
+    "Regras e normas NÃO são resolvidas com tools de dados.\n"
+    "- Se a alegação afirma que um dado público pode (ou não) ser consultado numa fonte oficial (Portal da Transparência, TSE, Câmara), utilize 'check_data_source_coverage'.\n"
     "Extraia todos os parâmetros possíveis (casa, número, ano, sigla, estado/UF) diretamente da frase."
 )
 

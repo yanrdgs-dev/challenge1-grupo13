@@ -28,6 +28,7 @@ from src.tools.gastos_tools import (
     get_top_ceap_spender,
     list_expense_categories,
 )
+from src.tools.knowledge_tools import check_data_source_coverage, check_institutional_rule
 from src.tools.resolve_politician import resolve_politician
 from src.tools.resolve_proposition import resolve_proposition
 from src.tools.votacoes_api import get_proposition_vote_result
@@ -200,6 +201,19 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
             )
         votacoes = get_proposition_vote_result(id_proposicao=prop_id, casa=casa)
         return {"casa": casa, "id_proposicao": prop_id, "votacoes": votacoes}
+    if tool_name == "check_institutional_rule":
+        # Regra 4: base normativa curada; não consulta dado transacional nem resolve entidade.
+        try:
+            return check_institutional_rule(topico=args.get("topico", ""))
+        except ValueError as exc:
+            return {"encontrado": False, "erro": str(exc)}
+    if tool_name == "check_data_source_coverage":
+        try:
+            return check_data_source_coverage(
+                fonte=args.get("fonte", ""), tipo_dado=args.get("tipo_dado", "")
+            )
+        except ValueError as exc:
+            return {"encontrado": False, "erro": str(exc)}
     return {"erro": f"Tool '{tool_name}' não implementada no roteador."}
 
 

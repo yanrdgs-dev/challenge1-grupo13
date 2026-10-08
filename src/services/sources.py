@@ -21,7 +21,11 @@ def evidence_failed(evidence: Optional[Dict[str, Any]]) -> bool:
     """True quando a tool não produziu dado utilizável (erro, ausente ou entidade não resolvida)."""
     if not evidence:
         return True
-    return bool(evidence.get("erro")) or evidence.get("status") == "entidade_nao_resolvida"
+    return (
+        bool(evidence.get("erro"))
+        or evidence.get("status") == "entidade_nao_resolvida"
+        or evidence.get("encontrado") is False
+    )
 
 
 def _by_casa(casa: Optional[str], camara: str, senado: str) -> List[str]:
@@ -48,6 +52,10 @@ def derive_sources(
         return _by_casa(casa, CAMARA_CEAP, SENADO_CEAPS)
     if tool_name in ("resolve_proposition", "get_proposition_vote_result"):
         return _by_casa(casa, CAMARA, SENADO)
+    if tool_name == "check_institutional_rule":
+        return [evidence["fonte_normativa"]] if evidence.get("fonte_normativa") else []
+    if tool_name == "check_data_source_coverage":
+        return [ref for ref in (evidence.get("base_legal"), evidence.get("url_referencia")) if ref]
     if tool_name == "resolve_politician":
         sources = []
         if evidence.get("ideCadastro"):
