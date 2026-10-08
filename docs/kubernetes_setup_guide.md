@@ -126,7 +126,7 @@ router-service   LoadBalancer    10.96.210.12     8000:30080/TCP   1m
 O projeto usa o **Langfuse Cloud** para rastrear as chamadas. A configuração é opcional: sem ela, os pods sobem normalmente com o tracing desligado.
 
 1. Crie uma conta e um projeto em [cloud.langfuse.com](https://cloud.langfuse.com) e gere as chaves em *Settings > API Keys*.
-2. Confira a região em `k8s/base/configmap.yaml` (`LANGFUSE_HOST`). O padrão é a EU; para a região US, use `https://us.cloud.langfuse.com`.
+2. Confira a região em `k8s/base/configmap.yaml` (`LANGFUSE_BASE_URL`). O padrão é a EU; para a região US, use `https://us.cloud.langfuse.com`.
 3. Crie o Secret direto no cluster, sem salvar as chaves em arquivo:
 
 ```bash
