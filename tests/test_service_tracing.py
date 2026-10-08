@@ -136,21 +136,31 @@ def test_judge_call_span_records_verdict_and_failure(trace_recorder):
     assert "judge fora do ar" in update["status_message"]
 
 
-def test_resolve_span_wraps_the_resolver_inside_execute_tool(trace_recorder):
-    with patch.object(router_service, "resolve_politician", return_value={"ideCadastro": 7}):
-        evidence = router_service.execute_tool("resolve_politician", {"nome_busca": "Fulano"})
+def test_resolver_chosen_as_tool_has_single_span_without_duplicate_child(trace_recorder):
+    """tool.<nome> já representa o resolver escolhido; não há span interno duplicado."""
+    chat = _router_chat([{"name": "resolve_politician", "arguments": {"nome_busca": "Fulano"}}])
+    with patch.object(router_service, "llm_client") as llm, \
+         patch.object(router_service, "resolve_politician", return_value={"ideCadastro": 7}), \
+         patch.object(router_service, "_call_judge", return_value=JUDGE_OK):
+        llm.chat.return_value = chat
+        router_client.post("/check", json={"claim": CLAIM})
 
-    assert evidence == {"ideCadastro": 7}
-    assert trace_recorder.tree() == [("resolve_politician", None)]
-    assert trace_recorder.get("resolve_politician")["kwargs"]["input"] == {"nome_busca": "Fulano"}
-    assert trace_recorder.merged_updates("resolve_politician")["output"] == {"ideCadastro": 7}
+    names = [n for n, _ in trace_recorder.tree()]
+    assert names.count("tool.resolve_politician") == 1
+    assert "resolve_politician" not in names
+    assert trace_recorder.merged_updates("tool.resolve_politician")["output"] == {"ideCadastro": 7}
 
 
-def test_resolve_proposition_span(trace_recorder):
-    with patch.object(router_service, "resolve_proposition", return_value={"id": 5}):
-        router_service.execute_tool("resolve_proposition", {"sigla_tipo": "PL", "numero": 1, "ano": 2023})
+def test_any_chosen_tool_gets_a_tool_span(trace_recorder):
+    """Tools de dados (não resolvers) também ganham o span tool.<nome>."""
+    chat = _router_chat([{"name": "check_parliamentary_expenses", "arguments": {"ano": 2023}}])
+    with patch.object(router_service, "llm_client") as llm, \
+         patch.object(router_service, "execute_tool", return_value={"total": 10.0}), \
+         patch.object(router_service, "_call_judge", return_value=JUDGE_OK):
+        llm.chat.return_value = chat
+        router_client.post("/check", json={"claim": CLAIM})
 
-    assert trace_recorder.tree() == [("resolve_proposition", None)]
+    assert ("tool.check_parliamentary_expenses", "check_claim") in trace_recorder.tree()
 
 
 # ------------------------------- judge -------------------------------- #
