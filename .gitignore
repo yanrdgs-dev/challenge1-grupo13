@@ -52,3 +52,4 @@ datasets/tse/
 *.zip
 *.duckdb
 *.db
+site/
