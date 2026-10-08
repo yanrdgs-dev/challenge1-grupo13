@@ -1,0 +1,112 @@
+site_name: Factcheck Agent — Documentação
+site_description: "Agente de fact-checking político brasileiro: pipeline completo de dados, tools, agentes e infraestrutura."
+site_url: https://yanrdgs-dev.github.io/challenge1-grupo13/
+repo_url: https://github.com/yanrdgs-dev/challenge1-grupo13
+repo_name: challenge1-grupo13
+edit_uri: edit/main/site-docs/
+docs_dir: site-docs
+site_dir: site
+
+theme:
+  name: material
+  language: pt
+  logo: assets/logo.svg
+  favicon: assets/logo.svg
+  palette:
+    - scheme: slate
+      primary: deep purple
+      accent: cyan
+      toggle:
+        icon: material/weather-sunny
+        name: Mudar para modo claro
+    - scheme: default
+      primary: deep purple
+      accent: cyan
+      toggle:
+        icon: material/weather-night
+        name: Mudar para modo escuro
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.instant
+    - navigation.footer
+    - toc.integrate
+    - search.suggest
+    - search.highlight
+    - content.code.annotate
+    - content.code.copy
+    - content.tabs.link
+  icon:
+    repo: fontawesome/brands/github
+    edit: material/pencil
+    view: material/eye
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/yanrdgs-dev/challenge1-grupo13
+  version:
+    provider: mike
+
+plugins:
+  - search:
+      lang: pt
+  - awesome-pages
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - meta
+  - toc:
+      permalink: true
+      title: Nesta página
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+nav:
+  - Início: index.md
+  - Arquitetura: arquitetura.md
+  - Pipeline:
+    - Visão Geral: pipeline/index.md
+    - "Etapa 1 — Dados": pipeline/01-dados.md
+    - "Etapa 2 — ETL": pipeline/02-etl.md
+    - "Etapa 3 — Ingestão Web": pipeline/03-ingestao.md
+    - "Etapa 4 — Tools": pipeline/04-tools.md
+    - "Etapa 5 — Agentes": pipeline/05-agentes.md
+    - "Etapa 6 — API & Serviços": pipeline/06-api.md
+    - "Etapa 7 — Interface": pipeline/07-interface.md
+    - "Etapa 8 — Infraestrutura": pipeline/08-infra.md
+  - Golden Dataset: golden-dataset.md
+  - Testes: testes.md
+  - Contribuindo: contribuindo.md
