@@ -63,9 +63,18 @@ def traceparent_header() -> Dict[str, str]:
     return {"traceparent": f"00-{trace_id}-{span_id}-01"}
 
 
+def release() -> Optional[str]:
+    """Versão da aplicação: ``GIT_SHA`` (injetado no build) ou ``LANGFUSE_RELEASE``."""
+    return os.getenv("GIT_SHA") or os.getenv("LANGFUSE_RELEASE") or None
+
+
 def _get_client() -> Any:
     from langfuse import get_client
 
+    # O SDK só conhece LANGFUSE_RELEASE; mapeia o GIT_SHA do build antes de criar o client.
+    git_sha = os.getenv("GIT_SHA")
+    if git_sha and not os.getenv("LANGFUSE_RELEASE"):
+        os.environ["LANGFUSE_RELEASE"] = git_sha
     return get_client()
 
 
