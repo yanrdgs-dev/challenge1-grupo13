@@ -358,3 +358,21 @@ def test_ids_work_with_tracing_off():
     resp = _check({"claim": CLAIM, "session_id": "s", "user_id": "u"})
     assert resp.status_code == 200
     assert resp.json()["trace_id"] is None
+
+
+# ------------------------- flush no encerramento (2.6) ------------------------- #
+
+@pytest.mark.parametrize("service", [router_service, judge_service])
+def test_service_shutdown_flushes_langfuse(service):
+    with patch("src.observability.tracing.shutdown") as shutdown:
+        with TestClient(service.app):
+            shutdown.assert_not_called()  # só no encerramento
+    shutdown.assert_called_once()
+
+
+@pytest.mark.parametrize("service", [router_service, judge_service])
+def test_service_shutdown_survives_langfuse_failure(service):
+    """O wrapper já captura erros; o encerramento não pode falhar nem com o SDK quebrado."""
+    with patch("src.observability.tracing._get_client", side_effect=Exception("sem rede")):
+        with TestClient(service.app):
+            pass

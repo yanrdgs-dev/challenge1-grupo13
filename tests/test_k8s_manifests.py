@@ -97,3 +97,20 @@ def test_secret_example_is_not_rendered_and_has_only_placeholders():
     values = example["stringData"]
     assert set(values) == {"LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"}
     assert all(v.startswith("<") and v.endswith(">") for v in values.values())
+
+
+# --------------------------------------------------------------------------- #
+# Encerramento limpo: o pod recebe SIGTERM e o serviço envia os traces pendentes
+# --------------------------------------------------------------------------- #
+
+@pytest.mark.parametrize("name", ["router-deployment", "judge-deployment"])
+def test_deployments_have_prestop_and_enough_grace_period(name):
+    dep = next(d for d in by_kind(render(K8S / "overlays/dev"), "Deployment")
+               if d["metadata"]["name"] == name)
+    pod = dep["spec"]["template"]["spec"]
+    container = pod["containers"][0]
+
+    prestop = container["lifecycle"]["preStop"]["exec"]["command"]
+    assert prestop[0] == "sleep" and int(prestop[1]) > 0
+    # O grace period precisa cobrir o preStop + o flush do Langfuse
+    assert pod["terminationGracePeriodSeconds"] >= int(prestop[1]) + 20
