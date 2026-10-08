@@ -224,23 +224,26 @@ def _resolve_ceap_dataset(
 
         else:
             # Resolução das colunas do Senado (CEAPS)
+            def senado_col(candidates, default_expr):
+                """Primeira coluna existente entre os candidatos; senão um valor padrão."""
+                found = next((c for c in candidates if c in schema_cols), None)
+                return pl.col(found).cast(pl.Utf8).fill_null("") if found else default_expr
+
             id_col = "COD_SENADOR" if "COD_SENADOR" in schema_cols else "idSenador"
             nome_col = "SENADOR" if "SENADOR" in schema_cols else "NOME_SENADOR"
-            uf_col = "UF" if "UF" in schema_cols else "siglaUf"
-            partido_col = "PARTIDO" if "PARTIDO" in schema_cols else "siglaPartido"
             ano_col = "ANO" if "ANO" in schema_cols else "ano"
             cat_col = "TIPO_DESPESA" if "TIPO_DESPESA" in schema_cols else "tipoDespesa"
-            fornec_col = "FORNECEDOR" if "FORNECEDOR" in schema_cols else "fornecedor"
             vlr_col = "VALOR_REEMBOLSADO" if "VALOR_REEMBOLSADO" in schema_cols else "vlrLiquido"
 
+            # O parquet real do CEAPS não traz UF nem partido: ficam vazios em vez de quebrar.
             norm_lf = raw_lf.select([
                 (pl.col(id_col).cast(pl.Utf8).fill_null("") if id_col in schema_cols else pl.lit("")).alias("id_parlamentar"),
                 pl.col(nome_col).cast(pl.Utf8).fill_null("NÃO INFORMADO").alias("nome_parlamentar"),
-                pl.col(uf_col).cast(pl.Utf8).fill_null("").alias("uf"),
-                pl.col(partido_col).cast(pl.Utf8).fill_null("").alias("partido"),
+                senado_col(("UF", "siglaUf"), pl.lit("")).alias("uf"),
+                senado_col(("PARTIDO", "siglaPartido"), pl.lit("")).alias("partido"),
                 (pl.col(ano_col).cast(pl.Int64) if ano_col in schema_cols else pl.lit(ano or 0).cast(pl.Int64)).alias("ano"),
                 pl.col(cat_col).cast(pl.Utf8).fill_null("OUTROS").alias("categoria"),
-                pl.col(fornec_col).cast(pl.Utf8).fill_null("").alias("fornecedor"),
+                senado_col(("FORNECEDOR", "NOME_FORNECEDOR", "fornecedor"), pl.lit("")).alias("fornecedor"),
                 pl.col(vlr_col).cast(pl.Float64).fill_null(0.0).alias("valor"),
             ])
             return norm_lf
