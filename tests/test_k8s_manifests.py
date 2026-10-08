@@ -67,3 +67,33 @@ def test_config_is_preserved_in_dev_overlay():
 def test_old_flat_manifests_were_moved():
     """Evita que `kubectl apply -f k8s/` aplique manifests duplicados."""
     assert not list(K8S.glob("*.yaml"))
+
+
+# --------------------------------------------------------------------------- #
+# Langfuse Cloud: host na ConfigMap e chaves num Secret opcional
+# --------------------------------------------------------------------------- #
+
+def test_configmap_has_langfuse_host_and_tracing_flag():
+    cfg = by_kind(render(K8S / "overlays/dev"), "ConfigMap")[0]["data"]
+    assert cfg["LANGFUSE_HOST"].startswith("https://")
+    assert "LANGFUSE_PUBLIC_KEY" not in cfg and "LANGFUSE_SECRET_KEY" not in cfg
+
+
+@pytest.mark.parametrize("name", ["router-deployment", "judge-deployment"])
+def test_deployments_load_langfuse_secret_as_optional(name):
+    """Sem o Secret criado, os pods continuam subindo (tracing desligado)."""
+    dep = next(d for d in by_kind(render(K8S / "overlays/dev"), "Deployment")
+               if d["metadata"]["name"] == name)
+    env_from = dep["spec"]["template"]["spec"]["containers"][0]["envFrom"]
+    secret_refs = [e["secretRef"] for e in env_from if "secretRef" in e]
+    assert {"name": "factcheck-langfuse", "optional": True} in secret_refs
+
+
+def test_secret_example_is_not_rendered_and_has_only_placeholders():
+    assert not by_kind(render(K8S / "overlays/dev"), "Secret")
+    example = yaml.safe_load((K8S / "base" / "secret.example.yaml").read_text())
+    assert example["kind"] == "Secret"
+    assert example["metadata"]["name"] == "factcheck-langfuse"
+    values = example["stringData"]
+    assert set(values) == {"LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY"}
+    assert all(v.startswith("<") and v.endswith(">") for v in values.values())
