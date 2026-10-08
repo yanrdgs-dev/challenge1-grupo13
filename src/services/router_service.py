@@ -62,6 +62,9 @@ class CheckClaimResponse(BaseModel):
     tempo_total_ms: float
     tempo_roteamento_ms: float
     tempo_julgamento_ms: Optional[float] = None
+    trace_id: Optional[str] = Field(
+        default=None, description="ID do trace no Langfuse (nulo com o tracing desligado)."
+    )
 
 
 @app.get("/health")
@@ -203,7 +206,15 @@ def check_claim(payload: CheckClaimRequest):
 
     with tracing.observation("check_claim", input=claim_text) as root:
         response = _run_check(claim_text, start_total)
-        root.update(output={"veredito": response.veredito, "tool_usada": response.tool_usada})
+        response.trace_id = root.trace_id
+        root.update(
+            output={"veredito": response.veredito, "tool_usada": response.tool_usada},
+            metadata={
+                "veredito": response.veredito,
+                "tool_usada": response.tool_usada,
+                "release": tracing.release(),
+            },
+        )
         return response
 
 
