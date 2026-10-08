@@ -126,3 +126,26 @@ def test_data_source_coverage_without_url_cites_only_legal_basis():
 def test_not_found_in_curated_base_means_no_source(tool):
     evidence = {"encontrado": False, "fonte_normativa": None, "base_legal": None, "mensagem": "não catalogado"}
     assert derive_sources(tool, {}, evidence) == []
+
+
+# --------------- entidade ambígua ou não encontrada não sustenta veredito --------------- #
+
+def test_ambiguous_resolution_is_failed_evidence():
+    from src.services.sources import evidence_failed
+
+    assert evidence_failed({"id_proposicao": None, "ambiguous": True, "candidatos": [{}, {}]})
+    assert evidence_failed({"ideCadastro": None, "ambiguous": True})
+
+
+def test_resolved_entity_is_not_failed_evidence():
+    from src.services.sources import evidence_failed
+
+    assert not evidence_failed({"id_proposicao": 1, "ambiguous": False})
+    assert not evidence_failed({"ideCadastro": 7, "ambiguous": False})
+
+
+def test_unresolved_proposition_has_no_source():
+    assert derive_sources("resolve_proposition", {"casa": "camara"},
+                          {"id_proposicao": None, "ambiguous": False, "casa": "camara"}) == []
+    assert derive_sources("resolve_proposition", {"casa": "camara"},
+                          {"id_proposicao": 5, "ambiguous": False, "casa": "camara"}) == [CAMARA]
