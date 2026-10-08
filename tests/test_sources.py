@@ -98,3 +98,31 @@ def test_ensure_source_cited_does_not_repeat_when_already_cited():
 
 def test_ensure_source_cited_without_sources_keeps_text():
     assert ensure_source_cited("Sem fonte.", []) == "Sem fonte."
+
+
+# ----------------------- tools normativas (base curada) ----------------------- #
+
+def test_institutional_rule_cites_its_normative_source():
+    evidence = {"encontrado": True, "fonte_normativa": "Constituição Federal, art. 52, III"}
+    assert derive_sources("check_institutional_rule", {"topico": "sabatina_stf"}, evidence) == [
+        "Constituição Federal, art. 52, III"
+    ]
+
+
+def test_data_source_coverage_cites_legal_basis_and_reference():
+    evidence = {"encontrado": True, "base_legal": "Lei 9.504/1997", "url_referencia": "https://divulgacandcontas.tse.jus.br"}
+    assert derive_sources("check_data_source_coverage", {}, evidence) == [
+        "Lei 9.504/1997",
+        "https://divulgacandcontas.tse.jus.br",
+    ]
+
+
+def test_data_source_coverage_without_url_cites_only_legal_basis():
+    evidence = {"encontrado": True, "base_legal": "Lei 12.527/2011 (LAI)", "url_referencia": None}
+    assert derive_sources("check_data_source_coverage", {}, evidence) == ["Lei 12.527/2011 (LAI)"]
+
+
+@pytest.mark.parametrize("tool", ["check_institutional_rule", "check_data_source_coverage"])
+def test_not_found_in_curated_base_means_no_source(tool):
+    evidence = {"encontrado": False, "fonte_normativa": None, "base_legal": None, "mensagem": "não catalogado"}
+    assert derive_sources(tool, {}, evidence) == []

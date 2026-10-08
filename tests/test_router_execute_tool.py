@@ -195,3 +195,51 @@ def test_check_returns_json_serializable_evidence_from_data_tool():
     data = resp.json()
     assert data["tool_usada"] == "get_top_ceap_spender"
     assert data["evidencia_coletada"]["gastadores"][0]["posicao"] == 1
+
+
+# --------------------- tools de regra institucional (base curada) --------------------- #
+
+RULE = {"encontrado": True, "topico": "sabatina_stf", "resposta_resumida": "Votação secreta.",
+        "fonte_normativa": "Constituição Federal, art. 52, III", "fundamentacao": "x", "veredito_regra": "votacao_secreta"}
+COVERAGE = {"encontrado": True, "fonte": "tse_prestacao_contas", "tipo_dado": "despesas_campanha_candidatos",
+            "disponivel": True, "url_referencia": "https://divulgacandcontas.tse.jus.br", "base_legal": "Lei 9.504/1997",
+            "observacao": ""}
+
+
+def test_check_institutional_rule_dispatch():
+    with patch.object(router_service, "check_institutional_rule", return_value=RULE) as tool:
+        result = execute_tool("check_institutional_rule", {"topico": "sabatina_stf"})
+    tool.assert_called_once_with(topico="sabatina_stf")
+    assert result == RULE
+
+
+def test_check_data_source_coverage_dispatch():
+    with patch.object(router_service, "check_data_source_coverage", return_value=COVERAGE) as tool:
+        result = execute_tool(
+            "check_data_source_coverage",
+            {"fonte": "tse_prestacao_contas", "tipo_dado": "despesas_campanha_candidatos"},
+        )
+    tool.assert_called_once_with(fonte="tse_prestacao_contas", tipo_dado="despesas_campanha_candidatos")
+    assert result == COVERAGE
+
+
+def test_normative_tools_run_on_the_real_curated_base():
+    rule = execute_tool("check_institutional_rule", {"topico": "sabatina_stf"})
+    assert rule["encontrado"] is True and rule["fonte_normativa"]
+    cov = execute_tool("check_data_source_coverage",
+                       {"fonte": "portal_transparencia", "tipo_dado": "licitacoes_dados_abertos"})
+    assert cov["encontrado"] is True and cov["base_legal"]
+
+
+def test_normative_tools_never_touch_transactional_data():
+    """Regra 4: claim normativa não consulta dado transacional nem resolve entidade."""
+    with patch.object(router_service, "resolve_politician") as resolver, \
+         patch.object(router_service, "check_parliamentary_expenses") as expenses:
+        execute_tool("check_institutional_rule", {"topico": "cota_compra_bens"})
+    resolver.assert_not_called()
+    expenses.assert_not_called()
+
+
+def test_unknown_topic_is_not_found_not_invented():
+    result = execute_tool("check_institutional_rule", {"topico": "topico_que_nao_existe"})
+    assert result["encontrado"] is False
