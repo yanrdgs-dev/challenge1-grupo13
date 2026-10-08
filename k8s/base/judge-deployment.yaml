@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: judge-agent
-          image: factcheck-judge:v2
+          image: factcheck-judge
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8000
