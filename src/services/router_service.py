@@ -90,23 +90,21 @@ def _resolve_politician_with_fallback(args: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Executa a tool Python real mapeada pelo Roteador."""
+    """Executa a tool Python real mapeada pelo Roteador.
+
+    O span ``tool.<nome>`` é aberto pelo chamador; tools de dados que resolverem entidades
+    internamente (regra 2) devem abrir seus próprios spans ``resolve_*`` dentro dele.
+    """
     if tool_name == "resolve_politician":
-        with tracing.observation("resolve_politician", input=args) as span:
-            res = _resolve_politician_with_fallback(args)
-            span.update(output=res)
-            return res
+        return _resolve_politician_with_fallback(args)
     elif tool_name == "resolve_proposition":
-        with tracing.observation("resolve_proposition", input=args) as span:
-            res = resolve_proposition(
-                casa=args.get("casa", "camara"),
-                sigla_tipo=args.get("sigla_tipo"),
-                numero=args.get("numero"),
-                ano=args.get("ano"),
-                termo_busca=args.get("termo_busca"),
-            )
-            span.update(output=res)
-            return res
+        return resolve_proposition(
+            casa=args.get("casa", "camara"),
+            sigla_tipo=args.get("sigla_tipo"),
+            numero=args.get("numero"),
+            ano=args.get("ano"),
+            termo_busca=args.get("termo_busca"),
+        )
     return {
         "status": "tool_simulada",
         "mensagem": f"Tool '{tool_name}' mapeada com parâmetros: {args}",
