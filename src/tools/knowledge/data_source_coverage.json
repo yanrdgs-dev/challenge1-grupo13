@@ -1,0 +1,71 @@
+{
+  "portal_transparencia": {
+    "nome_fonte": "Portal da Transparência do Governo Federal (CGU)",
+    "tipos_dados": {
+      "diarias_passagens_ministerios": {
+        "tipo_dado": "diarias_passagens_ministerios",
+        "disponivel": true,
+        "url_referencia": "https://portaldatransparencia.gov.br/viagens",
+        "base_legal": "Lei nº 12.527/2011 (LAI) e Decreto nº 7.724/2012",
+        "observacao": "O Painel de Viagens e a seção de Gastos Diretos do Portal da Transparência detalham os gastos de diárias, passagens aéreas e transporte oficial de cada ministério e órgão do Poder Executivo Federal por servidor, período e destino."
+      },
+      "emendas_relator_rp9": {
+        "tipo_dado": "emendas_relator_rp9",
+        "disponivel": true,
+        "url_referencia": "https://portaldatransparencia.gov.br/emendas",
+        "base_legal": "Decisão do STF na ADPF 850 e ADPF 854; e Portaria Interministerial ME/SEGOV nº 1/2021",
+        "observacao": "Os repasses e ordens bancárias das emendas de relator-geral (RP9) passaram a ser divulgados com identificação dos parlamentares solicitantes e beneficiários no Portal da Transparência em cumprimento às decisões do STF."
+      },
+      "viagens_internacionais_ministros": {
+        "tipo_dado": "viagens_internacionais_ministros",
+        "disponivel": true,
+        "url_referencia": "https://portaldatransparencia.gov.br/viagens",
+        "base_legal": "Lei nº 12.527/2011 (LAI) e Decreto nº 5.992/2006",
+        "observacao": "As despesas e afastamentos para viagens internacionais de autoridades e ministros de Estado são públicas, discriminadas por motivo da viagem, valores de diárias internacionais e custos de passagens aéreas."
+      },
+      "licitacoes_dados_abertos": {
+        "tipo_dado": "licitacoes_dados_abertos",
+        "disponivel": true,
+        "url_referencia": "https://portaldatransparencia.gov.br/licitacoes",
+        "base_legal": "Lei nº 12.527/2011, art. 10; e Lei nº 14.133/2021",
+        "observacao": "O acesso a consultas de licitações, contratos públicos e downloads de bases abertas no Portal da Transparência é totalmente público e gratuito, sem necessidade de pagamento de assinatura ou cadastro tarifado."
+      }
+    }
+  },
+  "camara_frequencia": {
+    "nome_fonte": "Câmara dos Deputados - Sistema de Frequência e Presença",
+    "tipos_dados": {
+      "frequencia_plenario": {
+        "tipo_dado": "frequencia_plenario",
+        "disponivel": true,
+        "url_referencia": "https://www.camara.leg.br/deputados/frequencia-plenario",
+        "base_legal": "Regimento Interno da Câmara dos Deputados (RICD), arts. 226 a 229; e LAI",
+        "observacao": "A presença e as ausências (justificadas e não justificadas) dos deputados em todas as sessões deliberativas de Plenário são publicadas diariamente no portal oficial da Câmara e na API de Dados Abertos."
+      }
+    }
+  },
+  "tse_prestacao_contas": {
+    "nome_fonte": "TSE - Sistema de Divulgação de Candidaturas e Contas Eleitorais (DivulgaCandContas)",
+    "tipos_dados": {
+      "despesas_campanha_candidatos": {
+        "tipo_dado": "despesas_campanha_candidatos",
+        "disponivel": true,
+        "url_referencia": "https://divulgacandcontas.tse.jus.br",
+        "base_legal": "Lei nº 9.504/1997, art. 28; e Resoluções de Prestação de Contas do TSE",
+        "observacao": "Todas as receitas e despesas declaradas pelos candidatos a cargos eletivos são disponibilizadas em tempo real e consolidadas no portal DivulgaCandContas e no Repositório de Dados Eleitorais do TSE."
+      }
+    }
+  },
+  "camara_notas_taquigraficas": {
+    "nome_fonte": "Câmara dos Deputados - Notas Taquigráficas e Discursos",
+    "tipos_dados": {
+      "atas_discursos_plenario": {
+        "tipo_dado": "atas_discursos_plenario",
+        "disponivel": true,
+        "url_referencia": "https://www.camara.leg.br/discursos-e-notas-taquigraficas",
+        "base_legal": "RICD, arts. 100 a 104; e Constituição Federal de 1988, art. 53",
+        "observacao": "Todas as manifestações verbais, discursos, discussões e votações ocorridas nas sessões da Câmara dos Deputados são estenotipadas em tempo real e registradas integralmente em notas taquigráficas e no Diário da Câmara dos Deputados."
+      }
+    }
+  }
+}

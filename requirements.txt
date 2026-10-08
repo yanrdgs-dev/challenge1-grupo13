@@ -8,3 +8,4 @@ duckdb>=1.0.0
 rapidfuzz>=3.0.0
 fastapi>=0.110.0
 uvicorn>=0.28.0
+nemoguardrails>=0.17.0

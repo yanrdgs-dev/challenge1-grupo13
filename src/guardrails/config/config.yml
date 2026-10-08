@@ -1,0 +1,14 @@
+# Configuração do NeMo Guardrails para o Agente de Fact-Checking Político Brasileiro
+models:
+  - type: main
+    engine: groq
+    model: llama-3.3-70b-versatile
+
+rails:
+  input:
+    flows:
+      - check claim specificity
+      - check neutrality moderation
+  output:
+    flows:
+      - check evidence traceability
