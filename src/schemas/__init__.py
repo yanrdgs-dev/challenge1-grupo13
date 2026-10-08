@@ -10,6 +10,17 @@ from src.schemas.data_schemas import (
     detect_schema_by_columns,
     get_schema_columns,
 )
+from src.schemas.tools import (
+    CamaraVoteInput,
+    DataSourceCoverageInput,
+    InstitutionalRuleInput,
+    ParliamentaryExpensesInput,
+    ResolvePoliticianInput,
+    ResolvePropositionInput,
+    ToolExecutionResult,
+    TopCEAPSpenderInput,
+    TSEExpensesInput,
+)
 
 __all__ = [
     "DATA_SCHEMAS",
@@ -20,4 +31,13 @@ __all__ = [
     "CAMARA_CEAP_COLUMNS",
     "get_schema_columns",
     "detect_schema_by_columns",
+    "TSEExpensesInput",
+    "CamaraVoteInput",
+    "ToolExecutionResult",
+    "TopCEAPSpenderInput",
+    "ResolvePoliticianInput",
+    "ResolvePropositionInput",
+    "InstitutionalRuleInput",
+    "DataSourceCoverageInput",
+    "ParliamentaryExpensesInput",
 ]
