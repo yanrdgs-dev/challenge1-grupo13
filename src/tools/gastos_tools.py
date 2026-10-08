@@ -196,7 +196,12 @@ def _resolve_ceap_dataset(
 
         if clean_casa == "camara":
             # Resolução das colunas da Câmara (CEAP)
-            id_col = "idDeputado" if "idDeputado" in schema_cols else "nuDeputadoId"
+            # ideCadastro é o ID canônico (o mesmo devolvido por resolve_politician);
+            # nuDeputadoId é um ID interno diferente e não serve para o join da regra 2.
+            id_col = next(
+                (c for c in ("ideCadastro", "idDeputado", "nuDeputadoId") if c in schema_cols),
+                "nuDeputadoId",
+            )
             nome_col = "txNomeParlamentar" if "txNomeParlamentar" in schema_cols else "nomeParlamentar"
             uf_col = "sgUF" if "sgUF" in schema_cols else "siglaUf"
             partido_col = "sgPartido" if "sgPartido" in schema_cols else "siglaPartido"
