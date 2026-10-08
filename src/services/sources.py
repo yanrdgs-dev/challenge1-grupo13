@@ -23,8 +23,10 @@ def evidence_failed(evidence: Optional[Dict[str, Any]]) -> bool:
         return True
     return (
         bool(evidence.get("erro"))
-        or evidence.get("status") == "entidade_nao_resolvida"
+        or evidence.get("status") in ("entidade_nao_resolvida", "parametros_invalidos")
         or evidence.get("encontrado") is False
+        or evidence.get("ambiguous") is True                          # entidade ambígua (regra 2)
+        or ("id_proposicao" in evidence and evidence["id_proposicao"] is None)   # proposição não encontrada
     )
 
 
