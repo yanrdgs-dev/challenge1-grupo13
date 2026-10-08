@@ -132,3 +132,54 @@ def test_judge_unreachable_degrades_to_inconclusive(mock_llm):
 
     assert resp.status_code == 200
     assert resp.json()["veredito"] == "INCONCLUSIVO"
+
+
+# --------------------------------------------------------------------------- #
+# Fonte primária derivada da tool (o judge não precisa citar o órgão corretamente)
+# --------------------------------------------------------------------------- #
+
+def _expense_chat(casa="camara"):
+    return _chat_result([{"name": "get_top_ceap_spender", "arguments": {"casa": casa, "ano": 2023}}])
+
+
+def test_verdict_is_kept_when_judge_cites_the_tool_name_as_source(mock_llm):
+    """Caso real: o judge pôs o nome da tool em fontes_primarias e o texto sem órgão."""
+    mock_llm.chat.return_value = _expense_chat()
+    judge = _judge_response(
+        veredito="VERDADEIRO",
+        fontes=["get_top_ceap_spender"],
+        justificativa="A evidência oficial confirma que Pompeo de Mattos gastou mais.",
+    )
+    with patch.object(router_service, "execute_tool", return_value={"gastadores": [{"posicao": 1}]}), \
+         patch.object(router_service, "_call_judge", return_value=judge):
+        data = client.post("/check", json={"claim": CLAIM_ESPECIFICA}).json()
+
+    assert data["veredito"] == "VERDADEIRO"
+    assert data["fontes_primarias"] == ["Câmara dos Deputados - Dados Abertos (CEAP)"]
+    assert "Fonte: Câmara dos Deputados - Dados Abertos (CEAP)." in data["justificativa"]
+
+
+def test_senate_expense_claim_cites_the_senate_source(mock_llm):
+    mock_llm.chat.return_value = _expense_chat("senado")
+    judge = _judge_response(veredito="FALSO", fontes=["get_top_ceap_spender"], justificativa="Os dados divergem.")
+    with patch.object(router_service, "execute_tool", return_value={"gastadores": []}), \
+         patch.object(router_service, "_call_judge", return_value=judge):
+        data = client.post("/check", json={"claim": CLAIM_ESPECIFICA}).json()
+
+    assert data["veredito"] == "FALSO"
+    assert data["fontes_primarias"] == ["Senado Federal - Dados Abertos (CEAPS)"]
+
+
+def test_unresolved_entity_evidence_cannot_support_a_verdict(mock_llm):
+    """Regra 2: entidade não resolvida nunca sustenta VERDADEIRO/FALSO."""
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "check_parliamentary_expenses", "arguments": {"casa": "camara", "ano": 2023, "parlamentar_id": "Fulano"}}]
+    )
+    evidence = {"status": "entidade_nao_resolvida", "ambiguous": False}
+    judge = _judge_response(veredito="FALSO", fontes=["check_parliamentary_expenses"], justificativa="Divergente.")
+    with patch.object(router_service, "execute_tool", return_value=evidence), \
+         patch.object(router_service, "_call_judge", return_value=judge):
+        data = client.post("/check", json={"claim": CLAIM_ESPECIFICA}).json()
+
+    assert data["veredito"] == "INCONCLUSIVO"
+    assert data["fontes_primarias"] == []
