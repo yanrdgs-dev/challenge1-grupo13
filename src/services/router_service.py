@@ -21,8 +21,14 @@ from src.guardrails.actions import (
     check_input_specificity,
 )
 from src.observability import tracing
+from src.tools.gastos_tools import (
+    check_parliamentary_expenses,
+    get_top_ceap_spender,
+    list_expense_categories,
+)
 from src.tools.resolve_politician import resolve_politician
 from src.tools.resolve_proposition import resolve_proposition
+from src.tools.votacoes_api import get_proposition_vote_result
 from scripts.demo_qwen_tool_routing import ROUTER_SYSTEM_PROMPT, TOOLS_CATALOG
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -89,15 +95,47 @@ def _resolve_politician_with_fallback(args: Dict[str, Any]) -> Dict[str, Any]:
     return res
 
 
+_CARGO_POR_CASA = {"camara": "Deputado Federal", "senado": "Senador"}
+
+
+def _unresolved(**extra: Any) -> Dict[str, Any]:
+    """Evidência para entidade não resolvida: a tool de dados não é chamada (regra 2)."""
+    return {"status": "entidade_nao_resolvida", "ambiguous": False, **extra}
+
+
+def _resolve_parlamentar_id(casa: str, valor: str) -> Dict[str, Any]:
+    """Converte nome de parlamentar em ID canônico (regra 2). Se já for ID numérico, repassa."""
+    valor = str(valor).strip()
+    if valor.isdigit():
+        return {"id": valor}
+
+    with tracing.observation(
+        "resolve_politician", input={"nome_busca": valor, "casa": casa}
+    ) as span:
+        res = _resolve_politician_with_fallback(
+            {"nome_busca": valor, "cargo": _CARGO_POR_CASA.get(casa)}
+        )
+        span.update(output=res)
+
+    canonical = res.get("ideCadastro") if casa == "camara" else res.get("cod_senador")
+    if res.get("ambiguous") or canonical is None:
+        return {"unresolved": _unresolved(
+            ambiguous=bool(res.get("ambiguous")),
+            parlamentar_informado=valor,
+            resolucao=res,
+        )}
+    return {"id": str(canonical)}
+
+
 def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Executa a tool Python real mapeada pelo Roteador.
 
-    O span ``tool.<nome>`` é aberto pelo chamador; tools de dados que resolverem entidades
-    internamente (regra 2) devem abrir seus próprios spans ``resolve_*`` dentro dele.
+    O span ``tool.<nome>`` é aberto pelo chamador. Tools de dados que recebem uma entidade
+    abrem o span ``resolve_*`` dentro dele e nunca são chamadas sem ID canônico (regra 2).
     """
     if tool_name == "resolve_politician":
         return _resolve_politician_with_fallback(args)
-    elif tool_name == "resolve_proposition":
+    if tool_name == "resolve_proposition":
         return resolve_proposition(
             casa=args.get("casa", "camara"),
             sigla_tipo=args.get("sigla_tipo"),
@@ -105,10 +143,43 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
             ano=args.get("ano"),
             termo_busca=args.get("termo_busca"),
         )
-    return {
-        "status": "tool_simulada",
-        "mensagem": f"Tool '{tool_name}' mapeada com parâmetros: {args}",
-    }
+    if tool_name == "get_top_ceap_spender":
+        return get_top_ceap_spender(
+            casa=args["casa"], ano=args["ano"], top_n=args.get("top_n", 1)
+        ).to_dict()
+    if tool_name == "list_expense_categories":
+        return list_expense_categories(
+            casa=args["casa"],
+            incluir_exemplos=args.get("incluir_exemplos", True),
+            ano=args.get("ano"),
+        ).to_dict()
+    if tool_name == "check_parliamentary_expenses":
+        casa = str(args["casa"]).strip().lower()
+        parlamentar_id = args.get("parlamentar_id")
+        if parlamentar_id not in (None, ""):
+            resolved = _resolve_parlamentar_id(casa, parlamentar_id)
+            if "unresolved" in resolved:
+                return resolved["unresolved"]
+            parlamentar_id = resolved["id"]
+        else:
+            parlamentar_id = None
+        return check_parliamentary_expenses(
+            casa=casa,
+            ano=args["ano"],
+            categoria=args.get("categoria"),
+            parlamentar_id=parlamentar_id,
+        ).to_dict()
+    if tool_name == "get_proposition_vote_result":
+        casa = str(args["casa"]).strip().lower()
+        prop_id = str(args.get("id_proposicao") or "").strip()
+        if not prop_id.isdigit():
+            return _unresolved(
+                motivo="id_proposicao ausente ou não canônico; resolva a proposição antes.",
+                id_proposicao_informado=args.get("id_proposicao"),
+            )
+        votacoes = get_proposition_vote_result(id_proposicao=prop_id, casa=casa)
+        return {"casa": casa, "id_proposicao": prop_id, "votacoes": votacoes}
+    return {"erro": f"Tool '{tool_name}' não implementada no roteador."}
 
 
 def _call_judge(endpoint: str, payload: Dict[str, Any]) -> Dict[str, Any]:
