@@ -1,0 +1,98 @@
+{
+  "descricao": "Baseline v2 do golden_dataset_v1: com validacao de parametros (3.6) e roteamento em duas etapas (3.5).",
+  "data": "2026-10-08",
+  "commit": "545a69c",
+  "modelos": {
+    "router": "qwen2.5:7b",
+    "judge": "qwen2.5:14b"
+  },
+  "comparacao_com_v1": {
+    "verdict_match": "83,3% -> 86,7%",
+    "claim_que_passou_a_acertar": [
+      4
+    ]
+  },
+  "summary": {
+    "run_name": "v2-545a69c",
+    "dataset_run_url": null,
+    "total": 30,
+    "scores": {
+      "verdict_match": {
+        "mean": 0.8666666666666667,
+        "n": 30
+      },
+      "no_wrong_definitive": {
+        "mean": 1.0,
+        "n": 30
+      },
+      "has_traceable_evidence": {
+        "mean": 1.0,
+        "n": 30
+      },
+      "inconclusive_without_tool": {
+        "mean": 1.0,
+        "n": 6
+      },
+      "tool_category_match": {
+        "mean": 1.0,
+        "n": 24
+      }
+    },
+    "matrix": {
+      "VERDADEIRO": {
+        "VERDADEIRO": 10,
+        "FALSO": 0,
+        "INCONCLUSIVO": 2,
+        "ERRO": 0
+      },
+      "FALSO": {
+        "VERDADEIRO": 0,
+        "FALSO": 10,
+        "INCONCLUSIVO": 2,
+        "ERRO": 0
+      },
+      "INCONCLUSIVO": {
+        "VERDADEIRO": 0,
+        "FALSO": 0,
+        "INCONCLUSIVO": 6,
+        "ERRO": 0
+      }
+    },
+    "failures": [
+      {
+        "golden_id": 17,
+        "expected": "FALSO",
+        "got": "INCONCLUSIVO",
+        "trace_id": "171c63d2b41bd9e137a8194b5ab4e2d5",
+        "erro": null
+      },
+      {
+        "golden_id": 15,
+        "expected": "FALSO",
+        "got": "INCONCLUSIVO",
+        "trace_id": "81e5a6bae3304c87575cae6d3ebbca2f",
+        "erro": null
+      },
+      {
+        "golden_id": 11,
+        "expected": "VERDADEIRO",
+        "got": "INCONCLUSIVO",
+        "trace_id": "a98cc2081323032ca66c2bec2690f783",
+        "erro": null
+      },
+      {
+        "golden_id": 5,
+        "expected": "VERDADEIRO",
+        "got": "INCONCLUSIVO",
+        "trace_id": "6b9bd200a8cb5f50634421ceac60f8a3",
+        "erro": null
+      }
+    ]
+  },
+  "analise_dos_erros": {
+    "5": "resolve_proposition ambiguo (termo 'PEC da Reforma Tributaria' casa com requerimentos REQ); INCONCLUSIVO honesto, limite do resolver",
+    "15": "encadeamento funcionou (resolver + votacao), mas a tool devolve so a lista de votacoes; falta o placar (get_proposition_vote_breakdown nao esta no catalogo)",
+    "11": "check_parliamentary_expenses sem 'ano' (agora erro claro); o certo seria list_expense_categories; escolha de tool do modelo",
+    "17": "check_institutional_rule com topico tramitacao_comissoes (da Camara) para claim sobre CEAPS; escolha de tool do modelo"
+  }
+}
