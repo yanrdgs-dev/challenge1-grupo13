@@ -32,6 +32,7 @@ Se você já usou Docker Compose, o Kubernetes faz exatamente o mesmo papel, por
 │   │   ├── configmap.yaml           # Variáveis de ambiente compartilhadas
 │   │   ├── router-deployment.yaml   # Deployment e Service (LoadBalancer) do Roteador
 │   │   ├── judge-deployment.yaml    # Deployment e Service (ClusterIP interno) do Julgador
+│   │   ├── secret.example.yaml      # Modelo do Secret do Langfuse (não é aplicado)
 │   │   └── kustomization.yaml       # Lista os recursos da base
 │   └── overlays/
 │       └── dev/
@@ -117,6 +118,25 @@ NAME             TYPE        CLUSTER-IP       PORT(S)          AGE
 judge-service    ClusterIP   10.96.120.45     8000/TCP         1m
 router-service   LoadBalancer    10.96.210.12     8000:30080/TCP   1m
 ```
+
+---
+
+### Passo 4.1: Configurar o Langfuse Cloud (observabilidade)
+
+O projeto usa o **Langfuse Cloud** para rastrear as chamadas. A configuração é opcional: sem ela, os pods sobem normalmente com o tracing desligado.
+
+1. Crie uma conta e um projeto em [cloud.langfuse.com](https://cloud.langfuse.com) e gere as chaves em *Settings > API Keys*.
+2. Confira a região em `k8s/base/configmap.yaml` (`LANGFUSE_HOST`). O padrão é a EU; para a região US, use `https://us.cloud.langfuse.com`.
+3. Crie o Secret direto no cluster, sem salvar as chaves em arquivo:
+
+```bash
+kubectl create secret generic factcheck-langfuse \
+  --from-literal=LANGFUSE_PUBLIC_KEY='pk-lf-...' \
+  --from-literal=LANGFUSE_SECRET_KEY='sk-lf-...'
+kubectl rollout restart deployment router-deployment judge-deployment
+```
+
+O arquivo `k8s/base/secret.example.yaml` é só o modelo. Nunca commite as chaves reais.
 
 ---
 
