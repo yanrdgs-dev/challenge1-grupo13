@@ -94,7 +94,15 @@ def test_starts_judge_and_router_and_waits_for_health(job):
     assert "src.services.judge_service:app" in run
     assert "src.services.router_service:app" in run
     assert "/health" in run
-    assert "JUDGE_SERVICE_URL=http://localhost:8001" in run
+    # Portas próprias: a VM é compartilhada e 8000/8001 podem estar em uso por outros serviços.
+    assert "JUDGE_SERVICE_URL=http://localhost:18001" in run
+    assert "--port 18000" in run and "--port 18001" in run
+    assert "--port 8000" not in run and "--port 8001" not in run
+
+
+def test_experiment_targets_the_dedicated_router_port(job):
+    experiment = step_named(job, "golden experiment")
+    assert "--router-url http://localhost:18000" in experiment["run"]
 
 
 def test_runs_the_golden_experiment_named_after_the_commit(job):
@@ -130,6 +138,7 @@ def test_services_are_always_stopped(job):
     cleanup = step_named(job, "encerra")
     assert cleanup["if"] == "always()"
     assert "kill" in cleanup["run"]
+    assert "pkill" not in cleanup["run"], "pkill por padrão derrubaria serviços alheios da VM compartilhada"
 
 
 def test_log_is_uploaded_even_when_the_gate_fails(job):
