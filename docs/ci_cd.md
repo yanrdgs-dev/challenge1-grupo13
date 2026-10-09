@@ -47,7 +47,7 @@ Já preparado na VM:
 - Rede Docker `factcheck` com sub-rede fixa: `docker network create --subnet 172.28.0.0/24 --gateway 172.28.0.1 factcheck`. O compose de produção entra nela como rede externa.
 - `/srv/factcheck/` e `/srv/factcheck/data/processed/` (donos: `deploy`).
 - `sshd` com `GatewayPorts clientspecified` (`/etc/ssh/sshd_config.d/61-factcheck-gateway.conf`), necessário para o túnel escutar no gateway da rede Docker.
-- NSG `polis-vmNSG` com uma única regra de entrada: SSH (22) só do IP da sua rede. **O GitHub Actions não consegue entrar assim**, então o `cd.yml` não funciona até haver uma decisão (liberar a porta com a chave como única barreira, usar um runner dentro da rede, ou fazer o deploy à mão).
+- NSG `polis-vmNSG` com duas regras de entrada para a porta 22: `ssh-meu-ip` (só o IP da rede de desenvolvimento) e `ssh-cd` (origem `Internet`, aberta em 09/10/2026 para o GitHub Actions entrar). Não dá para limitar ao GitHub: são mais de 5.000 intervalos IPv4, acima do limite de 4.000 prefixos por regra do NSG, e a lista muda toda semana. A proteção é a chave (sem senha), o `sshd` endurecido e o `fail2ban` (4 falhas em 10 min = ban de 1 h). A chave do CD é própria (`factcheck_cd`, separada da de administração) e pode ser revogada removendo a linha `factcheck-cd-github-actions` do `authorized_keys`. Para fechar a porta: `az network nsg rule delete -g polis-rg --nsg-name polis-vmNSG -n ssh-cd`.
 
 Falta fazer à mão: criar `/srv/factcheck/.env` (`chmod 600`) com `OLLAMA_BASE_URL=http://172.28.0.1:11434`, `LLM_TIMEOUT`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL` e `LANGFUSE_TRACING_ENABLED` (modelo em `.env.example`), gerar os parquets em `/srv/factcheck/data/processed/` (plano em `docs/plan_webscraping.md`) e, se as imagens do GHCR forem privadas, `docker login ghcr.io` (token com `read:packages`). Abrir a porta do router no NSG só quando for publicar.
 
@@ -93,7 +93,7 @@ Em qualquer caminho a máquina precisa ficar ligada e acordada (o script mantém
 
 - Nenhum dos workflows rodou no GitHub ainda; a estrutura é validada por `tests/test_ci_workflow.py` e `tests/test_cd.py`, e os scripts de shell tiveram a sintaxe conferida com `bash -n`. O primeiro deploy real vai exigir ajustes.
 - O rollback só desfaz a imagem; mudança incompatível nos parquets não é revertida.
-- O deploy automático (`cd.yml`) não entra na VM com o NSG atual (SSH só do IP da rede de desenvolvimento).
+- O `cd.yml` ainda não rodou: faltam o environment `production`, o secret `AZURE_VM_SSH_KEY` e as variables `AZURE_VM_HOST` e `AZURE_VM_KNOWN_HOSTS`, e a porta 22 aberta à internet é superfície de ataque (varredura constante).
 - Sem o frontend: ele ainda não tem Dockerfile (Fase 7). Quando tiver, entra no `docker-compose.prod.yml` e no build do CI.
 - A VM é um ponto único de falha; vale um backup do `data/processed` (a ingestão regenera os parquets, mas o tempo ainda não foi medido).
 - As actions estão fixadas por versão maior (`@v4`, `@v6`), não por SHA.
