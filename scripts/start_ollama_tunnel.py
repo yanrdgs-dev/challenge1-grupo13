@@ -40,6 +40,20 @@ def find_tunnel_url(lines: Iterable[str]) -> Optional[str]:
     return None
 
 
+def is_tunnel_registered(line: str) -> bool:
+    return "Registered tunnel connection" in line
+
+
+def tunnel_url_when_ready(lines: Iterable[str]) -> Optional[str]:
+    """A URL só vale depois que o cloudflared registra a conexão com a borda da Cloudflare."""
+    url = None
+    for line in lines:
+        url = url or find_tunnel_url([line])
+        if url and is_tunnel_registered(line):
+            return url
+    return None
+
+
 # --------------------------------- dependências reais --------------------------------- #
 
 def _spawn(cmd: List[str], env: Optional[Mapping[str, str]] = None) -> Any:
@@ -95,6 +109,7 @@ def _read_tunnel_url(proc: Any, timeout: float) -> Optional[str]:
 
     threading.Thread(target=pump, daemon=True).start()
     deadline = time.monotonic() + timeout
+    url: Optional[str] = None
     while time.monotonic() < deadline:
         try:
             line = lines.get(timeout=1.0)
@@ -102,8 +117,8 @@ def _read_tunnel_url(proc: Any, timeout: float) -> Optional[str]:
             continue
         if line is None:
             return None
-        url = find_tunnel_url([line])
-        if url:
+        url = url or find_tunnel_url([line])
+        if url and is_tunnel_registered(line):
             return url
     return None
 
@@ -205,9 +220,11 @@ def main(
             cloudflared = spawn([which("cloudflared"), "tunnel", "--url", f"http://localhost:{args.port}",
                                  "--no-autoupdate"])
             procs.append(cloudflared)
-            url = read_tunnel_url(cloudflared, 30.0)
+            url = read_tunnel_url(cloudflared, 45.0)
             if not url:
-                print("ERRO: o cloudflared não informou a URL do túnel em 30 s.", file=sys.stderr)
+                print("ERRO: o cloudflared não conseguiu conectar à Cloudflare em 45 s. Redes que bloqueiam a "
+                      "porta 7844 (UDP e TCP), como as de campus e laboratório, impedem o túnel: tente outra "
+                      "rede (hotspot do celular) ou use uma alternativa que saia pela 443.", file=sys.stderr)
                 return 2
             print(f"\nTúnel aberto: {url}\n"
                   "Na VM do Azure, em /srv/factcheck/.env, defina:\n"
