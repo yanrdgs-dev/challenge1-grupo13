@@ -1,43 +1,72 @@
 # CI/CD (Fase 5)
 
-Dois workflows em `.github/workflows/`:
+Produção: **uma VM do Azure** com Docker Compose, com os parquets no disco dela. O modelo (Ollama) roda na máquina de desenvolvimento, exposto por túnel, e por isso o eval **não** é automático.
 
-| Workflow | Roda em | O que faz | Bloqueia merge? |
+| Etapa | Arquivo | Quando roda | O que faz |
 |---|---|---|---|
-| `ci.yml` (5.1) | GitHub-hosted, em todo PR e push na `main` | `uv sync --frozen` → `pytest` com `LANGFUSE_TRACING_ENABLED=false` → build das imagens router e judge → push para o GHCR com a tag do commit | Sim, com o job `test` como check obrigatório |
-| `eval.yml` (5.2) | Runner **self-hosted** na VM, PR do próprio repositório, push na `main` e execução manual | Sobe judge e router (portas 18001/18000), roda o golden experiment e aplica o gate de `evaluation/thresholds.json` | Sim, com o job `golden` como check obrigatório |
-| CD (5.3) | — | `overlays/prod` + ArgoCD. **Não implementado.** | — |
+| CI (5.1) | `.github/workflows/ci.yml` | Todo PR e push na `main` | `uv sync --frozen` → `pytest` (tracing desligado, sem rede) → build das imagens router e judge → push para o GHCR com a tag do commit |
+| Eval (5.2) | `scripts/run_eval.py` | **Manual**, com o Ollama ligado | Sobe judge e router, roda o golden experiment, aplica o gate e derruba tudo |
+| CD (5.3) | `.github/workflows/cd.yml` | Depois do CI verde na `main`, ou manual | SSH na VM → `docker compose pull/up` com a imagem do commit → health check → rollback se falhar |
 
 ```
-PR   ──► ci.yml: pytest ──► build (tag = sha) ──► push GHCR
-     └─► eval.yml (VM): golden experiment ──► gate (regra 5)
-main ──► (5.3) overlays/prod ──► ArgoCD
+PR   ──► CI: pytest ──► build (tag = sha) ──► push GHCR
+main ──► CI verde ──► CD: ssh na VM ──► compose up (IMAGE_TAG = sha) ──► /health ──► ok | rollback
+(manual, antes de promover prompt/mudança de comportamento) ──► scripts/run_eval.py
 ```
 
-## Por que o eval roda na VM
+## Eval manual
 
-Os parquets de `data/processed/` não estão no Git (são gerados na VM) e o Ollama com os modelos Qwen também está lá. Um runner do GitHub não teria nem os dados nem o LLM. O workflow liga `FACTCHECK_DATA_DIR` a `data/processed` e falha logo se o diretório não existir, para não medir o dado errado.
+```bash
+uv run python scripts/run_eval.py                                  # run com nome automático
+uv run python scripts/run_eval.py --run-name prompt-novo --prompt-label staging
+```
 
-**Segurança:** um self-hosted runner executa o código do PR na VM. Por isso o job `golden` só roda para PR do mesmo repositório (`head.repo.full_name == github.repository`) e nunca para fork. Mantenha também em *Settings → Actions → General* a exigência de aprovação para PRs de colaboradores externos.
+- Confere antes que o Ollama responde e que as portas 18000/18001 estão livres (medir o serviço de outra pessoa invalidaria o resultado). Falha rápido, em vez de gastar 25 minutos em 503.
+- Usa `LLM_TIMEOUT=120` nos serviços, salvo se você definir outro valor no ambiente.
+- Opções que o script não conhece (`--run-name`, `--local`, `--threshold`...) vão para `scripts/run_golden_experiment.py`.
+- Código de saída: 0 = gate aprovado, 1 = reprovado, 2 = erro de infraestrutura. Os logs dos serviços ficam numa pasta temporária (o caminho é impresso ao final).
+- **Quando rodar:** antes de promover um prompt para `production` (`docs/prompt_workflow.md`) e antes de mergear mudança em router, judge, resolvers ou tools. O resultado vai para o Langfuse (dataset run) e serve de evidência no PR.
 
-## Configuração única (quem administra o repositório)
+## Configuração única
 
-1. **Runner:** registrar o runner na VM com a label `factcheck-vm` (*Settings → Actions → Runners*). Rodar como usuário sem privilégios, nunca como root.
-2. **Secrets** (*Settings → Secrets and variables → Actions*): `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`.
-3. **Variables:**
-   - `FACTCHECK_DATA_DIR`: caminho absoluto dos parquets na VM (obrigatória).
-   - `OLLAMA_BASE_URL`: opcional, padrão `http://localhost:11434`.
-   - `LANGFUSE_BASE_URL`: opcional, padrão `https://us.cloud.langfuse.com`.
-4. **Proteção da `main`:** exigir os checks `test`, `build` e `golden` antes do merge.
-5. **GHCR:** no primeiro push, conferir em *Packages* a visibilidade das imagens `factcheck-router` e `factcheck-judge`. Se o repositório for privado, o cluster precisa de um `imagePullSecret` com token de leitura.
+### GitHub (quem administra o repositório)
 
-## Rodar o eval manualmente
+1. **Environment `production`** (*Settings → Environments*), de preferência com revisor obrigatório: o deploy espera aprovação.
+2. **Secret** `AZURE_VM_SSH_KEY`: chave privada **só de deploy** (par criado para isso), sem acesso além do necessário.
+3. **Variables:** `AZURE_VM_HOST`, `AZURE_VM_USER` (padrão `deploy`) e `AZURE_VM_KNOWN_HOSTS`. Esta última é a saída de `ssh-keyscan <host>` **conferida contra a impressão digital que o portal do Azure mostra**; o workflow não aceita host desconhecido.
+4. **Proteção da `main`:** exigir os checks `test` e `build` do CI antes do merge.
+5. **GHCR:** no primeiro push, conferir em *Packages* a visibilidade das imagens `factcheck-router` e `factcheck-judge`.
 
-*Actions → Eval → Run workflow*. O campo `prompt_label` escolhe a label dos prompts no Langfuse (`staging` para testar uma versão nova antes de promover; ver `docs/prompt_workflow.md`). O log e os logs dos serviços ficam como artefato do run.
+### VM do Azure
+
+```bash
+sudo mkdir -p /srv/factcheck/data/processed
+sudo chown -R deploy:deploy /srv/factcheck
+# Docker + plugin compose instalados; o usuário `deploy` no grupo docker.
+# Se as imagens forem privadas: docker login ghcr.io -u <usuario> (token com read:packages), uma vez.
+```
+
+- `/srv/factcheck/.env` (só na VM, `chmod 600`): `OLLAMA_BASE_URL` (URL do túnel), `OLLAMA_API_KEY`, `LLM_TIMEOUT`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL`, `LANGFUSE_TRACING_ENABLED`. Modelo em `.env.example`.
+- `/srv/factcheck/data/processed/`: os parquets, gerados pelo pipeline de ingestão (`docs/plan_webscraping.md`) na própria VM. O router monta essa pasta somente leitura.
+- Abrir só a porta do router (8000, ou 80/443 atrás de um proxy). O judge não é publicado.
+
+### Máquina com o Ollama
+
+O túnel precisa de um proxy que valide `Authorization: Bearer` antes do Ollama (D.2 e D.3 do plano). O `LLMClient` já envia o header quando `OLLAMA_API_KEY` está definida.
+
+## Como o deploy se protege
+
+- Só roda depois do CI verde na `main` (ou manualmente, com um SHA já publicado). O SHA é validado como 40 caracteres hexadecimais antes de ir para o comando remoto.
+- A tag é imutável (o commit), nunca `latest`; `IMAGE_TAG` e `GHCR_OWNER` são obrigatórios no compose.
+- A chave do host fica fixada; a chave privada vive só durante o job e é apagada no final.
+- Se o `/health` não responder em ~2 minutos, o script volta para a tag anterior (`/srv/factcheck/.current_tag`) e o job falha.
+- Deploys são serializados e nunca cancelados no meio.
 
 ## Limitações conhecidas
 
-- O eval usa o Ollama da VM sem fallback. Um timeout vira 503 e o gate reprova por infraestrutura, não por qualidade (achado 3 do plano). O workflow fixa `LLM_TIMEOUT=120`, mas o experiment ainda não distingue "erro" de "veredito errado".
-- Os pods do router no Kubernetes ficam sem dados até haver um volume (PVC ou `hostPath` na VM) com os parquets: a imagem não os contém mais.
+- Nenhum dos workflows rodou no GitHub ainda; a estrutura é validada por `tests/test_ci_workflow.py` e `tests/test_cd.py`, e os scripts de shell tiveram a sintaxe conferida com `bash -n`. O primeiro deploy real vai exigir ajustes.
+- O rollback só desfaz a imagem; mudança incompatível nos parquets não é revertida.
+- Sem o frontend: ele ainda não tem Dockerfile (Fase 7). Quando tiver, entra no `docker-compose.prod.yml` e no build do CI.
+- A VM é um ponto único de falha; vale um backup do `data/processed` (a ingestão regenera os parquets, mas o tempo ainda não foi medido).
 - As actions estão fixadas por versão maior (`@v4`, `@v6`), não por SHA.
-- Nenhum dos dois workflows foi executado no GitHub ainda; só a estrutura é validada por `tests/test_ci_workflow.py` e `tests/test_eval_workflow.py`.
+- O achado 3 do plano segue aberto: sem fallback, um timeout do Ollama vira 503.
