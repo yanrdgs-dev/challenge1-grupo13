@@ -143,3 +143,14 @@ def test_every_action_is_pinned_to_a_version(job):
         uses = step.get("uses")
         if uses:
             assert "@" in uses and not uses.endswith(("@main", "@master")), uses
+
+
+# ------------------------------ dados da VM ------------------------------ #
+
+def test_links_the_vm_data_directory_and_fails_fast_when_it_is_missing(job):
+    link = step_named(job, "dados")
+    run = link["run"]
+    assert "FACTCHECK_DATA_DIR" in run
+    assert "ln -s" in run and "data/processed" in run
+    assert "exit 1" in run, "sem os parquets o experiment mediria o dado errado: falhar antes"
+    assert "vars.FACTCHECK_DATA_DIR" in str(link.get("env", ""))
