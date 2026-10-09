@@ -8,9 +8,61 @@ Atende com rigor absoluto aos seguintes princípios da Constituição:
 """
 
 import socket
+
+import polars as pl
 import pytest
 
+from src.tools.politician_cache import PoliticianCache
 from src.tools.resolve_politician import resolve_politician
+
+_SCHEMA = {
+    "sq_candidato": pl.Int64, "ideCadastro": pl.Int64, "cod_senador": pl.Int64,
+    "nome_civil": pl.Utf8, "nome_urna": pl.Utf8, "nome_normalizado": pl.Utf8,
+    "casa": pl.Utf8, "cargo": pl.Utf8, "uf": pl.Utf8, "partido": pl.Utf8, "mandato_anos": pl.Utf8,
+}
+
+
+def _dep(civil, urna, uf, partido, id_cadastro, sq=None):
+    return {
+        "sq_candidato": sq, "ideCadastro": id_cadastro, "cod_senador": None,
+        "nome_civil": civil, "nome_urna": urna, "nome_normalizado": civil.lower(),
+        "casa": "Câmara dos Deputados", "cargo": "Deputado Federal", "uf": uf,
+        "partido": partido, "mandato_anos": "2023-2027",
+    }
+
+
+# Base mínima e sintética: cobre exato, homônimo (PE x RJ), cluster fuzzy ("Marcelo"),
+# mesma pessoa em duas casas (Alan Rick) e um distrator parecido com "Pompeo de Mattos".
+_DIM_POLITICOS = [
+    _dep("DARCI POMPEO DE MATTOS", "Pompeo de Mattos", "RS", "PDT", 73486, sq=210001621272),
+    _dep("TABATA CLAUDIA AMARAL DE PONTES", "Tabata Amaral", "SP", "PSB", 204534, sq=250001620281),
+    _dep("ALAN RICK MIRANDA", "Alan Rick", "AC", "UNIÃO", 178836, sq=10001714547),
+    _dep("THOMAZ POMPEO DE SOUZA BRASIL", "POMPEU", "CE", None, 483),
+    _dep("THOMAZ JOSE COELHO DE ALMEIDA", "Thomaz Almeida", "PE", "PSD", 1001),
+    _dep("THOMAZ JOSE COELHO DE ALMEIDA", "Thomaz Almeida", "RJ", "PL", 1002),
+    _dep("MARCELO ARO", "Marcelo Aro", "MG", "PP", 1003),
+    _dep("MARCELO CRIVELLA", "Marcelo Crivella", "RJ", "REPUBLICANOS", 1004),
+    _dep("MARCELO RAMOS", "Marcelo Ramos", "AM", "PSD", 1005),
+    _dep("MARCELO FREIXO", "Marcelo Freixo", "RJ", "PSB", 1006),
+    _dep("NIKOLAS FERREIRA DE OLIVEIRA", "Nikolas Ferreira", "MG", "PL", 1007),
+    {
+        "sq_candidato": None, "ideCadastro": None, "cod_senador": None,
+        "nome_civil": "ALAN RICK", "nome_urna": "ALAN RICK", "nome_normalizado": "alan rick",
+        "casa": "Senado Federal", "cargo": "Senador", "uf": "AC",
+        "partido": "REPUBLICANOS", "mandato_anos": "2023 / 2031",
+    },
+]
+
+
+@pytest.fixture(autouse=True)
+def dim_politicos(tmp_path):
+    """Troca o singleton do cache por uma base mínima em disco (sem depender de data/processed)."""
+    path = tmp_path / "dim_politicos.parquet"
+    pl.DataFrame(_DIM_POLITICOS, schema=_SCHEMA).write_parquet(path)
+    PoliticianCache.reset()
+    PoliticianCache._instance = PoliticianCache(str(path))
+    yield path
+    PoliticianCache.reset()
 
 
 @pytest.fixture(autouse=True)
