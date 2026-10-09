@@ -226,3 +226,27 @@ def test_extracts_the_quick_tunnel_url_from_cloudflared_output():
     ]
     assert tunnel.find_tunnel_url(lines) == "https://quick-brown-fox-123.trycloudflare.com"
     assert tunnel.find_tunnel_url(["nada de url aqui"]) is None
+
+
+# ------------------------------------ túnel só vale depois de registrado ------------------------------------ #
+
+def test_registered_connection_line_is_recognized():
+    assert tunnel.is_tunnel_registered(
+        "2026-10-09T18:00:02Z INF Registered tunnel connection connIndex=0 event=0 location=gru01 protocol=quic")
+    assert not tunnel.is_tunnel_registered("2026-10-09T18:00:01Z INF |  https://x.trycloudflare.com  |")
+    assert not tunnel.is_tunnel_registered(
+        "2026-10-09T18:00:19Z ERR Failed to dial a quic connection error=timeout")
+
+
+def test_url_alone_is_not_enough_the_connection_must_be_registered():
+    only_url = ["INF |  https://quick-fox-1.trycloudflare.com  |", "ERR Failed to dial a quic connection"]
+    assert tunnel.tunnel_url_when_ready(only_url) is None
+    ready = only_url[:1] + ["INF Registered tunnel connection connIndex=0"]
+    assert tunnel.tunnel_url_when_ready(ready) == "https://quick-fox-1.trycloudflare.com"
+
+
+def test_unreachable_cloudflare_edge_explains_the_blocked_port(capsys):
+    h = Harness(url=None)
+    assert h.run() == 2
+    err = capsys.readouterr().err
+    assert "7844" in err and "rede" in err
