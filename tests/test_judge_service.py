@@ -63,3 +63,18 @@ def test_judge_non_json_becomes_inconclusive(mock_llm):
 def test_judge_llm_failure_returns_503(mock_llm):
     mock_llm.chat.side_effect = RuntimeError("Falha total")
     assert client.post("/judge", json=PAYLOAD).status_code == 503
+
+
+def test_judge_links_generation_to_prompt_version(mock_llm):
+    from src.observability.prompts import PromptResult
+
+    prompt_client = object()
+    result = PromptResult(
+        text="julgue", name="factcheck-judge", version=2,
+        label="production", source="langfuse", prompt_client=prompt_client,
+    )
+    mock_llm.chat.return_value = _result(json.dumps({"veredito": "INCONCLUSIVO"}))
+    with patch.object(judge_service, "get_prompt", return_value=result):
+        judge_service._evaluate(JudgeRequest(claim="x", tool_used="t", evidence={}))
+
+    assert mock_llm.chat.call_args.kwargs["prompt"] is prompt_client

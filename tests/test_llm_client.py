@@ -457,3 +457,27 @@ def test_generation_metadata_records_the_temperature(observations, monkeypatch):
     with patch("httpx.Client.post", return_value=_ollama_chat_response()):
         client.chat(MESSAGES)
     assert observations[0].kwargs["model_parameters"] == {"temperature": 0.0}
+
+
+# --------------------------------------------------------------------------- #
+# Versão do prompt: a generation é ligada ao prompt do Langfuse (tarefa 4.3)
+# --------------------------------------------------------------------------- #
+
+
+def test_chat_links_generation_to_prompt_client(observations):
+    client = LLMClient(primary_provider="ollama", fallback_provider="")
+    prompt_client = MagicMock(name="prompt_client")
+
+    with patch("httpx.Client.post", return_value=_ollama_chat_response()):
+        client.chat(MESSAGES, prompt=prompt_client)
+
+    assert observations[0].kwargs["prompt"] is prompt_client
+
+
+def test_chat_without_prompt_does_not_pass_prompt_to_generation(observations):
+    client = LLMClient(primary_provider="ollama", fallback_provider="")
+
+    with patch("httpx.Client.post", return_value=_ollama_chat_response()):
+        client.chat(MESSAGES)
+
+    assert "prompt" not in observations[0].kwargs

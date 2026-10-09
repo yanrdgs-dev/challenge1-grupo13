@@ -185,3 +185,18 @@ def test_unresolved_entity_evidence_cannot_support_a_verdict(mock_llm):
 
     assert data["veredito"] == "INCONCLUSIVO"
     assert data["fontes_primarias"] == []
+
+
+def test_router_links_generation_to_prompt_version(mock_llm):
+    from src.observability.prompts import PromptResult
+
+    prompt_client = object()
+    result = PromptResult(
+        text="sistema", name="factcheck-router-system", version=3,
+        label="production", source="langfuse", prompt_client=prompt_client,
+    )
+    mock_llm.chat.return_value = _chat_result([])
+    with patch.object(router_service, "get_prompt", return_value=result):
+        router_service._chat_for_routing("claim qualquer", router_service.TOOLS_CATALOG)
+
+    assert mock_llm.chat.call_args.kwargs["prompt"] is prompt_client
