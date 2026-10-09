@@ -75,7 +75,7 @@ def test_build_waits_for_tests(workflow):
 
 def test_build_covers_router_and_judge_with_existing_dockerfiles(workflow):
     matrix = workflow["jobs"]["build"]["strategy"]["matrix"]["service"]
-    assert set(matrix) == set(SERVICES)
+    assert set(matrix) == set(SERVICES) | {"frontend"}
     for dockerfile in SERVICES.values():
         assert (ROOT / dockerfile).exists()
 
@@ -145,7 +145,7 @@ def test_image_is_loaded_and_smoke_tested_before_anything_is_pushed(workflow):
 
 
 def test_smoke_test_imports_the_service_module_inside_the_container(workflow):
-    smoke = _build_steps(workflow)[_index(_build_steps(workflow), "smoke")]["run"]
+    smoke = _build_steps(workflow)[_index(_build_steps(workflow), "smoke test - o módulo")]["run"]
     assert "docker run --rm" in smoke
     assert "--entrypoint python" in smoke
     assert "import src.services.${{ matrix.service }}_service" in smoke
@@ -154,5 +154,24 @@ def test_smoke_test_imports_the_service_module_inside_the_container(workflow):
 
 def test_smoke_test_runs_without_the_repository_checkout_files(workflow):
     """Sem volume montado: o teste vale só para o que está DENTRO da imagem."""
-    smoke = _build_steps(workflow)[_index(_build_steps(workflow), "smoke")]["run"]
+    smoke = _build_steps(workflow)[_index(_build_steps(workflow), "smoke test - o módulo")]["run"]
     assert " -v " not in smoke and "--volume" not in smoke
+
+
+# ------------------------------------ imagem do frontend no CI ------------------------------------ #
+
+def test_python_smoke_test_is_skipped_for_the_frontend_image(workflow):
+    steps = _build_steps(workflow)
+    assert steps[_index(steps, "smoke test - o módulo")]["if"] == "matrix.service != 'frontend'"
+
+
+def test_frontend_image_gets_an_nginx_config_check_instead(workflow):
+    steps = _build_steps(workflow)
+    smoke = steps[_index(steps, "smoke test - nginx")]
+    assert smoke["if"] == "matrix.service == 'frontend'"
+    assert "--entrypoint nginx" in smoke["run"] and smoke["run"].rstrip().endswith(" -t")
+
+
+def test_frontend_build_order_is_load_then_smoke_then_push(workflow):
+    steps = _build_steps(workflow)
+    assert _index(steps, "carrega") < _index(steps, "smoke test - nginx") < _index(steps, "Push com a tag")

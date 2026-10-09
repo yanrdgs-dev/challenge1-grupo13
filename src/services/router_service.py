@@ -23,6 +23,7 @@ from src.guardrails.actions import (
     check_input_specificity,
 )
 from src.observability import tracing
+from src.services import frontend_api
 from src.observability.prompts import get_prompt
 from src.prompts.defaults import PROMPT_ROUTER_SYSTEM
 from src.services.tool_args import validate_tool_args
@@ -91,6 +92,9 @@ class CheckClaimResponse(BaseModel):
     )
     trace_id: Optional[str] = Field(
         default=None, description="ID do trace no Langfuse (nulo com o tracing desligado)."
+    )
+    regra_acionada: Optional[str] = Field(
+        default=None, description="Regra do guardrail de entrada que bloqueou a alegação (nulo se nenhuma)."
     )
 
 
@@ -244,18 +248,17 @@ def _call_judge(
         return resp.json()
 
 
-@app.post("/check", response_model=CheckClaimResponse)
-def check_claim(payload: CheckClaimRequest):
-    """Orquestra o pipeline completo: Roteador -> Tool -> Julgador."""
+def _traced_check(
+    claim_text: str,
+    user_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    on_step: Optional[Callable[[str], None]] = None,
+) -> CheckClaimResponse:
+    """Pipeline completo dentro do trace `check_claim` (usado por /check e pelos endpoints /api/*)."""
     start_total = time.perf_counter()
-    claim_text = payload.claim.strip()
-
-    if not claim_text:
-        raise HTTPException(status_code=400, detail="A claim não pode ser vazia.")
-
-    with tracing.trace_attributes(user_id=payload.user_id, session_id=payload.session_id), \
+    with tracing.trace_attributes(user_id=user_id, session_id=session_id), \
          tracing.observation("check_claim", input=claim_text) as root:
-        response = _run_check(claim_text, start_total)
+        response = _run_check(claim_text, start_total, on_step=on_step)
         response.trace_id = root.trace_id
         root.update(
             output={"veredito": response.veredito, "tool_usada": response.tool_usada},
@@ -268,6 +271,17 @@ def check_claim(payload: CheckClaimRequest):
         )
         root.score_trace(name="veredito", value=response.veredito)
         return response
+
+
+@app.post("/check", response_model=CheckClaimResponse)
+def check_claim(payload: CheckClaimRequest):
+    """Orquestra o pipeline completo: Roteador -> Tool -> Julgador."""
+    claim_text = payload.claim.strip()
+
+    if not claim_text:
+        raise HTTPException(status_code=400, detail="A claim não pode ser vazia.")
+
+    return _traced_check(claim_text, payload.user_id, payload.session_id)
 
 
 @dataclass
@@ -326,7 +340,7 @@ def _chat_for_routing(claim_text: str, tools: List[Dict[str, Any]], hint: str = 
         )
 
 
-def _route_and_execute(claim_text: str) -> RoutingOutcome:
+def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]] = None) -> RoutingOutcome:
     """Escolhe a tool com o LLM e a executa. Para votações, encadeia resolver → dado (regra 2).
 
     O ``id_proposicao`` da tool de votação nunca vem do LLM: vem sempre do ``resolve_proposition``.
@@ -358,6 +372,8 @@ def _route_and_execute(claim_text: str) -> RoutingOutcome:
         tool_name, tool_args = "resolve_proposition", resolver_call["arguments"]
 
     routing_ms = (time.perf_counter() - start) * 1000
+    if on_step:
+        on_step("search")
     evidence = _run_tool(tool_name, tool_args)
     outcome = RoutingOutcome(tool_name, tool_args, evidence, [tool_name], routing_ms)
 
@@ -428,7 +444,9 @@ def _run_input_rails(claim_text: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _run_check(claim_text: str, start_total: float) -> CheckClaimResponse:
+def _run_check(
+    claim_text: str, start_total: float, on_step: Optional[Callable[[str], None]] = None
+) -> CheckClaimResponse:
     # 0. Input rails: bloqueiam antes de qualquer LLM ou tool
     blocked = _run_input_rails(claim_text)
     if blocked:
@@ -444,10 +462,13 @@ def _run_check(claim_text: str, start_total: float) -> CheckClaimResponse:
             fontes_primarias=["Constituição do Agente de Fact-Checking"],
             tempo_total_ms=round(tempo_total_ms, 2),
             tempo_roteamento_ms=0.0,
+            regra_acionada=blocked.get("rule_matched") or "guardrail_entrada",
         )
 
     # 1 e 2. Roteamento via function calling + execução da(s) tool(s)
-    outcome = _route_and_execute(claim_text)
+    if on_step:
+        on_step("tools")
+    outcome = _route_and_execute(claim_text, on_step)
     tool_name, tool_args, evidence = outcome.tool_name, outcome.tool_args, outcome.evidence
     tempo_roteamento_ms = outcome.routing_ms
 
@@ -458,6 +479,9 @@ def _run_check(claim_text: str, start_total: float) -> CheckClaimResponse:
         "evidence": evidence,
         "tool_used": tool_name,
     }
+
+    if on_step:
+        on_step("synthesis")
 
     veredito = "INCONCLUSIVO"
     confianca = "BAIXA"
@@ -529,6 +553,10 @@ def _run_check(claim_text: str, start_total: float) -> CheckClaimResponse:
         tempo_julgamento_ms=tempo_julgamento_ms,
         ferramentas_usadas=outcome.tools_used,
     )
+
+
+# Rotas do frontend (/api/*): traduzem o contrato do Pólis e reaproveitam o mesmo pipeline do /check.
+frontend_api.register(app, _traced_check)
 
 
 if __name__ == "__main__":

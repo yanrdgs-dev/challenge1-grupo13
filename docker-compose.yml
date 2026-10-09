@@ -36,3 +36,15 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    image: factcheck-frontend:latest
+    container_name: factcheck-frontend
+    depends_on:
+      - router-service
+    ports:
+      - "8080:80"
+    restart: unless-stopped

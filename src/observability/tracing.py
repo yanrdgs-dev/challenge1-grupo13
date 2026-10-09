@@ -198,6 +198,23 @@ def trace_attributes(
         _safe_exit(cm, "trace_attributes", None, None, None)
 
 
+def score_trace_by_id(trace_id: str, name: str, value: str, comment: Optional[str] = None) -> bool:
+    """Registra um score categórico num trace já existente (ex.: feedback do usuário). Nunca levanta.
+
+    Devolve True quando o score foi enviado ao Langfuse; False com o tracing desligado ou em erro.
+    """
+    if not is_enabled() or not trace_id:
+        return False
+    try:
+        _get_client().create_score(
+            name=name, value=value, trace_id=trace_id, data_type="CATEGORICAL", comment=comment
+        )
+        return True
+    except Exception as exc:
+        logger.warning("Falha ao registrar score por trace_id no Langfuse: %s", exc)
+        return False
+
+
 def current_trace_id() -> Optional[str]:
     """ID do trace atual, ou None se o tracing estiver desligado ou falhar."""
     if not is_enabled():
