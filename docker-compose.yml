@@ -28,6 +28,9 @@ services:
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
       - ROUTER_MODEL=qwen2.5:7b
       - JUDGE_SERVICE_URL=http://judge-service:8000
+    volumes:
+      # Parquets gerados fora da imagem (ETL local ou pipeline de ingestão da VM).
+      - ./data/processed:/app/data/processed:ro
     ports:
       - "8000:8000"
     extra_hosts:

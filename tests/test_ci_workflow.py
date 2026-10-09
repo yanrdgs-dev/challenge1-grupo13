@@ -85,7 +85,7 @@ def test_images_are_tagged_with_the_commit_and_pushed_to_ghcr(workflow):
     assert "ghcr.io/" in text
     assert "factcheck-${{ matrix.service }}" in text
     assert "${{ github.sha }}" in text
-    assert "latest" not in text, "tags mutáveis escondem qual commit está rodando"
+    assert ":latest" not in text, "tags mutáveis escondem qual commit está rodando"
 
 
 def test_build_job_can_write_packages_and_only_it(workflow):

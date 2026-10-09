@@ -19,12 +19,12 @@ COPY pyproject.toml uv.lock .python-version ./
 RUN uv sync --frozen --no-dev --no-install-project
 ENV PATH="/app/.venv/bin:$PATH"
 
-# Copia o código-fonte, scripts e dados dimensionais locais
+# Copia o código-fonte e os scripts. Os parquets vêm de volume montado em /app/data,
+# gerados na VM pelo pipeline de ingestão: a imagem não depende da versão do dado.
 ARG CACHEBUST=1
 RUN echo "Building version: $CACHEBUST"
 COPY src/ src/
 COPY scripts/ scripts/
-COPY data/processed/ data/processed/
 
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
