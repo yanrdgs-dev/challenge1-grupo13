@@ -34,9 +34,10 @@ def test_no_service_uses_a_mutable_tag(compose):
         assert "latest" not in service["image"]
 
 
-def test_only_the_router_is_published_the_judge_stays_internal(compose):
+def test_only_the_frontend_is_published_router_and_judge_stay_internal(compose):
     assert "ports" not in compose["services"]["judge-service"]
-    assert compose["services"]["router-service"]["ports"]
+    assert "ports" not in compose["services"]["router-service"]
+    assert compose["services"]["frontend"]["ports"]
 
 
 def test_router_reads_parquets_from_the_vm_disk_read_only(compose):
@@ -122,6 +123,13 @@ def test_private_key_file_is_locked_down_and_removed(text):
 def test_deploy_pulls_then_starts_and_checks_health(text):
     assert "docker compose" in text and " pull" in text and "up -d" in text
     assert "/health" in text
+
+
+def test_health_check_goes_through_the_frontend_proxy_to_the_router(text):
+    """O router não é mais publicado: o health check prova nginx + proxy + router de uma vez."""
+    script = _remote_script(text)
+    assert "http://localhost/api/health" in script
+    assert "localhost:8000" not in script
 
 
 def test_failed_health_check_rolls_back_to_the_previous_tag(text):
