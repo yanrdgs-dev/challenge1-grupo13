@@ -50,6 +50,25 @@ def _split_cited_sigla(termo: str) -> tuple[str, str]:
     return cited, " ".join(rest)
 
 
+# Palavras sem valor de busca: não contam como termo de conteúdo ("PEC da Reforma Tributária").
+_STOPWORDS = frozenset(
+    {"a", "o", "as", "os", "de", "da", "do", "das", "dos", "e", "em", "na", "no", "nas", "nos",
+     "para", "por", "com", "sobre", "que", "um", "uma", "lei", "projeto"}
+)
+
+
+def _content_terms(text: str) -> List[str]:
+    from src.tools.normalizer import normalize_text
+
+    return [t for t in normalize_text(text).split() if t not in _STOPWORDS]
+
+
+def _covers_all_terms(terms: List[str], ementa_norm: str) -> bool:
+    """True se todo termo de conteúdo da busca aparece na ementa (evita casar só por 'tributária')."""
+    ementa_tokens = set(ementa_norm.split())
+    return all(term in ementa_tokens for term in terms)
+
+
 def _prefer_main_propositions(
     items: List[Dict[str, Any]], cited_sigla: str
 ) -> List[Dict[str, Any]]:
@@ -239,12 +258,16 @@ def resolve_proposition(
             from src.tools.normalizer import normalize_text
 
             termo_norm = normalize_text(termo_assunto or termo_busca)
+            content_terms = _content_terms(termo_assunto or termo_busca)
             scored_candidates: List[tuple[float, Dict[str, Any], PropositionCandidateSummary]] = []
 
             for item in raw_items:
                 ementa = item.get("ementa") or ""
                 ementa_norm = normalize_text(ementa)
                 score = float(fuzz.token_set_ratio(termo_norm, ementa_norm))
+                if content_terms and not _covers_all_terms(content_terms, ementa_norm):
+                    # Ementa sem algum termo da busca não é a matéria citada: abaixo do limiar mínimo.
+                    score = min(score, 60.0)
 
                 # Bônus para concordância de ano caso informado
                 if ano is not None and item.get("ano") == ano:
