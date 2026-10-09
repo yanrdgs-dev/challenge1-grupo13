@@ -261,6 +261,12 @@ class LLMClient:
             generation.update(**update)
             return result
 
+    @staticmethod
+    def _ollama_headers() -> Dict[str, str]:
+        """Header do proxy que protege o Ollama exposto por túnel; vazio quando não há chave."""
+        api_key = (os.getenv("OLLAMA_API_KEY") or "").strip()
+        return {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
     def _chat_ollama(
         self,
         messages: List[Dict[str, Any]],
@@ -282,7 +288,7 @@ class LLMClient:
         if json_mode:
             body["format"] = "json"
         with httpx.Client(timeout=timeout) as client:
-            resp = client.post(f"{base_url}/api/chat", json=body)
+            resp = client.post(f"{base_url}/api/chat", json=body, headers=self._ollama_headers())
             resp.raise_for_status()
             data = resp.json()
         message = data.get("message", {})
@@ -408,7 +414,9 @@ class LLMClient:
         }
 
         with httpx.Client(timeout=timeout) as client:
-            response = client.post(f"{base_url}/api/generate", json=payload)
+            response = client.post(
+                f"{base_url}/api/generate", json=payload, headers=self._ollama_headers()
+            )
             response.raise_for_status()
             data = response.json()
             return data.get("response", "")
