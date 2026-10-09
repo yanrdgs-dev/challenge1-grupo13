@@ -52,7 +52,18 @@ sudo chown -R deploy:deploy /srv/factcheck
 
 ### Máquina com o Ollama
 
-O túnel precisa de um proxy que valide `Authorization: Bearer` antes do Ollama (D.2 e D.3 do plano). O `LLMClient` já envia o header quando `OLLAMA_API_KEY` está definida.
+```bash
+brew install caddy cloudflared
+export OLLAMA_API_KEY=$(openssl rand -hex 32)     # guarde: a VM precisa da mesma chave
+uv run python scripts/start_ollama_tunnel.py
+```
+
+O script usa `deploy/Caddyfile`: o proxy só aceita `Authorization: Bearer <chave>` e só encaminha `/api/chat`, `/api/generate` e `/api/tags` (ninguém remoto baixa ou apaga modelos, nem com a chave). Antes de abrir o túnel ele prova que o proxy responde 401 sem a chave e 200 com ela. Recusa chave vazia ou com menos de 32 caracteres, porque chave vazia deixaria a porta aberta.
+
+- O túnel rápido do Cloudflare **muda de URL a cada execução**. O script imprime o `OLLAMA_BASE_URL` novo; copie-o para `/srv/factcheck/.env` da VM e recrie os containers. URL fixa exige um túnel nomeado (domínio próprio).
+- A máquina precisa ficar ligada e acordada; no macOS o script mantém o `caffeinate` enquanto roda. Se ela dormir, a VM recebe timeout.
+- `--no-tunnel` sobe só o proxy, para testar localmente.
+- O `Caddyfile` não foi validado com o Caddy real neste repositório (não estava instalado); o script roda `caddy validate` antes de subir, e o autoteste 401/200 é a prova de que o porteiro funciona.
 
 ## Como o deploy se protege
 
