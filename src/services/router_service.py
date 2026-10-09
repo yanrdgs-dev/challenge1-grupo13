@@ -36,7 +36,7 @@ from src.tools.knowledge_tools import check_data_source_coverage, check_institut
 from src.tools.resolve_politician import resolve_politician
 from src.tools.resolve_proposition import resolve_proposition
 from src.tools.votacoes_api import get_proposition_vote_breakdown, get_proposition_vote_result
-from scripts.demo_qwen_tool_routing import ROUTER_SYSTEM_PROMPT, TOOLS_CATALOG
+from src.services.tool_catalog import ROUTER_SYSTEM_PROMPT, TOOLS_CATALOG
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("RouterService")

@@ -58,12 +58,29 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build (e push, quando permitido) com a tag do commit
+      - name: Build e carrega a imagem localmente (sem push)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: docker/Dockerfile.${{ matrix.service }}
-          push: ${{ env.PUSH == 'true' }}
-          tags: ${{ steps.image.outputs.name }}:${{ github.sha }}
+          load: true
+          push: false
+          tags: factcheck-${{ matrix.service }}:smoke
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+      - name: Smoke test - o módulo do serviço importa dentro da imagem
+        # Pega o que os testes não pegam: código que só funciona com o repositório inteiro ao lado
+        # (ex.: `from scripts...` dentro de src/). Sem volume: vale só para o conteúdo da imagem.
+        run: |
+          docker run --rm --entrypoint python -e LANGFUSE_TRACING_ENABLED=false \
+            factcheck-${{ matrix.service }}:smoke \
+            -c "import src.services.${{ matrix.service }}_service"
+      - name: Push com a tag do commit (quando permitido)
+        if: env.PUSH == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.${{ matrix.service }}
+          push: true
+          tags: ${{ steps.image.outputs.name }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service }}

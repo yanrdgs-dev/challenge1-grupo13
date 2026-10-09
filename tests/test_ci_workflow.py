@@ -123,3 +123,36 @@ def test_images_do_not_bake_in_the_processed_data(dockerfile):
     """Os parquets vêm de volume (gerados na VM); a imagem não depende da versão do dado."""
     text = (ROOT / dockerfile).read_text(encoding="utf-8")
     assert "data/processed" not in text
+
+
+# ------------------------------------ smoke test da imagem ------------------------------------ #
+
+def _build_steps(workflow):
+    return workflow["jobs"]["build"]["steps"]
+
+
+def _index(steps, fragment):
+    return next(i for i, s in enumerate(steps) if fragment.lower() in s.get("name", "").lower())
+
+
+def test_image_is_loaded_and_smoke_tested_before_anything_is_pushed(workflow):
+    """Uma imagem que não sobe (ex.: módulo faltando) não pode chegar ao GHCR nem ao deploy."""
+    steps = _build_steps(workflow)
+    load, smoke, push = _index(steps, "carrega"), _index(steps, "smoke"), _index(steps, "Push com a tag")
+    assert load < smoke < push
+    assert steps[load]["with"]["load"] is True
+    assert steps[load]["with"]["push"] is False
+
+
+def test_smoke_test_imports_the_service_module_inside_the_container(workflow):
+    smoke = _build_steps(workflow)[_index(_build_steps(workflow), "smoke")]["run"]
+    assert "docker run --rm" in smoke
+    assert "--entrypoint python" in smoke
+    assert "import src.services.${{ matrix.service }}_service" in smoke
+    assert "LANGFUSE_TRACING_ENABLED=false" in smoke, "o import não pode tentar falar com o Langfuse"
+
+
+def test_smoke_test_runs_without_the_repository_checkout_files(workflow):
+    """Sem volume montado: o teste vale só para o que está DENTRO da imagem."""
+    smoke = _build_steps(workflow)[_index(_build_steps(workflow), "smoke")]["run"]
+    assert " -v " not in smoke and "--volume" not in smoke
