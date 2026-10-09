@@ -8,7 +8,7 @@ antes de a tool rodar.
 import unicodedata
 from typing import Any, Dict, Optional, Tuple
 
-from scripts.demo_qwen_tool_routing import TOOLS_CATALOG
+from src.services.tool_catalog import TOOLS_CATALOG
 
 _TRUE = {"true", "sim", "1"}
 _FALSE = {"false", "nao", "não", "0"}

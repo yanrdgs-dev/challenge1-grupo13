@@ -6,7 +6,7 @@ intercambiáveis. Chaves simples (por exemplo, o JSON de exemplo) não são vari
 
 from typing import Dict
 
-from scripts.demo_qwen_tool_routing import ROUTER_SYSTEM_PROMPT
+from src.services.tool_catalog import ROUTER_SYSTEM_PROMPT
 
 PROMPT_ROUTER_SYSTEM = "factcheck-router-system"
 PROMPT_JUDGE = "factcheck-judge"
