@@ -7,6 +7,7 @@ type IconName =
   | "ballot"
   | "book"
   | "calendar"
+  | "check"
   | "check-circle"
   | "chevron-down"
   | "chevron-up"
@@ -14,6 +15,7 @@ type IconName =
   | "external"
   | "file"
   | "link"
+  | "loader"
   | "menu"
   | "message"
   | "more"
@@ -22,6 +24,9 @@ type IconName =
   | "search"
   | "shield"
   | "sparkle"
+  | "thumbs-down"
+  | "thumbs-up"
+  | "tool"
 
 function Icon({
   name,
@@ -64,6 +69,7 @@ function Icon({
         <rect x="3" y="4" width="18" height="18" rx="2" />
       </>
     ),
+    check: <path d="M20 6 9 17l-5-5" />,
     "check-circle": (
       <>
         <circle cx="12" cy="12" r="10" />
@@ -90,6 +96,11 @@ function Icon({
     ),
     link: (
       <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    ),
+    loader: (
+      <>
+        <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+      </>
     ),
     menu: <path d="M4 7h16M4 12h16M4 17h16" />,
     message: (
@@ -123,6 +134,15 @@ function Icon({
     ),
     sparkle: (
       <path d="M12 3c.4 4.8 2.2 6.6 7 7-4.8.4-6.6 2.2-7 7-.4-4.8-2.2-6.6-7-7 4.8-.4 6.6-2.2 7-7ZM19 16c.2 2 1 2.8 3 3-2 .2-2.8 1-3 3-.2-2-1-2.8-3-3 2-.2 2.8-1 3-3Z" />
+    ),
+    "thumbs-down": (
+      <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3" />
+    ),
+    "thumbs-up": (
+      <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" />
+    ),
+    tool: (
+      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
     ),
   }
 
@@ -167,9 +187,23 @@ interface ChatMessage {
   id: string
   role: "user" | "assistant"
   text: string
-  verdict?: "VERDADEIRO" | "FALSO" | "INCONCLUSIVO" | "VERIFICADO"
+  verdict?: "VERDADEIRO" | "FALSO" | "INCONCLUSIVO" | "VERIFICADO" | string
   sources?: string[]
   subdetails?: string[]
+  feedback?: "positive" | "negative" | null
+  feedbackReason?: string
+  feedbackComment?: string
+  isStreaming?: boolean
+}
+
+interface CheckResponse {
+  id: string
+  query: string
+  verdict: string
+  text: string
+  subdetails?: string[]
+  sources?: string[]
+  rule_matched?: string
 }
 
 interface ChatSession {
@@ -481,6 +515,156 @@ function SourceChip({ children }: { children: ReactNode }) {
   )
 }
 
+type LoadingPhase = "idle" | "tools" | "search" | "synthesis" | "streaming"
+
+function AILoadingIndicator({
+  phase,
+  message,
+}: {
+  phase: LoadingPhase
+  message?: string
+}) {
+  const stages = [
+    {
+      id: "tools",
+      number: "1",
+      title: "Definindo ferramentas",
+      desc: "Mapeando normas e ferramentas de checagem",
+      icon: "tool" as IconName,
+    },
+    {
+      id: "search",
+      number: "2",
+      title: "Realizando busca",
+      desc: "Consultando dados abertos e fontes oficiais",
+      icon: "search" as IconName,
+    },
+    {
+      id: "synthesis",
+      number: "3",
+      title: "Gerando resposta",
+      desc: "Sintetizando evidências e formatando veredito",
+      icon: "sparkle" as IconName,
+    },
+  ]
+
+  const getStatus = (stageId: string) => {
+    if (phase === "tools") {
+      return stageId === "tools" ? "active" : "pending"
+    }
+    if (phase === "search") {
+      if (stageId === "tools") return "completed"
+      return stageId === "search" ? "active" : "pending"
+    }
+    if (phase === "synthesis" || phase === "streaming") {
+      if (stageId === "tools" || stageId === "search") return "completed"
+      return "active"
+    }
+    return "pending"
+  }
+
+  return (
+    <div className="flex items-start gap-3 sm:gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+      <div className="mt-1 grid size-9 shrink-0 place-items-center rounded-xl bg-gradient-to-tr from-emerald-800 to-emerald-600 text-white shadow-md shadow-emerald-900/15 animate-pulse">
+        <PolisLogo className="size-6" />
+      </div>
+      <div className="min-w-0 flex-1 rounded-2xl rounded-tl-md border border-emerald-100 bg-white p-4 sm:p-5 shadow-sm shadow-slate-900/[0.04]">
+        {/* Header com indicador pulsante */}
+        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <span className="relative flex size-2.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex size-2.5 rounded-full bg-emerald-600" />
+            </span>
+            <p className="text-xs font-semibold uppercase tracking-wider text-emerald-800">
+              Auditoria em andamento
+            </p>
+          </div>
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[0.68rem] font-semibold text-emerald-700 border border-emerald-200/60">
+            <Icon name="shield" className="size-3" />
+            Fontes Primárias
+          </span>
+        </div>
+
+        {/* 3 Etapas Consecutivas: Definindo ferramentas, Realizando busca, Gerando resposta */}
+        <div className="mt-3.5 grid gap-2.5 sm:grid-cols-3">
+          {stages.map((st) => {
+            const status = getStatus(st.id)
+            return (
+              <div
+                key={st.id}
+                className={`relative flex items-center gap-2.5 rounded-xl p-3 border transition-all duration-300 ${
+                  status === "active"
+                    ? "border-emerald-300 bg-emerald-50/70 shadow-xs ring-2 ring-emerald-100/80"
+                    : status === "completed"
+                    ? "border-slate-200/80 bg-slate-50/80"
+                    : "border-slate-100 bg-white/40 opacity-50"
+                }`}
+              >
+                <div
+                  className={`grid size-7 shrink-0 place-items-center rounded-lg text-xs font-bold transition ${
+                    status === "completed"
+                      ? "bg-emerald-600 text-white shadow-xs"
+                      : status === "active"
+                      ? "bg-emerald-700 text-white animate-pulse shadow-xs"
+                      : "bg-slate-200 text-slate-500"
+                  }`}
+                >
+                  {status === "completed" ? (
+                    <Icon name="check" className="size-4" />
+                  ) : status === "active" ? (
+                    <Icon name="loader" className="size-3.5 animate-spin" />
+                  ) : (
+                    <span>{st.number}</span>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p
+                    className={`text-xs leading-tight font-semibold ${
+                      status === "active"
+                        ? "text-emerald-950 font-bold"
+                        : status === "completed"
+                        ? "text-slate-800"
+                        : "text-slate-400"
+                    }`}
+                  >
+                    {st.title}
+                  </p>
+                  <p className="mt-0.5 truncate text-[0.65rem] text-slate-500">
+                    {st.desc}
+                  </p>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Linha de progresso e detalhe */}
+        <div className="mt-3.5">
+          <div className="h-1 w-full overflow-hidden rounded-full bg-slate-100">
+            <div
+              className="h-full bg-gradient-to-r from-emerald-500 to-emerald-600 transition-all duration-500"
+              style={{
+                width:
+                  phase === "tools"
+                    ? "33%"
+                    : phase === "search"
+                    ? "66%"
+                    : "95%",
+              }}
+            />
+          </div>
+          {message && (
+            <p className="mt-2 text-center text-[0.7rem] text-slate-500 animate-pulse">
+              {message}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   
@@ -541,29 +725,135 @@ export default function App() {
     }
   }, [conversation, isLoading, activeTab])
 
+  // Estados de Carregamento em Fases da IA (Definindo Ferramentas, Realizando Busca, Gerando Resposta)
+  const [loadingPhase, setLoadingPhase] = useState<LoadingPhase>("idle")
+  const [loadingPhaseMessage, setLoadingPhaseMessage] = useState<string>("")
+
+  // Estados de Validação e Feedback do Usuário
+  const [feedbackModalMsgId, setFeedbackModalMsgId] = useState<string | null>(null)
+  const [negativeReason, setNegativeReason] = useState<string>("Veredito equivocado")
+  const [negativeComment, setNegativeComment] = useState<string>("")
+  const [toastMessage, setToastMessage] = useState<{ text: string; type: "success" | "info" } | null>(null)
+
+  function showToast(text: string, type: "success" | "info" = "success") {
+    setToastMessage({ text, type })
+    setTimeout(() => {
+      setToastMessage((cur) => (cur?.text === text ? null : cur))
+    }, 4000)
+  }
+
+  async function handleFeedback(messageId: string, rating: "positive" | "negative") {
+    const targetMsg = conversation.find((m) => m.id === messageId)
+    if (!targetMsg) return
+
+    if (rating === "positive") {
+      setConversation((prev) =>
+        prev.map((m) => (m.id === messageId ? { ...m, feedback: "positive" } : m))
+      )
+      setSessions((prev) =>
+        prev.map((s) => ({
+          ...s,
+          messages: s.messages.map((m) =>
+            m.id === messageId ? { ...m, feedback: "positive" } : m
+          ),
+        }))
+      )
+      showToast("Avaliação positiva registrada com sucesso!", "success")
+
+      try {
+        await fetch("/api/feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message_id: messageId,
+            rating: "positive",
+            verdict: targetMsg.verdict,
+          }),
+        })
+      } catch {
+        // Ignora erro de rede mantendo feedback local
+      }
+    } else {
+      setFeedbackModalMsgId(messageId)
+      setNegativeReason("Veredito equivocado")
+      setNegativeComment("")
+    }
+  }
+
+  async function submitNegativeFeedback(messageId: string, reason: string, comment: string) {
+    const targetMsg = conversation.find((m) => m.id === messageId)
+    setConversation((prev) =>
+      prev.map((m) =>
+        m.id === messageId
+          ? {
+              ...m,
+              feedback: "negative",
+              feedbackReason: reason,
+              feedbackComment: comment,
+            }
+          : m
+      )
+    )
+    setSessions((prev) =>
+      prev.map((s) => ({
+        ...s,
+        messages: s.messages.map((m) =>
+          m.id === messageId
+            ? {
+                ...m,
+                feedback: "negative",
+                feedbackReason: reason,
+                feedbackComment: comment,
+              }
+            : m
+        ),
+      }))
+    )
+    setFeedbackModalMsgId(null)
+    showToast("Feedback negativo registrado. Obrigado por contribuir!", "info")
+
+    try {
+      await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message_id: messageId,
+          rating: "negative",
+          verdict: targetMsg?.verdict,
+          reason,
+          comment: comment || undefined,
+        }),
+      })
+    } catch {
+      // Ignora erro de rede
+    }
+  }
+
   async function sendQuery(queryText: string) {
     const trimmed = queryText.trim()
     if (!trimmed || isLoading) return
 
+    const now = Date.now()
     const userMsg: ChatMessage = {
-      id: `user-${Date.now()}`,
+      id: `user-${now}`,
       role: "user",
       text: trimmed,
     }
 
     let currentSessionId = activeSessionId
-    const updatedConversation = [...conversation, userMsg]
-    setConversation(updatedConversation)
+    setConversation((prev) => [...prev, userMsg])
     setMessage("")
     setIsLoading(true)
+    setLoadingPhase("tools")
+    setLoadingPhaseMessage("Agente Orquestrador mapeando normas e definindo ferramentas...")
 
     if (!currentSessionId) {
-      currentSessionId = `session-${Date.now()}`
+      currentSessionId = `session-${now}`
       setActiveSessionId(currentSessionId)
       const newSession: ChatSession = {
         id: currentSessionId,
         title: trimmed.length > 42 ? trimmed.slice(0, 40) + "..." : trimmed,
-        createdAt: Date.now(),
+        createdAt: now,
         messages: [userMsg],
       }
       setSessions((prev) => [newSession, ...prev])
@@ -577,53 +867,230 @@ export default function App() {
       )
     }
 
+    // Temporizadores para progressão suave caso o backend demore ou haja fallback
+    const phaseTimer1 = setTimeout(() => {
+      setLoadingPhase((cur) => (cur === "tools" ? "search" : cur))
+      setLoadingPhaseMessage("Consultando bases de dados abertos e fontes oficiais...")
+    }, 1300)
+
+    const phaseTimer2 = setTimeout(() => {
+      setLoadingPhase((cur) => (cur === "search" ? "synthesis" : cur))
+      setLoadingPhaseMessage("Agente Sintetizador consolidando evidências e emitindo veredito...")
+    }, 3100)
+
     try {
-      const response = await fetch("/api/check", {
+      // Conexão via SSE com /api/check/stream
+      const response = await fetch("/api/check/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: trimmed }),
       })
 
-      if (!response.ok) {
-        throw new Error(`Falha na requisição: ${response.status}`)
+      if (!response.ok || !response.body) {
+        throw new Error(`Falha no streaming HTTP: ${response.status}`)
       }
 
-      const data = await response.json()
-      const assistantReply: ChatMessage = {
-        id: data.id || `assistant-${Date.now()}`,
-        role: "assistant",
-        text: data.text,
-        verdict: data.verdict,
-        subdetails: data.subdetails,
-        sources: data.sources,
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder("utf-8")
+      const assistantMsgId = `assistant-${Date.now()}`
+      let accumulatedText = ""
+      let completedData: CheckResponse | null = null
+      let buffer = ""
+
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const blocks = buffer.split("\n\n")
+        buffer = blocks.pop() || ""
+
+        for (const block of blocks) {
+          if (!block.trim()) continue
+          const blockLines = block.split("\n")
+          let currentEvent = ""
+          let currentData = ""
+
+          for (const line of blockLines) {
+            if (line.startsWith("event: ")) {
+              currentEvent = line.slice(7).trim()
+            } else if (line.startsWith("data: ")) {
+              currentData = line.slice(6).trim()
+            }
+          }
+
+          if (currentEvent === "step" && currentData) {
+            try {
+              const stepInfo = JSON.parse(currentData)
+              if (stepInfo.step === "tools") {
+                setLoadingPhase("tools")
+                if (stepInfo.message) setLoadingPhaseMessage(stepInfo.message)
+              } else if (stepInfo.step === "search") {
+                setLoadingPhase("search")
+                if (stepInfo.message) setLoadingPhaseMessage(stepInfo.message)
+              } else if (stepInfo.step === "synthesis") {
+                setLoadingPhase("synthesis")
+                if (stepInfo.message) setLoadingPhaseMessage(stepInfo.message)
+              }
+            } catch {
+              // ignora erro de parse
+            }
+          } else if (currentEvent === "token" && currentData) {
+            try {
+              const tokenInfo = JSON.parse(currentData)
+              const tokenText = tokenInfo.token || ""
+              accumulatedText += tokenText
+
+              setConversation((prev) => {
+                const exists = prev.some((m) => m.id === assistantMsgId)
+                if (exists) {
+                  return prev.map((m) =>
+                    m.id === assistantMsgId
+                      ? { ...m, text: accumulatedText, isStreaming: true }
+                      : m
+                  )
+                } else {
+                  return [
+                    ...prev,
+                    {
+                      id: assistantMsgId,
+                      role: "assistant",
+                      text: accumulatedText,
+                      isStreaming: true,
+                    },
+                  ]
+                }
+              })
+            } catch {
+              // ignora erro de parse
+            }
+          } else if (currentEvent === "done" && currentData) {
+            try {
+              completedData = JSON.parse(currentData)
+            } catch {
+              // ignora erro de parse
+            }
+          }
+        }
       }
 
-      setConversation((prev) => [...prev, assistantReply])
-      setSessions((prev) =>
-        prev.map((s) =>
-          s.id === currentSessionId
-            ? { ...s, messages: [...s.messages, assistantReply] }
-            : s
+      if (completedData) {
+        const finalMsg: ChatMessage = {
+          id: completedData.id || assistantMsgId,
+          role: "assistant",
+          text: completedData.text || accumulatedText,
+          verdict: completedData.verdict,
+          subdetails: completedData.subdetails,
+          sources: completedData.sources,
+          isStreaming: false,
+        }
+
+        setConversation((prev) => {
+          const filtered = prev.filter((m) => m.id !== assistantMsgId)
+          return [...filtered, finalMsg]
+        })
+
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.id === currentSessionId
+              ? {
+                  ...s,
+                  messages: [
+                    ...s.messages.filter((m) => m.id !== assistantMsgId),
+                    finalMsg,
+                  ],
+                }
+              : s
+          )
         )
-      )
+      }
     } catch {
-      const fallbackReply: ChatMessage = {
-        id: `assistant-${Date.now()}`,
-        role: "assistant",
-        text: "Não foi possível conectar ao servidor de fact-checking no momento. Verifique se o backend está em execução.",
-        verdict: "INCONCLUSIVO",
-        sources: ["Sistema Offline"],
-      }
-      setConversation((prev) => [...prev, fallbackReply])
-      setSessions((prev) =>
-        prev.map((s) =>
-          s.id === currentSessionId
-            ? { ...s, messages: [...s.messages, fallbackReply] }
-            : s
+      // Fallback para requisição convencional com emulação fluida de streaming
+      try {
+        const fallbackRes = await fetch("/api/check", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: trimmed }),
+        })
+        if (!fallbackRes.ok) throw new Error("Fallback HTTP error")
+        const data = await fallbackRes.json()
+
+        setLoadingPhase("synthesis")
+        const assistantMsgId = data.id || `assistant-${Date.now()}`
+        const fullText = data.text || ""
+        const words = fullText.split(" ")
+
+        setConversation((prev) => [
+          ...prev,
+          {
+            id: assistantMsgId,
+            role: "assistant",
+            text: "",
+            isStreaming: true,
+          },
+        ])
+
+        let currentText = ""
+        for (let i = 0; i < words.length; i++) {
+          currentText += (i === 0 ? "" : " ") + words[i]
+          const isLast = i === words.length - 1
+          setConversation((prev) =>
+            prev.map((m) =>
+              m.id === assistantMsgId
+                ? {
+                    ...m,
+                    text: currentText,
+                    isStreaming: !isLast,
+                    verdict: isLast ? data.verdict : undefined,
+                    sources: isLast ? data.sources : undefined,
+                    subdetails: isLast ? data.subdetails : undefined,
+                  }
+                : m
+            )
+          )
+          await new Promise((r) => setTimeout(r, 22))
+        }
+
+        const finalMsg: ChatMessage = {
+          id: assistantMsgId,
+          role: "assistant",
+          text: fullText,
+          verdict: data.verdict,
+          sources: data.sources,
+          subdetails: data.subdetails,
+          isStreaming: false,
+        }
+
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.id === currentSessionId
+              ? { ...s, messages: [...s.messages, finalMsg] }
+              : s
+          )
         )
-      )
+      } catch {
+        const fallbackReply: ChatMessage = {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          text: "Não foi possível conectar ao servidor de fact-checking no momento. Verifique se o backend está em execução.",
+          verdict: "INCONCLUSIVO",
+          sources: ["Sistema Offline"],
+          isStreaming: false,
+        }
+        setConversation((prev) => [...prev, fallbackReply])
+        setSessions((prev) =>
+          prev.map((s) =>
+            s.id === currentSessionId
+              ? { ...s, messages: [...s.messages, fallbackReply] }
+              : s
+          )
+        )
+      }
     } finally {
+      clearTimeout(phaseTimer1)
+      clearTimeout(phaseTimer2)
       setIsLoading(false)
+      setLoadingPhase("idle")
     }
   }
 
@@ -885,9 +1352,20 @@ export default function App() {
                                   {msg.verdict}
                                 </span>
                               )}
+                              {msg.isStreaming && (
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[0.65rem] font-semibold text-emerald-700 animate-pulse border border-emerald-200">
+                                  <span className="size-1.5 rounded-full bg-emerald-600 animate-ping" />
+                                  Transmitindo em tempo real...
+                                </span>
+                              )}
                             </div>
                             <div className="space-y-4 text-sm leading-6 text-slate-700">
-                              <p>{msg.text}</p>
+                              <p>
+                                {msg.text}
+                                {msg.isStreaming && (
+                                  <span className="inline-block w-1.5 h-4 ml-1 bg-emerald-600 animate-pulse align-middle" />
+                                )}
+                              </p>
                               {msg.subdetails && msg.subdetails.length > 0 && (
                                 <ul className="space-y-2.5 pt-1">
                                   {msg.subdetails.map((detail, idx) => (
@@ -912,21 +1390,125 @@ export default function App() {
                                 </div>
                               </div>
                             )}
+
+                            {/* Validação da Resposta pelo Usuário (Positiva ou Negativa) */}
+                            {!msg.isStreaming && (
+                              <div className="mt-5 border-t border-slate-100 pt-3.5">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-medium text-slate-500">
+                                      Esta checagem foi útil?
+                                    </span>
+                                    <div className="flex items-center gap-1.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleFeedback(msg.id, "positive")}
+                                        title="Validar resposta como positiva"
+                                        className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition ${
+                                          msg.feedback === "positive"
+                                            ? "bg-emerald-100 text-emerald-800 border border-emerald-300 ring-2 ring-emerald-200/60 shadow-xs"
+                                            : "border border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700"
+                                        }`}
+                                      >
+                                        <Icon name="thumbs-up" className="size-3.5" />
+                                        <span>Positiva</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleFeedback(msg.id, "negative")}
+                                        title="Validar resposta como negativa"
+                                        className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition ${
+                                          msg.feedback === "negative"
+                                            ? "bg-rose-100 text-rose-800 border border-rose-300 ring-2 ring-rose-200/60 shadow-xs"
+                                            : "border border-slate-200 bg-white text-slate-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700"
+                                        }`}
+                                      >
+                                        <Icon name="thumbs-down" className="size-3.5" />
+                                        <span>Negativa</span>
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {msg.feedback && (
+                                    <span className="inline-flex items-center gap-1 text-[0.7rem] font-medium text-slate-500">
+                                      <Icon name="check-circle" className="size-3.5 text-emerald-600" />
+                                      {msg.feedback === "positive"
+                                        ? "Avaliada como positiva"
+                                        : "Avaliada como negativa"}
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Painel Expansível de Feedback Negativo com Motivos */}
+                                {feedbackModalMsgId === msg.id && (
+                                  <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50/50 p-3.5 animate-in fade-in slide-in-from-top-1 duration-200">
+                                    <p className="text-xs font-semibold text-rose-950">
+                                      Por que você considerou esta checagem negativa?
+                                    </p>
+                                    <div className="mt-2 flex flex-wrap gap-1.5">
+                                      {[
+                                        "Veredito equivocado",
+                                        "Fonte desatualizada ou ausente",
+                                        "Interpretação incorreta de dados",
+                                        "Outro motivo",
+                                      ].map((opt) => (
+                                        <button
+                                          key={opt}
+                                          type="button"
+                                          onClick={() => setNegativeReason(opt)}
+                                          className={`rounded-lg px-2.5 py-1 text-[0.7rem] font-medium transition ${
+                                            negativeReason === opt
+                                              ? "bg-rose-700 text-white shadow-xs"
+                                              : "bg-white text-slate-700 border border-slate-200 hover:border-rose-300"
+                                          }`}
+                                        >
+                                          {opt}
+                                        </button>
+                                      ))}
+                                    </div>
+                                    <textarea
+                                      value={negativeComment}
+                                      onChange={(e) => setNegativeComment(e.target.value)}
+                                      placeholder="Comentário opcional para nossa equipe auditora..."
+                                      rows={2}
+                                      className="mt-2.5 w-full rounded-lg border border-slate-200 bg-white p-2.5 text-xs text-slate-800 outline-none focus:border-rose-400 focus:ring-2 focus:ring-rose-100"
+                                    />
+                                    <div className="mt-2.5 flex items-center justify-end gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={() => setFeedbackModalMsgId(null)}
+                                        className="rounded-lg px-3 py-1 text-xs text-slate-600 hover:bg-slate-100"
+                                      >
+                                        Cancelar
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          submitNegativeFeedback(
+                                            msg.id,
+                                            negativeReason,
+                                            negativeComment
+                                          )
+                                        }
+                                        className="rounded-lg bg-rose-700 px-3.5 py-1 text-xs font-semibold text-white shadow-xs hover:bg-rose-800 transition"
+                                      >
+                                        Enviar Avaliação
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </article>
                         </div>
                       )
                     )}
 
-                    {isLoading && (
-                      <div className="flex items-start gap-3 sm:gap-4 animate-in fade-in duration-150">
-                        <div className="mt-1 grid size-9 shrink-0 place-items-center rounded-xl bg-emerald-700 text-white animate-pulse">
-                          <PolisLogo className="size-6" />
-                        </div>
-                        <div className="rounded-2xl rounded-tl-md border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm flex items-center gap-3">
-                          <span className="size-2 rounded-full bg-emerald-500 animate-ping" />
-                          Consultando bases e fontes normativas oficiais...
-                        </div>
-                      </div>
+                    {isLoading && !conversation.some((m) => m.isStreaming) && (
+                      <AILoadingIndicator
+                        phase={loadingPhase}
+                        message={loadingPhaseMessage}
+                      />
                     )}
 
                     <div ref={messagesEndRef} />
@@ -1369,6 +1951,16 @@ export default function App() {
                 </div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Notificação Flutuante de Feedback / Status */}
+        {toastMessage && (
+          <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 rounded-xl border border-emerald-200 bg-white px-4 py-3 text-xs font-semibold text-slate-800 shadow-xl shadow-slate-900/10 animate-in fade-in slide-in-from-bottom-3 duration-200">
+            <span className="grid size-6 place-items-center rounded-lg bg-emerald-100 text-emerald-700">
+              <Icon name="check-circle" className="size-4" />
+            </span>
+            <span>{toastMessage.text}</span>
           </div>
         )}
       </main>
