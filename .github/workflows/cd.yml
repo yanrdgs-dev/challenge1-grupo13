@@ -70,20 +70,26 @@ jobs:
 
           export IMAGE_TAG="$1"
           compose pull
-          compose up -d --remove-orphans
 
-          healthy=""
-          for _ in $(seq 1 30); do
-            if curl -fsS http://localhost:8000/health > /dev/null; then healthy=1; break; fi
-            sleep 4
-          done
+          # O `up` fica num `if`: com `set -e`, uma falha nele abortaria o script antes do rollback.
+          deployed=""
+          if compose up -d --remove-orphans; then
+            for _ in $(seq 1 30); do
+              if curl -fsS http://localhost:8000/health > /dev/null; then deployed=1; break; fi
+              sleep 4
+            done
+          fi
 
-          if [ -z "$healthy" ]; then
-            echo "Health check falhou para $1." >&2
+          if [ -z "$deployed" ]; then
+            echo "Deploy de $1 falhou. Últimos logs dos containers:" >&2
+            compose logs --tail 40 >&2 || true
             if [ -n "$PREVIOUS_TAG" ]; then
               echo "Voltando para $PREVIOUS_TAG." >&2
               export IMAGE_TAG="$PREVIOUS_TAG"
               compose up -d --remove-orphans
+            else
+              echo "Sem versão anterior: derrubando a release quebrada para não ficar reiniciando em loop." >&2
+              compose down
             fi
             exit 1
           fi

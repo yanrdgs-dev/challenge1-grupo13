@@ -138,7 +138,7 @@ def _index(steps, fragment):
 def test_image_is_loaded_and_smoke_tested_before_anything_is_pushed(workflow):
     """Uma imagem que não sobe (ex.: módulo faltando) não pode chegar ao GHCR nem ao deploy."""
     steps = _build_steps(workflow)
-    load, smoke, push = _index(steps, "carrega"), _index(steps, "smoke"), _index(steps, "push")
+    load, smoke, push = _index(steps, "carrega"), _index(steps, "smoke"), _index(steps, "Push com a tag")
     assert load < smoke < push
     assert steps[load]["with"]["load"] is True
     assert steps[load]["with"]["push"] is False
