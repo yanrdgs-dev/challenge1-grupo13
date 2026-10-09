@@ -317,6 +317,14 @@ def test_ssh_command_is_hardened_and_never_disables_host_key_checking():
     assert "StrictHostKeyChecking=no" not in joined
 
 
+def test_double_dash_separates_options_from_the_target():
+    h = SshHarness()
+    h.run()
+    cmd = h.ssh_cmd
+    assert cmd[-2:] == ["--", VM]
+    assert h.remote_checks[0][-3:-1] == ["--", VM]
+
+
 def test_ssh_key_is_used_exclusively_when_given():
     h = SshHarness()
     h.run(["--ssh-key", "/home/x/.ssh/factcheck_vm"])
@@ -332,10 +340,12 @@ def test_bind_address_and_remote_port_are_configurable():
     assert cmd[cmd.index("-R") + 1] == "172.30.0.1:12000:localhost:11434"
 
 
-@pytest.mark.parametrize("target", ["-oProxyCommand=evil", "deploy@host;rm -rf /", "sem-arroba", "a b@host", ""])
+@pytest.mark.parametrize("target", ["-oProxyCommand=evil", "-oProxyCommand=x@y", "-F/etc/passwd@h",
+                                    "deploy@host;rm -rf /", "sem-arroba", "a b@host", ""])
 def test_malicious_or_malformed_target_is_rejected_before_running_ssh(target, capsys):
+    """Destino começando com '-' viraria opção do ssh (ex.: ProxyCommand = execução de comando local)."""
     h = SshHarness()
-    code = tunnel.main(["--ssh", target], env={}, which=lambda n: "/usr/bin/ssh", spawn=h.spawn,
+    code = tunnel.main([f"--ssh={target}"], env={}, which=lambda n: "/usr/bin/ssh", spawn=h.spawn,
                        ollama_up=lambda u: True, remote_check=lambda c: True, stopped=lambda: True)
     assert code == 2 and h.procs == []
 

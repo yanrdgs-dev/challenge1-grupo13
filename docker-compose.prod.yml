@@ -36,3 +36,11 @@ services:
       timeout: 5s
       retries: 6
       start_period: 15s
+
+# Rede criada uma vez na VM, com sub-rede fixa:
+#   docker network create --subnet 172.28.0.0/24 --gateway 172.28.0.1 factcheck
+# O túnel SSH do Ollama escuta no gateway (172.28.0.1:11434), alcançável só por estes containers.
+networks:
+  default:
+    name: factcheck
+    external: true
