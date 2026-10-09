@@ -11,7 +11,7 @@ import os
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from fastapi import FastAPI, HTTPException
 import httpx
 from pydantic import BaseModel, Field
@@ -35,7 +35,7 @@ from src.tools.gastos_tools import (
 from src.tools.knowledge_tools import check_data_source_coverage, check_institutional_rule
 from src.tools.resolve_politician import resolve_politician
 from src.tools.resolve_proposition import resolve_proposition
-from src.tools.votacoes_api import get_proposition_vote_result
+from src.tools.votacoes_api import get_proposition_vote_breakdown, get_proposition_vote_result
 from scripts.demo_qwen_tool_routing import ROUTER_SYSTEM_PROMPT, TOOLS_CATALOG
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -288,11 +288,13 @@ _RESOLVE_FIRST_HINT = (
 )
 
 
-def _run_tool(tool_name: str, tool_args: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _run_tool(
+    tool_name: str, tool_args: Dict[str, Any], runner: Optional[Callable[..., Any]] = None
+) -> Optional[Dict[str, Any]]:
     """Executa uma tool dentro do span ``tool.<nome>``; falha vira evidência com ``erro``."""
     with tracing.observation(f"tool.{tool_name}", input=tool_args) as tool_span:
         try:
-            evidence = execute_tool(tool_name, tool_args)
+            evidence = runner(tool_args) if runner else execute_tool(tool_name, tool_args)
             tool_span.update(output=evidence)
             if evidence_failed(evidence):
                 reason = (evidence or {}).get("erro") or (evidence or {}).get("status") or "sem evidência"
@@ -375,7 +377,41 @@ def _route_and_execute(claim_text: str) -> RoutingOutcome:
         outcome.tool_args = vote_args
         outcome.evidence = {**(vote_evidence or {}), "entidade_resolvida": resolution}
         outcome.tools_used.append("get_proposition_vote_result")
+        outcome.tools_used.extend(_attach_vote_breakdowns(outcome.evidence, resolved_casa))
     return outcome
+
+
+# Placar só das votações mais recentes: cada consulta nominal da Câmara baixa ~500 votos.
+MAX_VOTE_BREAKDOWNS = 3
+
+
+def _breakdown_runner(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Placar de uma votação. Fora do catálogo do LLM: o ``id_votacao`` só vem da tool de votação (regra 2)."""
+    placar = get_proposition_vote_breakdown(id_votacao=args["id_votacao"], casa=args["casa"])
+    if not placar.get("total"):
+        return {"erro": "Placar indisponível para esta votação (votação simbólica ou sem votos nominais)."}
+    return placar
+
+
+def _attach_vote_breakdowns(vote_evidence: Optional[Dict[str, Any]], casa: str) -> List[str]:
+    """Anexa ``placar`` às votações mais recentes; falha de uma consulta não derruba a evidência."""
+    votacoes = (vote_evidence or {}).get("votacoes") if not evidence_failed(vote_evidence) else None
+    if not votacoes:
+        return []
+
+    recent = sorted(votacoes, key=lambda v: str(v.get("data") or ""), reverse=True)[:MAX_VOTE_BREAKDOWNS]
+    for votacao in recent:
+        result = _run_tool(
+            "get_proposition_vote_breakdown",
+            {"casa": casa, "id_votacao": votacao["id_votacao"]},
+            runner=_breakdown_runner,
+        )
+        if evidence_failed(result):
+            votacao["placar"] = None
+            votacao["placar_erro"] = str((result or {}).get("erro") or "sem evidência")
+        else:
+            votacao["placar"] = result
+    return ["get_proposition_vote_breakdown"]
 
 
 def _run_input_rails(claim_text: str) -> Optional[Dict[str, Any]]:
