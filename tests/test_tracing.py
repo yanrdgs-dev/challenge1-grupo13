@@ -340,3 +340,25 @@ def test_trace_attributes_body_exception_propagates(propagate):
     with pytest.raises(ValueError, match="do corpo"):
         with tracing.trace_attributes(user_id="u"):
             raise ValueError("do corpo")
+
+
+# ------------------------------ score por trace_id (feedback do usuário) ------------------------------ #
+
+def test_score_trace_by_id_creates_a_categorical_score(client):
+    ok = tracing.score_trace_by_id(trace_id="a" * 32, name="feedback_usuario", value="positive", comment="ótimo")
+    assert ok is True
+    client.create_score.assert_called_once_with(
+        name="feedback_usuario", value="positive", trace_id="a" * 32, data_type="CATEGORICAL", comment="ótimo"
+    )
+
+
+def test_score_trace_by_id_is_a_noop_when_tracing_is_off(monkeypatch):
+    monkeypatch.setenv("LANGFUSE_TRACING_ENABLED", "false")
+    with patch.object(tracing, "_get_client") as getter:
+        assert tracing.score_trace_by_id(trace_id="a" * 32, name="x", value="y") is False
+    getter.assert_not_called()
+
+
+def test_score_trace_by_id_swallows_langfuse_errors(client):
+    client.create_score.side_effect = RuntimeError("rede caiu")
+    assert tracing.score_trace_by_id(trace_id="a" * 32, name="x", value="y") is False
