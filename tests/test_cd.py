@@ -155,3 +155,26 @@ def test_compose_does_not_hardcode_the_ollama_url(compose):
     """A URL do Ollama vem do .env da VM (túnel SSH ou outro), não do repositório."""
     text = COMPOSE.read_text(encoding="utf-8")
     assert "OLLAMA_BASE_URL" not in text
+
+
+# ------------------------------------ falha na subida e rollback ------------------------------------ #
+
+def _remote_script(text):
+    return text.split("<<'REMOTE'")[1].split("REMOTE\n")[0]
+
+
+def test_a_failing_compose_up_also_triggers_the_rollback_path(text):
+    """`set -e` abortaria o script no `up` e nunca chegaria ao rollback: o `up` precisa estar num `if`."""
+    script = _remote_script(text)
+    assert re.search(r"if\s+compose up -d", script) or "if ! compose up -d" in script
+
+
+def test_failure_prints_the_container_logs_for_diagnosis(text):
+    script = _remote_script(text)
+    assert "compose logs" in script and "--tail" in script
+
+
+def test_first_deploy_failure_without_a_previous_tag_takes_the_stack_down(text):
+    """Sem versão anterior, deixar a release quebrada reiniciando em loop só esconde o problema."""
+    script = _remote_script(text)
+    assert "compose down" in script
