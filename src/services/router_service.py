@@ -314,6 +314,7 @@ def _chat_for_routing(claim_text: str, tools: List[Dict[str, Any]], hint: str = 
             ],
             tools=tools,
             model=ROUTER_MODEL,
+            prompt=system_prompt.prompt_client,
         )
     except Exception as exc:
         logger.error("Erro ao chamar o LLM para roteamento: %s", exc)

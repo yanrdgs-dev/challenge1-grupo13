@@ -141,6 +141,7 @@ class LLMClient:
         tools: Optional[List[Dict[str, Any]]] = None,
         model: Optional[str] = None,
         json_mode: bool = False,
+        prompt: Any = None,
     ) -> ChatResult:
         """Executa um chat com mensagens (e tools opcionais), com fallback automático.
 
@@ -149,6 +150,7 @@ class LLMClient:
             tools: Catálogo de tools para function calling (opcional).
             model: Modelo a usar no provedor primário (o fallback usa o modelo do seu .env).
             json_mode: Se True, solicita saída JSON ao provedor.
+            prompt: Cliente de prompt do Langfuse; liga a generation à versão usada (opcional).
 
         Returns:
             ChatResult com texto, tool calls normalizadas, uso de tokens e metadados.
@@ -162,7 +164,8 @@ class LLMClient:
 
         try:
             return self._chat_provider(
-                self.primary_provider, messages, tools, model, json_mode, self.timeout
+                self.primary_provider, messages, tools, model, json_mode, self.timeout,
+                prompt=prompt,
             )
         except Exception as e:
             logger.warning("Falha no provedor '%s' (chat): %s", self.primary_provider, e)
@@ -170,7 +173,7 @@ class LLMClient:
                 try:
                     result = self._chat_provider(
                         self.fallback_provider, messages, tools, None, json_mode,
-                        self.fallback_timeout, is_fallback=True,
+                        self.fallback_timeout, is_fallback=True, prompt=prompt,
                     )
                     result.used_fallback = True
                     return result
@@ -200,6 +203,7 @@ class LLMClient:
         json_mode: bool,
         timeout: float,
         is_fallback: bool = False,
+        prompt: Any = None,
     ) -> ChatResult:
         if provider not in self.SUPPORTED_PROVIDERS:
             raise ValueError(
@@ -215,6 +219,10 @@ class LLMClient:
             "with_tools": bool(tools),
         }
 
+        generation_kwargs: Dict[str, Any] = {}
+        if prompt is not None:
+            generation_kwargs["prompt"] = prompt
+
         with tracing.observation(
             "llm.chat",
             as_type="generation",
@@ -222,6 +230,7 @@ class LLMClient:
             input=messages,
             metadata=base_metadata,
             model_parameters={"temperature": self._temperature()},
+            **generation_kwargs,
         ) as generation:
             start = time.perf_counter()
             try:

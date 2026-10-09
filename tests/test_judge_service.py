@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from src.core.llm_client import ChatResult
 from src.services import judge_service
-from src.services.judge_service import app
+from src.services.judge_service import JudgeRequest, app
 
 client = TestClient(app)
 

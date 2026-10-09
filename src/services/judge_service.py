@@ -104,6 +104,7 @@ def _evaluate(payload: JudgeRequest) -> JudgeResponse:
             [{"role": "user", "content": prompt.text}],
             model=JUDGE_MODEL,
             json_mode=True,
+            prompt=prompt.prompt_client,
         )
         raw_response = chat.content or "{}"
     except Exception as exc:
