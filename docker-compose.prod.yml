@@ -27,8 +27,7 @@ services:
     volumes:
       # Parquets gerados na VM pelo pipeline de ingestão; a imagem não os contém.
       - /srv/factcheck/data/processed:/app/data/processed:ro
-    ports:
-      - "8000:8000"
+    # Sem `ports`: o router só é alcançável pelo frontend (nginx) dentro da rede do compose.
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
@@ -36,6 +35,21 @@ services:
       timeout: 5s
       retries: 6
       start_period: 15s
+
+  frontend:
+    image: ghcr.io/${GHCR_OWNER:?defina GHCR_OWNER}/factcheck-frontend:${IMAGE_TAG:?defina IMAGE_TAG}
+    depends_on:
+      router-service:
+        condition: service_healthy
+    ports:
+      - "80:80"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 # Rede criada uma vez na VM, com sub-rede fixa:
 #   docker network create --subnet 172.28.0.0/24 --gateway 172.28.0.1 factcheck

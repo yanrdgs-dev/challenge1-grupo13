@@ -169,7 +169,7 @@ def test_frontend_image_gets_an_nginx_config_check_instead(workflow):
     steps = _build_steps(workflow)
     smoke = steps[_index(steps, "smoke test - nginx")]
     assert smoke["if"] == "matrix.service == 'frontend'"
-    assert "nginx -t" in smoke["run"] and "--entrypoint nginx" in smoke["run"]
+    assert "--entrypoint nginx" in smoke["run"] and smoke["run"].rstrip().endswith(" -t")
 
 
 def test_frontend_build_order_is_load_then_smoke_then_push(workflow):

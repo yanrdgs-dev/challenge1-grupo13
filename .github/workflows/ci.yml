@@ -40,7 +40,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [router, judge]
+        service: [router, judge, frontend]
     env:
       # PR vindo de fork não recebe permissão de escrita no GHCR: só valida o build.
       PUSH: ${{ github.event.pull_request.head.repo.fork != true }}
@@ -69,12 +69,16 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
       - name: Smoke test - o módulo do serviço importa dentro da imagem
+        if: matrix.service != 'frontend'
         # Pega o que os testes não pegam: código que só funciona com o repositório inteiro ao lado
         # (ex.: `from scripts...` dentro de src/). Sem volume: vale só para o conteúdo da imagem.
         run: |
           docker run --rm --entrypoint python -e LANGFUSE_TRACING_ENABLED=false \
             factcheck-${{ matrix.service }}:smoke \
             -c "import src.services.${{ matrix.service }}_service"
+      - name: Smoke test - nginx aceita a configuração da imagem
+        if: matrix.service == 'frontend'
+        run: docker run --rm --entrypoint nginx factcheck-frontend:smoke -t
       - name: Push com a tag do commit (quando permitido)
         if: env.PUSH == 'true'
         uses: docker/build-push-action@v6

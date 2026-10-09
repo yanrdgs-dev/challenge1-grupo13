@@ -75,7 +75,7 @@ jobs:
           deployed=""
           if compose up -d --remove-orphans; then
             for _ in $(seq 1 30); do
-              if curl -fsS http://localhost:8000/health > /dev/null; then deployed=1; break; fi
+              if curl -fsS http://localhost/api/health > /dev/null; then deployed=1; break; fi
               sleep 4
             done
           fi

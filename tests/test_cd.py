@@ -47,8 +47,9 @@ def test_router_reads_parquets_from_the_vm_disk_read_only(compose):
 
 
 def test_secrets_come_from_an_env_file_on_the_vm_not_from_the_repository(compose):
-    for service in compose["services"].values():
-        assert service["env_file"]
+    for name in ("router-service", "judge-service"):
+        assert compose["services"][name]["env_file"]
+    assert "env_file" not in compose["services"]["frontend"], "o frontend não precisa de nenhum segredo"
     text = COMPOSE.read_text(encoding="utf-8")
     assert not re.search(r"(KEY|SECRET|TOKEN)\s*[:=]\s*[A-Za-z0-9]{8,}", text)
 
