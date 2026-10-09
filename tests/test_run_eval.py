@@ -151,7 +151,7 @@ def test_services_that_never_become_healthy_abort_and_are_stopped(capsys):
     assert h.run(["--startup-timeout", "2"]) == 2
     assert h.experiment_calls == []
     assert all(p.terminated for p in h.procs)
-    assert "saudável" in capsys.readouterr().err
+    assert "saudáveis" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("service", ["judge", "router"])
