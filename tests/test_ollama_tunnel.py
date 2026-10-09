@@ -250,3 +250,245 @@ def test_unreachable_cloudflare_edge_explains_the_blocked_port(capsys):
     assert h.run() == 2
     err = capsys.readouterr().err
     assert "7844" in err and "rede" in err
+
+
+# ================================================================================================
+# Modo --ssh: túnel reverso até a VM (redes que bloqueiam a porta 7844 do Cloudflare)
+# ================================================================================================
+
+VM = "deploy@172.183.117.185"
+
+
+class SshHarness:
+    """Dependências injetadas: nenhum ssh real."""
+
+    def __init__(self, tools=("ssh",), ollama=True, remote_ok=True, dies_early=False):
+        self.tools, self.ollama, self.remote_ok, self.dies_early = set(tools), ollama, remote_ok, dies_early
+        self.procs, self.remote_checks, self.sleeps = [], [], []
+
+    def spawn(self, cmd, env=None):
+        proc = FakeProc(cmd, env)
+        if self.dies_early and len(self.procs) == 0:
+            proc.poll = lambda: 255
+        self.procs.append(proc)
+        return proc
+
+    def run(self, argv=None, env=None):
+        return tunnel.main(
+            ["--ssh", VM] + (argv or []),
+            env={} if env is None else env,
+            which=lambda name: f"/usr/bin/{name}" if name in self.tools else None,
+            spawn=self.spawn,
+            ollama_up=lambda url: self.ollama,
+            remote_check=lambda cmd: (self.remote_checks.append(cmd) or self.remote_ok),
+            stopped=lambda: True,
+            sleep=lambda s: self.sleeps.append(s),
+            now=lambda: 0.0,
+        )
+
+    @property
+    def ssh_cmd(self):
+        return self.procs[0].cmd
+
+
+def test_ssh_mode_needs_neither_the_proxy_key_nor_caddy_nor_cloudflared():
+    h = SshHarness(tools=("ssh",))
+    assert h.run(env={}) == 0
+    assert not any(Path(p.cmd[0]).name in ("caddy", "cloudflared") for p in h.procs)
+
+
+def test_ssh_command_forwards_the_vm_gateway_port_to_the_local_ollama():
+    h = SshHarness()
+    h.run()
+    cmd = h.ssh_cmd
+    assert "-N" in cmd
+    assert cmd[cmd.index("-R") + 1] == "172.28.0.1:11434:localhost:11434"
+    assert cmd[-1] == VM
+
+
+def test_ssh_command_is_hardened_and_never_disables_host_key_checking():
+    cmd = SshHarness()
+    h = cmd
+    h.run()
+    joined = " ".join(h.ssh_cmd)
+    for option in ("ExitOnForwardFailure=yes", "ServerAliveInterval=30", "BatchMode=yes",
+                   "StrictHostKeyChecking=yes"):
+        assert option in joined
+    assert "StrictHostKeyChecking=no" not in joined
+
+
+def test_ssh_key_is_used_exclusively_when_given():
+    h = SshHarness()
+    h.run(["--ssh-key", "/home/x/.ssh/factcheck_vm"])
+    cmd = h.ssh_cmd
+    assert cmd[cmd.index("-i") + 1] == "/home/x/.ssh/factcheck_vm"
+    assert "IdentitiesOnly=yes" in " ".join(cmd)
+
+
+def test_bind_address_and_remote_port_are_configurable():
+    h = SshHarness()
+    h.run(["--bind-address", "172.30.0.1", "--remote-port", "12000"])
+    cmd = h.ssh_cmd
+    assert cmd[cmd.index("-R") + 1] == "172.30.0.1:12000:localhost:11434"
+
+
+@pytest.mark.parametrize("target", ["-oProxyCommand=evil", "deploy@host;rm -rf /", "sem-arroba", "a b@host", ""])
+def test_malicious_or_malformed_target_is_rejected_before_running_ssh(target, capsys):
+    h = SshHarness()
+    code = tunnel.main(["--ssh", target], env={}, which=lambda n: "/usr/bin/ssh", spawn=h.spawn,
+                       ollama_up=lambda u: True, remote_check=lambda c: True, stopped=lambda: True)
+    assert code == 2 and h.procs == []
+
+
+@pytest.mark.parametrize("bind", ["não-é-ip", "999.1.1.1", "172.28.0.1; ls", "0.0.0.0/0"])
+def test_invalid_bind_address_is_rejected(bind):
+    h = SshHarness()
+    assert h.run(["--bind-address", bind]) == 2
+    assert h.procs == []
+
+
+def test_missing_ssh_binary_aborts(capsys):
+    h = SshHarness(tools=())
+    assert h.run() == 2
+    assert "ssh" in capsys.readouterr().err
+    assert h.procs == []
+
+
+def test_ollama_down_aborts_before_connecting(capsys):
+    h = SshHarness(ollama=False)
+    assert h.run() == 2
+    assert h.procs == []
+    assert "Ollama" in capsys.readouterr().err
+
+
+def test_ssh_that_exits_right_away_is_reported_with_the_usual_causes(capsys):
+    h = SshHarness(dies_early=True)
+    assert h.run() == 2
+    err = capsys.readouterr().err
+    assert "chave" in err and "known_hosts" in err
+
+
+def test_self_test_runs_curl_on_the_vm_against_the_forwarded_port():
+    h = SshHarness()
+    h.run()
+    check = h.remote_checks[0]
+    assert check[0].endswith("ssh") or check[0] == "ssh"
+    assert check[-2] == VM
+    assert "http://172.28.0.1:11434/api/tags" in check[-1]
+    assert "curl" in check[-1]
+
+
+def test_failed_self_test_aborts_and_stops_the_tunnel(capsys):
+    h = SshHarness(remote_ok=False)
+    assert h.run() == 2
+    assert all(p.terminated for p in h.procs)
+    assert "autoteste" in capsys.readouterr().err
+
+
+def test_prints_the_base_url_for_the_containers(capsys):
+    SshHarness().run()
+    out = capsys.readouterr().out
+    assert "OLLAMA_BASE_URL=http://172.28.0.1:11434" in out
+    assert "/srv/factcheck/.env" in out
+
+
+def test_tunnel_is_stopped_on_exit():
+    h = SshHarness()
+    h.run()
+    assert all(p.terminated for p in h.procs)
+
+
+# ------------------------------------ reconexão automática ------------------------------------ #
+
+class Clock:
+    def __init__(self):
+        self.t = 0.0
+
+    def __call__(self):
+        return self.t
+
+
+class ScriptedProc:
+    """Roda `polls` verificações vivo e depois 'cai' (poll devolve código de saída)."""
+
+    def __init__(self, polls, clock=None, seconds_per_poll=1.0):
+        self.polls, self.clock, self.step = polls, clock, seconds_per_poll
+        self.terminated = False
+
+    def poll(self):
+        if self.polls <= 0:
+            return 255
+        self.polls -= 1
+        if self.clock:
+            self.clock.t += self.step
+        return None
+
+    def terminate(self):
+        self.terminated = True
+
+    def wait(self, timeout=None):
+        return 0
+
+    def kill(self):
+        pass
+
+
+def _supervise(lifetimes, stop_after=None, clock=None):
+    clock = clock or Clock()
+    procs = [ScriptedProc(n, clock) for n in lifetimes]
+    spawned, sleeps = [], []
+
+    def spawn(cmd, env=None):
+        spawned.append(cmd)
+        return procs[len(spawned) - 1]
+
+    stops = {"calls": 0}
+
+    def stopped():
+        stops["calls"] += 1
+        return stop_after is not None and len(spawned) >= stop_after and procs[len(spawned) - 1].polls <= 0
+
+    tunnel.supervise_ssh(spawn, ["ssh"], sleep=sleeps.append, now=clock, stopped=stopped)
+    return spawned, [s for s in sleeps if s > 1], procs
+
+
+def test_reconnects_after_the_connection_drops():
+    spawned, _, _ = _supervise([2, 2, 2], stop_after=3)
+    assert len(spawned) == 3
+
+
+def test_backoff_grows_and_is_capped_at_60_seconds():
+    _, backoffs, _ = _supervise([1] * 8, stop_after=8)
+    assert backoffs[:5] == [4, 8, 16, 32, 60]
+    assert max(backoffs) == 60
+
+
+def test_backoff_resets_after_a_long_lived_connection():
+    _, backoffs, _ = _supervise([1, 1, 100, 1], stop_after=4)
+    assert backoffs[-1] == 2, "depois de uma conexão estável, volta ao menor intervalo"
+
+
+def test_supervisor_terminates_a_live_tunnel_when_asked_to_stop():
+    clock = Clock()
+    proc = ScriptedProc(10_000, clock)
+    calls = {"n": 0}
+
+    def stopped():
+        calls["n"] += 1
+        return calls["n"] > 3
+
+    tunnel.supervise_ssh(lambda cmd, env=None: proc, ["ssh"], sleep=lambda s: None, now=clock, stopped=stopped)
+    assert proc.terminated
+
+
+def test_supervisor_does_not_reconnect_once_stopped():
+    clock = Clock()
+    spawned = []
+    proc = ScriptedProc(1, clock)
+
+    def spawn(cmd, env=None):
+        spawned.append(cmd)
+        return proc
+
+    tunnel.supervise_ssh(spawn, ["ssh"], sleep=lambda s: None, now=clock, stopped=lambda: True)
+    assert len(spawned) == 1

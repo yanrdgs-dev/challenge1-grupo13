@@ -140,3 +140,18 @@ def test_every_action_is_pinned_to_a_version(job):
         uses = step.get("uses")
         if uses:
             assert "@" in uses and not uses.endswith(("@main", "@master")), uses
+
+
+# ------------------------------------ rede do Docker e túnel do Ollama ------------------------------------ #
+
+def test_services_join_the_external_factcheck_network_with_a_fixed_gateway(compose):
+    """O túnel SSH escuta no gateway dessa rede (172.28.0.1); a rede é criada uma vez na VM."""
+    network = compose["networks"]["default"]
+    assert network["name"] == "factcheck"
+    assert network["external"] is True
+
+
+def test_compose_does_not_hardcode_the_ollama_url(compose):
+    """A URL do Ollama vem do .env da VM (túnel SSH ou outro), não do repositório."""
+    text = COMPOSE.read_text(encoding="utf-8")
+    assert "OLLAMA_BASE_URL" not in text
