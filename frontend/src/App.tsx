@@ -219,43 +219,6 @@ interface Suggestion {
   text: string
 }
 
-// Schemas para a Verificação Integral por Link (Task 4.5)
-interface VerifiedClaimItem {
-  claim: string
-  category?: string
-  target_entity?: string
-  verdict: "VERDADEIRO" | "FALSO" | "INCONCLUSIVO" | string
-  confidence: string
-  explanation: string
-  sources: string[]
-  rule_matched?: string
-  latency_seconds?: Record<string, number>
-}
-
-interface VerifyUrlResultData {
-  url: string
-  success: boolean
-  message: string
-  article?: {
-    title?: string
-    author?: string
-    publish_date?: string
-    url: string
-  }
-  claims_count: number
-  claims: VerifiedClaimItem[]
-  overall_verdict: "VERDADEIRO" | "FALSO" | "PARCIALMENTE_FALSO" | "ENGANOSO" | "INCONCLUSIVO" | string
-  reliability_score: number
-  executive_summary?: string
-  latency_seconds: {
-    scraping: number
-    claim_extraction: number
-    batch_verification: number
-    total: number
-  }
-  timeout_exceeded: boolean
-}
-
 const defaultSuggestions: Suggestion[] = [
   {
     icon: "ballot",
@@ -278,15 +241,6 @@ const defaultSuggestions: Suggestion[] = [
     text: "Dá para ver no site do TSE quanto cada candidato declarou ter gastado?",
   },
 ]
-
-function getDomainFromUrl(url: string): string {
-  try {
-    const parsed = new URL(url)
-    return parsed.hostname.replace(/^www\./, "")
-  } catch {
-    return "Veículo de Imprensa"
-  }
-}
 
 function groupSessions(sessions: ChatSession[]) {
   const now = new Date()
@@ -323,7 +277,6 @@ function Sidebar({
   activeSessionId,
   onSelectSession,
   onDeleteSession,
-  onSelectTab,
 }: {
   open: boolean
   onClose: () => void
@@ -332,7 +285,6 @@ function Sidebar({
   activeSessionId: string | null
   onSelectSession: (sessionId: string) => void
   onDeleteSession: (sessionId: string) => void
-  onSelectTab?: (tab: "chat" | "link") => void
 }) {
   const [searchTerm, setSearchTerm] = useState("")
 
@@ -378,28 +330,16 @@ function Sidebar({
           </button>
         </div>
 
-        <div className="space-y-2 px-4 pb-3">
+        <div className="px-4 pb-3">
           <button
             onClick={() => {
               onNewChat()
-              onSelectTab?.("chat")
               onClose()
             }}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-xs font-semibold text-white shadow-sm shadow-emerald-950/10 transition hover:bg-emerald-800"
           >
             <Icon name="plus" className="size-4" />
-            Nova consulta manual
-          </button>
-
-          <button
-            onClick={() => {
-              onSelectTab?.("link")
-              onClose()
-            }}
-            className="flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50/80 px-4 py-2 text-xs font-semibold text-emerald-900 transition hover:bg-emerald-100"
-          >
-            <Icon name="link" className="size-4 text-emerald-700" />
-            Checar Notícia por Link
+            Nova consulta
           </button>
         </div>
 
@@ -460,7 +400,6 @@ function Sidebar({
                           <button
                             onClick={() => {
                               onSelectSession(sess.id)
-                              onSelectTab?.("chat")
                               onClose()
                             }}
                             className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
@@ -668,10 +607,7 @@ function AILoadingIndicator({
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   
-  // Controle de Abas Principais (Task 4.5)
-  const [activeTab, setActiveTab] = useState<"chat" | "link">("chat")
-
-  // Estado do Chat Manual
+  // Estado do Chat
   const [message, setMessage] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [suggestions, setSuggestions] = useState<Suggestion[]>(defaultSuggestions)
@@ -685,13 +621,6 @@ export default function App() {
   })
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
   const [conversation, setConversation] = useState<ChatMessage[]>([])
-
-  // Estado da Verificação por Link (Task 4.5)
-  const [urlInput, setUrlInput] = useState("")
-  const [isAnalyzingUrl, setIsAnalyzingUrl] = useState(false)
-  const [urlError, setUrlError] = useState<string | null>(null)
-  const [urlResult, setUrlResult] = useState<VerifyUrlResultData | null>(null)
-  const [expandedClaims, setExpandedClaims] = useState<Record<number, boolean>>({ 0: true })
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -720,10 +649,8 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (activeTab === "chat") {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
-    }
-  }, [conversation, isLoading, activeTab])
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [conversation, isLoading])
 
   // Estados de Carregamento em Fases da IA (Definindo Ferramentas, Realizando Busca, Gerando Resposta)
   const [loadingPhase, setLoadingPhase] = useState<LoadingPhase>("idle")
@@ -1094,50 +1021,7 @@ export default function App() {
     }
   }
 
-  // Ação de Verificação Integral por Link (Task 4.5)
-  async function handleVerifyUrl(targetUrl?: string) {
-    const rawUrl = (targetUrl || urlInput).trim()
-    if (!rawUrl || isAnalyzingUrl) return
 
-    if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) {
-      setUrlError("Por favor, insira uma URL válida iniciando com http:// ou https://")
-      return
-    }
-
-    setIsAnalyzingUrl(true)
-    setUrlError(null)
-    setUrlResult(null)
-
-    try {
-      const response = await fetch("/api/v1/verify-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: rawUrl }),
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.detail || `Erro HTTP ${response.status} ao analisar notícia.`)
-      }
-
-      setUrlResult(data)
-      // Expande a primeira alegação por padrão para demonstrar interatividade
-      setExpandedClaims({ 0: true })
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Falha inesperada ao comunicar com o servidor."
-      setUrlError(msg)
-    } finally {
-      setIsAnalyzingUrl(false)
-    }
-  }
-
-  function toggleClaimAccordion(index: number) {
-    setExpandedClaims((prev) => ({
-      ...prev,
-      [index]: !prev[index],
-    }))
-  }
 
   function submitChatMessage(event: FormEvent) {
     event.preventDefault()
@@ -1183,11 +1067,10 @@ export default function App() {
         activeSessionId={activeSessionId}
         onSelectSession={handleSelectSession}
         onDeleteSession={handleDeleteSession}
-        onSelectTab={setActiveTab}
       />
 
       <main className="flex min-w-0 flex-1 flex-col bg-[#fcfdfc]">
-        {/* Cabeçalho Principal com Seletor de Abas Integrado */}
+        {/* Cabeçalho Principal */}
         <header className="flex h-20 shrink-0 items-center justify-between border-b border-slate-200/80 bg-white/90 px-4 backdrop-blur-xl sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
             <button
@@ -1212,41 +1095,8 @@ export default function App() {
             </div>
           </div>
 
-          {/* Seletor de Abas (Task 4.5) */}
-          <div className="flex items-center gap-1 rounded-xl border border-slate-200/80 bg-slate-100/90 p-1">
-            <button
-              id="tab-manual-claim"
-              type="button"
-              onClick={() => setActiveTab("chat")}
-              className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                activeTab === "chat"
-                  ? "bg-white text-slate-900 shadow-sm shadow-slate-900/5"
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              <Icon name="message" className="size-3.5" />
-              <span>Checar Afirmação</span>
-            </button>
-            <button
-              id="tab-news-link"
-              type="button"
-              onClick={() => setActiveTab("link")}
-              className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                activeTab === "link"
-                  ? "bg-white text-emerald-900 shadow-sm shadow-slate-900/5"
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              <Icon name="link" className="size-3.5 text-emerald-700" />
-              <span>Checar Notícia por Link</span>
-              <span className="rounded-full bg-emerald-100 px-1.5 py-0.2 text-[0.6rem] font-bold text-emerald-800">
-                Novo
-              </span>
-            </button>
-          </div>
-
           <div className="flex items-center gap-2">
-            {activeTab === "chat" && !isInitialChatView && (
+            {!isInitialChatView && (
               <button
                 onClick={handleNewChat}
                 className="hidden items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 sm:inline-flex"
@@ -1264,12 +1114,7 @@ export default function App() {
           </div>
         </header>
 
-        {/* =========================================================================
-            ABA 1: CHECAGEM MANUAL DE AFIRMAÇÕES (CHAT CONVENCIONAL)
-        ========================================================================= */}
-        {activeTab === "chat" && (
-          <>
-            <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto">
               <div className="mx-auto w-full max-w-5xl px-5 pb-44 pt-8 sm:px-8 sm:pt-12 lg:px-12">
                 {isInitialChatView ? (
                   <div className="animate-in fade-in duration-300">
@@ -1553,406 +1398,6 @@ export default function App() {
                 </p>
               </form>
             </div>
-          </>
-        )}
-
-        {/* =========================================================================
-            ABA 2: CHECAGEM AUTOMATIZADA DE NOTÍCIA POR LINK (Task 4.5)
-        ========================================================================= */}
-        {activeTab === "link" && (
-          <div className="flex-1 overflow-y-auto">
-            <div className="mx-auto w-full max-w-5xl px-5 pb-20 pt-8 sm:px-8 sm:pt-10 lg:px-12">
-              {/* Header Editorial da Aba de Links */}
-              <section className="mx-auto mb-8 max-w-3xl text-center">
-                <div className="mx-auto mb-4 grid size-12 place-items-center rounded-2xl border border-emerald-200 bg-emerald-50 text-emerald-800 shadow-sm shadow-emerald-900/10">
-                  <Icon name="link" className="size-6" />
-                </div>
-                <h2 className="font-serif text-2xl font-medium tracking-tight text-slate-950 sm:text-3xl">
-                  Auditoria Integral de Notícias por URL
-                </h2>
-                <p className="mt-2 text-sm leading-relaxed text-slate-500">
-                  Cole o link de uma matéria jornalística para extrair suas alegações atômicas, auditar cada ponto contra dados abertos governamentais e gerar o selo editorial de confiabilidade.
-                </p>
-              </section>
-
-              {/* Formulário de Ingestão de URL */}
-              <div className="mx-auto max-w-3xl rounded-2xl border border-slate-200/90 bg-white p-4 shadow-sm sm:p-5">
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault()
-                    handleVerifyUrl()
-                  }}
-                  className="space-y-3"
-                >
-                  <label htmlFor="url-input" className="block text-xs font-semibold uppercase tracking-wider text-slate-600">
-                    URL da Matéria Jornalística
-                  </label>
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <div className="relative flex-1">
-                      <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-400">
-                        <Icon name="link" className="size-4" />
-                      </div>
-                      <input
-                        id="url-input"
-                        type="url"
-                        value={urlInput}
-                        onChange={(e) => setUrlInput(e.target.value)}
-                        placeholder="https://g1.globo.com/politica/noticia/..."
-                        disabled={isAnalyzingUrl}
-                        className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-3 pl-10 pr-4 text-sm text-slate-800 outline-none transition focus:border-emerald-500 focus:bg-white focus:ring-4 focus:ring-emerald-100/60"
-                      />
-                    </div>
-                    <button
-                      type="submit"
-                      disabled={!urlInput.trim() || isAnalyzingUrl}
-                      className="flex items-center justify-center gap-2 rounded-xl bg-emerald-700 px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400"
-                    >
-                      {isAnalyzingUrl ? (
-                        <>
-                          <span className="size-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
-                          <span>Auditando...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Icon name="shield" className="size-4" />
-                          <span>Checar Notícia</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  {/* Exemplos Rápidos de Teste */}
-                  <div className="flex flex-wrap items-center gap-1.5 pt-1 text-xs text-slate-500">
-                    <span className="font-medium text-slate-600">Exemplos rápidos:</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const url = "https://g1.globo.com/politica/noticia/2023/10/gastos-parlamentares-ceap.ghtml"
-                        setUrlInput(url)
-                        handleVerifyUrl(url)
-                      }}
-                      className="rounded-lg bg-slate-100 px-2.5 py-1 text-[0.72rem] text-slate-700 hover:bg-emerald-50 hover:text-emerald-800 transition"
-                    >
-                      G1 · Gastos da CEAP
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const url = "https://agenciabrasil.ebc.com.br/politica/noticia/2023-11/senado-aprova-reforma-tributaria"
-                        setUrlInput(url)
-                        handleVerifyUrl(url)
-                      }}
-                      className="rounded-lg bg-slate-100 px-2.5 py-1 text-[0.72rem] text-slate-700 hover:bg-emerald-50 hover:text-emerald-800 transition"
-                    >
-                      Agência Brasil · Votação PEC 45
-                    </button>
-                  </div>
-                </form>
-
-                {/* Exibição de Erros de Ingestão/Scraping */}
-                {urlError && (
-                  <div className="mt-4 flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50/80 p-3.5 text-xs text-rose-800 animate-in fade-in duration-200">
-                    <Icon name="alert-triangle" className="size-4.5 shrink-0 text-rose-600 mt-0.5" />
-                    <div>
-                      <p className="font-semibold">Não foi possível auditar a notícia</p>
-                      <p className="mt-0.5 text-rose-700">{urlError}</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Indicador de Carregamento com Etapas Animadas */}
-              {isAnalyzingUrl && (
-                <div className="mx-auto mt-8 max-w-3xl rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm animate-in fade-in duration-200">
-                  <div className="mx-auto mb-4 grid size-12 place-items-center rounded-2xl bg-emerald-50 text-emerald-700 animate-pulse">
-                    <PolisLogo className="size-7" />
-                  </div>
-                  <h3 className="text-base font-semibold text-slate-900">
-                    Executando Pipeline de Fact-Checking
-                  </h3>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Processando o conteúdo jornalístico com transparência e evidências rastreáveis
-                  </p>
-
-                  <div className="mx-auto mt-6 max-w-md space-y-2.5 text-left text-xs text-slate-600">
-                    <div className="flex items-center gap-2.5 rounded-lg bg-slate-50 p-2.5">
-                      <span className="size-2 rounded-full bg-emerald-500 animate-ping" />
-                      <span>1. Extraindo corpo editorial e metadados via Trafilatura</span>
-                    </div>
-                    <div className="flex items-center gap-2.5 rounded-lg bg-slate-50 p-2.5">
-                      <span className="size-2 rounded-full bg-emerald-500" />
-                      <span>2. Decompondo alegações atômicas e filtrando adjetivações retóricas</span>
-                    </div>
-                    <div className="flex items-center gap-2.5 rounded-lg bg-slate-50 p-2.5">
-                      <span className="size-2 rounded-full bg-emerald-500" />
-                      <span>3. Auditando dados públicos oficiais e calculando confiabilidade</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* =====================================================================
-                  RESULTADOS DA AUDITORIA DA NOTÍCIA (Task 4.5)
-              ===================================================================== */}
-              {urlResult && (
-                <div className="mx-auto mt-8 max-w-3xl space-y-6 animate-in fade-in duration-300">
-                  {/* 1. Metadados Extraídos da Matéria */}
-                  <article className="rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm sm:p-6">
-                    <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                      <span className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-2 py-0.5 font-semibold text-slate-700">
-                        <Icon name="newspaper" className="size-3.5" />
-                        {getDomainFromUrl(urlResult.url)}
-                      </span>
-                      {urlResult.article?.publish_date && (
-                        <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-0.5 text-slate-600">
-                          <Icon name="calendar" className="size-3.5" />
-                          {urlResult.article.publish_date}
-                        </span>
-                      )}
-                      {urlResult.article?.author && (
-                        <span className="text-slate-500">
-                          Por: <strong className="font-medium text-slate-700">{urlResult.article.author}</strong>
-                        </span>
-                      )}
-                    </div>
-
-                    <h3 className="font-serif text-xl font-medium leading-snug text-slate-950 sm:text-2xl">
-                      {urlResult.article?.title || "Matéria Jornalística Analisada"}
-                    </h3>
-
-                    <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-xs">
-                      <a
-                        href={urlResult.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 font-semibold text-emerald-800 hover:text-emerald-950 hover:underline"
-                      >
-                        Abrir matéria original na íntegra
-                        <Icon name="external" className="size-3.5" />
-                      </a>
-                      <span className="text-slate-400">
-                        Tempo de processamento: {urlResult.latency_seconds.total}s
-                      </span>
-                    </div>
-                  </article>
-
-                  {/* 2. Selo Final Consolidado da Matéria Emitido pelo Agregador */}
-                  <section className={`rounded-2xl border p-6 shadow-sm transition ${
-                    urlResult.overall_verdict === "VERDADEIRO"
-                      ? "border-emerald-200 bg-emerald-50/70"
-                      : urlResult.overall_verdict === "ENGANOSO" || urlResult.overall_verdict === "PARCIALMENTE_FALSO"
-                      ? "border-amber-200 bg-amber-50/70"
-                      : urlResult.overall_verdict === "FALSO"
-                      ? "border-rose-200 bg-rose-50/70"
-                      : "border-slate-200 bg-slate-50/70"
-                  }`}>
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="flex items-center gap-3.5">
-                        <div className={`grid size-12 shrink-0 place-items-center rounded-2xl ${
-                          urlResult.overall_verdict === "VERDADEIRO"
-                            ? "bg-emerald-600 text-white shadow-md shadow-emerald-900/10"
-                            : urlResult.overall_verdict === "ENGANOSO" || urlResult.overall_verdict === "PARCIALMENTE_FALSO"
-                            ? "bg-amber-600 text-white shadow-md shadow-amber-900/10"
-                            : urlResult.overall_verdict === "FALSO"
-                            ? "bg-rose-600 text-white shadow-md shadow-rose-900/10"
-                            : "bg-slate-600 text-white shadow-md shadow-slate-900/10"
-                        }`}>
-                          <Icon
-                            name={
-                              urlResult.overall_verdict === "VERDADEIRO"
-                                ? "check-circle"
-                                : urlResult.overall_verdict === "FALSO" || urlResult.overall_verdict === "ENGANOSO"
-                                ? "alert-triangle"
-                                : "search"
-                            }
-                            className="size-7"
-                          />
-                        </div>
-                        <div>
-                          <span className="block text-[0.65rem] font-bold uppercase tracking-[0.14em] text-slate-500">
-                            Selo Consolidado de Fact-Checking
-                          </span>
-                          <h4 className="text-xl font-bold tracking-tight text-slate-900 sm:text-2xl">
-                            {urlResult.overall_verdict === "VERDADEIRO" && "MATÉRIA CONFIÁVEL"}
-                            {urlResult.overall_verdict === "ENGANOSO" && "MATÉRIA ENGANOSA"}
-                            {urlResult.overall_verdict === "PARCIALMENTE_FALSO" && "PARCIALMENTE FALSA"}
-                            {urlResult.overall_verdict === "FALSO" && "MATÉRIA FALSA"}
-                            {urlResult.overall_verdict === "INCONCLUSIVO" && "CONTEÚDO INCONCLUSIVO"}
-                          </h4>
-                        </div>
-                      </div>
-
-                      {/* Índice de Confiabilidade Calculado */}
-                      <div className="rounded-xl border border-white/80 bg-white/90 p-3 text-center shadow-xs sm:min-w-36">
-                        <span className="block text-[0.65rem] font-semibold uppercase tracking-wider text-slate-400">
-                          Confiabilidade Factual
-                        </span>
-                        <span className={`text-2xl font-black ${
-                          urlResult.reliability_score >= 80
-                            ? "text-emerald-700"
-                            : urlResult.reliability_score >= 50
-                            ? "text-amber-700"
-                            : "text-rose-700"
-                        }`}>
-                          {urlResult.reliability_score}%
-                        </span>
-                        <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-                          <div
-                            className={`h-full rounded-full transition-all duration-500 ${
-                              urlResult.reliability_score >= 80
-                                ? "bg-emerald-600"
-                                : urlResult.reliability_score >= 50
-                                ? "bg-amber-500"
-                                : "bg-rose-500"
-                            }`}
-                            style={{ width: `${Math.max(5, urlResult.reliability_score)}%` }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Resumo Executivo em 2 a 3 Parágrafos */}
-                    {urlResult.executive_summary && (
-                      <div className="mt-5 rounded-xl border border-white/90 bg-white/80 p-4 text-xs leading-relaxed text-slate-700 sm:text-sm">
-                        <p className="mb-2 text-[0.65rem] font-bold uppercase tracking-wider text-slate-400">
-                          Síntese Executiva do Agregador
-                        </p>
-                        <div className="space-y-3 font-serif">
-                          {urlResult.executive_summary.split("\n\n").map((paragrafo, idx) => (
-                            <p key={idx}>{paragrafo}</p>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </section>
-
-                  {/* 3. Listagem Interativa das Afirmações Extraídas (Accordion) */}
-                  <section className="space-y-3">
-                    <div className="flex items-center justify-between px-1">
-                      <div>
-                        <h4 className="text-sm font-bold text-slate-900">
-                          Alegações Atômicas Auditadas ({urlResult.claims_count})
-                        </h4>
-                        <p className="text-xs text-slate-500">
-                          Expanda cada afirmação para inspecionar os vereditos, fontes oficiais e justificativas técnicas.
-                        </p>
-                      </div>
-                      <span className="text-xs font-medium text-slate-400">
-                        {urlResult.claims.length} verificações
-                      </span>
-                    </div>
-
-                    {urlResult.claims.length === 0 ? (
-                      <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-xs text-slate-500">
-                        Nenhuma alegação factual atômica verificável foi extraída do artigo.
-                      </div>
-                    ) : (
-                      <div className="space-y-2.5">
-                        {urlResult.claims.map((claim, idx) => {
-                          const isExpanded = !!expandedClaims[idx]
-                          return (
-                            <div
-                              key={idx}
-                              className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs transition hover:border-slate-300"
-                            >
-                              <button
-                                type="button"
-                                onClick={() => toggleClaimAccordion(idx)}
-                                className="flex w-full items-start justify-between gap-3 p-4 text-left transition hover:bg-slate-50/70"
-                              >
-                                <div className="space-y-1.5 min-w-0 flex-1">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span
-                                      className={`rounded-full px-2.5 py-0.5 text-[0.65rem] font-extrabold uppercase tracking-wide ${
-                                        claim.verdict === "VERDADEIRO"
-                                          ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                                          : claim.verdict === "FALSO"
-                                          ? "bg-rose-50 text-rose-800 border border-rose-200"
-                                          : "bg-amber-50 text-amber-800 border border-amber-200"
-                                      }`}
-                                    >
-                                      {claim.verdict}
-                                    </span>
-                                    {claim.category && (
-                                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[0.65rem] font-semibold text-slate-600">
-                                        {claim.category}
-                                      </span>
-                                    )}
-                                    {claim.target_entity && (
-                                      <span className="text-[0.68rem] text-slate-500">
-                                        Alvo: <strong className="font-medium text-slate-700">{claim.target_entity}</strong>
-                                      </span>
-                                    )}
-                                  </div>
-                                  <p className="text-sm font-medium leading-snug text-slate-900">
-                                    "{claim.claim}"
-                                  </p>
-                                </div>
-                                <div className="mt-1 text-slate-400">
-                                  <Icon
-                                    name={isExpanded ? "chevron-up" : "chevron-down"}
-                                    className="size-4"
-                                  />
-                                </div>
-                              </button>
-
-                              {/* Conteúdo Detalhado Expandido */}
-                              {isExpanded && (
-                                <div className="border-t border-slate-100 bg-slate-50/50 p-4 text-xs leading-relaxed text-slate-700 space-y-3 animate-in fade-in duration-150">
-                                  <div>
-                                    <span className="block font-semibold uppercase tracking-wider text-[0.65rem] text-slate-400">
-                                      Explicação Técnica
-                                    </span>
-                                    <p className="mt-1 text-slate-800">{claim.explanation}</p>
-                                  </div>
-
-                                  {claim.rule_matched && (
-                                    <div className="rounded-lg bg-white p-2.5 border border-slate-200/80 text-[0.72rem]">
-                                      <span className="font-semibold text-slate-600">Raciocínio da Auditoria: </span>
-                                      <span className="text-slate-500">{claim.rule_matched}</span>
-                                    </div>
-                                  )}
-
-                                  {claim.sources && claim.sources.length > 0 && (
-                                    <div className="pt-1">
-                                      <span className="mb-2 block font-semibold uppercase tracking-wider text-[0.65rem] text-slate-400">
-                                        Fontes Oficiais Consultadas
-                                      </span>
-                                      <div className="flex flex-wrap gap-1.5">
-                                        {claim.sources.map((src, sIdx) => (
-                                          <SourceChip key={sIdx}>{src}</SourceChip>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </section>
-
-                  {/* Ação para Nova Verificação */}
-                  <div className="pt-2 text-center">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setUrlResult(null)
-                        setUrlInput("")
-                      }}
-                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-                    >
-                      <Icon name="link" className="size-3.5 text-slate-500" />
-                      Analisar outra notícia por link
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
 
         {/* Notificação Flutuante de Feedback / Status */}
         {toastMessage && (
