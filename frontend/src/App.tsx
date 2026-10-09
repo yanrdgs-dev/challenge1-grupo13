@@ -810,7 +810,7 @@ export default function App() {
       const response = await fetch("/api/check/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: trimmed }),
+        body: JSON.stringify({ query: trimmed, session_id: currentSessionId }),
       })
 
       if (!response.ok || !response.body) {
@@ -937,7 +937,7 @@ export default function App() {
         const fallbackRes = await fetch("/api/check", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: trimmed }),
+          body: JSON.stringify({ query: trimmed, session_id: currentSessionId }),
         })
         if (!fallbackRes.ok) throw new Error("Fallback HTTP error")
         const data = await fallbackRes.json()
