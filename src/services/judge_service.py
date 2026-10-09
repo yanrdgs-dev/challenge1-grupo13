@@ -8,22 +8,36 @@ import json
 import logging
 import os
 import time
+from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Optional
-from fastapi import FastAPI, HTTPException
-import httpx
+from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
+
+from src.core.llm_client import LLMClient
+from src.observability import tracing
+from src.observability.prompts import get_prompt
+from src.prompts.defaults import JUDGE_PROMPT_TEMPLATE, PROMPT_JUDGE
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger("JudgeService")
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Ao encerrar (SIGTERM do Kubernetes), envia ao Langfuse os traces ainda pendentes."""
+    yield
+    tracing.shutdown()
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title="Fact-Checking Judge Service",
     description="Agente Julgador que emite o veredito final com base em evidências primárias.",
     version="1.0.0",
 )
 
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
 JUDGE_MODEL = os.getenv("JUDGE_MODEL", "qwen2.5:14b")
+# Timeout maior que o padrão: o julgamento com modelo 14b é mais lento que o roteamento.
+llm_client = LLMClient(timeout=float(os.getenv("JUDGE_LLM_TIMEOUT", "60.0")))
 
 
 class JudgeRequest(BaseModel):
@@ -47,8 +61,25 @@ def health_check():
 
 
 @app.post("/judge", response_model=JudgeResponse)
-def judge_claim(payload: JudgeRequest):
+def judge_claim(payload: JudgeRequest, traceparent: Optional[str] = Header(default=None)):
     """Julga uma alegação confrontando-a com as evidências factuais."""
+    with tracing.observation(
+        "judge.evaluate",
+        traceparent=traceparent,
+        input={"claim": payload.claim, "tool_used": payload.tool_used, "evidence": payload.evidence},
+    ) as span:
+        response = _evaluate(payload)
+        span.update(
+            output={
+                "veredito": response.veredito,
+                "confianca": response.confianca,
+                "fontes_primarias": response.fontes_primarias,
+            }
+        )
+        return response
+
+
+def _evaluate(payload: JudgeRequest) -> JudgeResponse:
     logger.info("Recebida requisição de julgamento para claim: '%s'", payload.claim[:60])
     start_time = time.perf_counter()
 
@@ -58,48 +89,29 @@ def judge_claim(payload: JudgeRequest):
         else "Nenhuma evidência primária localizada ou claim não verificável."
     )
 
-    prompt = f"""Você é o Agente Julgador de um sistema de fact-checking político brasileiro.
-Analise a alegação confrontando-a estritamente com as evidências oficiais primárias fornecidas.
-
-REGRAS:
-1. Se a evidência confirmar a alegação, veredito é VERDADEIRO.
-2. Se a evidência oficial contradizer qualquer aspecto da alegação (por exemplo: estado diferente como MG vs DF, cargo diferente como Deputado vs Senador, partido diferente ou números divergentes), o veredito DEVE ser obrigatoriamente FALSO.
-3. Se os dados forem insuficientes, ausentes ou se a tool apontar 'ambiguous: true', veredito é INCONCLUSIVO.
-4. Seja conciso e cite expressamente os dados oficiais na justificativa.
-
-ALEGAÇÃO:
-"{payload.claim}"
-
-EVIDÊNCIA OFICIAL RETORNADA PELA TOOL ({payload.tool_used or 'N/A'}):
-{evidence_str}
-
-Responda ESTRITAMENTE em formato JSON com o seguinte formato:
-{{
-  "veredito": "VERDADEIRO" | "FALSO" | "INCONCLUSIVO",
-  "confianca": "ALTA" | "MÉDIA" | "BAIXA",
-  "justificativa": "Texto explicativo sucinto com no máximo 2 frases citando a fonte oficial.",
-  "fontes_primarias": ["Nome da Fonte Oficial / Órgão"]
-}}"""
-
-    ollama_url = f"{OLLAMA_BASE_URL}/api/generate"
-    req_body = {
-        "model": JUDGE_MODEL,
-        "prompt": prompt,
-        "format": "json",
-        "stream": False,
-    }
+    prompt = get_prompt(
+        PROMPT_JUDGE,
+        JUDGE_PROMPT_TEMPLATE,
+        variables={
+            "claim": payload.claim,
+            "tool_used": payload.tool_used or "N/A",
+            "evidence": evidence_str,
+        },
+    )
 
     try:
-        with httpx.Client(timeout=60.0) as client:
-            resp = client.post(ollama_url, json=req_body)
-            resp.raise_for_status()
-            data = resp.json()
-            raw_response = data.get("response", "{}")
+        chat = llm_client.chat(
+            [{"role": "user", "content": prompt.text}],
+            model=JUDGE_MODEL,
+            json_mode=True,
+            prompt=prompt.prompt_client,
+        )
+        raw_response = chat.content or "{}"
     except Exception as exc:
-        logger.error("Erro ao chamar Ollama para julgamento: %s", exc)
+        logger.error("Erro ao chamar o LLM para julgamento: %s", exc)
         raise HTTPException(
             status_code=503,
-            detail=f"Falha na comunicação com o modelo local Ollama ({OLLAMA_BASE_URL}): {exc}",
+            detail=f"Falha na comunicação com o provedor de LLM: {exc}",
         )
 
     tempo_ms = (time.perf_counter() - start_time) * 1000

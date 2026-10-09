@@ -75,5 +75,13 @@
     "fonte_normativa": "Regimento Interno da Câmara dos Deputados (RICD), arts. 24, 32 e 54",
     "fundamentacao": "Salvo em casos expressos de regime de urgência urgentíssima aprovado por quórum qualificado, todo projeto de lei é distribuído às comissões temáticas pertinentes ao mérito (ex: Saúde, Educação, Segurança) e à Comissão de Constituição e Justiça e de Cidadania (CCJC) para exame de admissibilidade e constitucionalidade antes de ser apreciado pelo Plenário.",
     "veredito_regra": "obrigatoria"
+  },
+  "consultoria_ceaps": {
+    "topico": "consultoria_ceaps",
+    "resposta_resumida": "Senadores podem utilizar a verba indenizatória (CEAPS) para custear consultorias, assessorias, pesquisas e trabalhos técnicos de apoio ao exercício do mandato.",
+    "fonte_normativa": "Ato da Comissão Diretora do Senado Federal nº 3/2003 (Regulamento da CEAPS), art. 2º, inciso IV; e Regulamento Administrativo do Senado Federal",
+    "fundamentacao": "A regulamentação interna do Senado Federal prevê a possibilidade expressa de indenização para serviços de consultoria, assessoria técnica e pesquisas especializadas prestados por pessoas jurídicas para apoiar os trabalhos legislativos do parlamentar.",
+    "veredito_regra": "permitido"
   }
 }
+

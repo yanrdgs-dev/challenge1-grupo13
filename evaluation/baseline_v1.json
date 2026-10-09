@@ -1,0 +1,96 @@
+{
+  "descricao": "Baseline do golden_dataset_v1 no router (qwen2.5:7b no roteamento, qwen2.5:14b no julgamento, temperature 0).",
+  "data": "2026-10-08",
+  "commit": "185fadf",
+  "modelos": {
+    "router": "qwen2.5:7b",
+    "judge": "qwen2.5:14b"
+  },
+  "summary": {
+    "run_name": "baseline-185fadf",
+    "dataset_run_url": "https://us.cloud.langfuse.com/project/cmuzl8l7g001oad0jlo3svylo/datasets/cmuztgj1b013qad0ejbkuztcb/runs/f66c989b-cb6d-4675-a333-703d2b9dde63",
+    "total": 30,
+    "scores": {
+      "verdict_match": {
+        "mean": 0.8333333333333334,
+        "n": 30
+      },
+      "has_traceable_evidence": {
+        "mean": 1.0,
+        "n": 30
+      },
+      "inconclusive_without_tool": {
+        "mean": 1.0,
+        "n": 6
+      },
+      "tool_category_match": {
+        "mean": 1.0,
+        "n": 24
+      }
+    },
+    "matrix": {
+      "VERDADEIRO": {
+        "VERDADEIRO": 9,
+        "FALSO": 0,
+        "INCONCLUSIVO": 3,
+        "ERRO": 0
+      },
+      "FALSO": {
+        "VERDADEIRO": 0,
+        "FALSO": 10,
+        "INCONCLUSIVO": 2,
+        "ERRO": 0
+      },
+      "INCONCLUSIVO": {
+        "VERDADEIRO": 0,
+        "FALSO": 0,
+        "INCONCLUSIVO": 6,
+        "ERRO": 0
+      }
+    },
+    "failures": [
+      {
+        "golden_id": 17,
+        "expected": "FALSO",
+        "got": "INCONCLUSIVO",
+        "trace_id": "47e33863d3e21081860b804737e8cd20",
+        "erro": null
+      },
+      {
+        "golden_id": 15,
+        "expected": "FALSO",
+        "got": "INCONCLUSIVO",
+        "trace_id": "a5c5d4d362316b802678acf45dcff389",
+        "erro": null
+      },
+      {
+        "golden_id": 11,
+        "expected": "VERDADEIRO",
+        "got": "INCONCLUSIVO",
+        "trace_id": "87059a2068dfc7f7cda8637c2fb4361a",
+        "erro": null
+      },
+      {
+        "golden_id": 5,
+        "expected": "VERDADEIRO",
+        "got": "INCONCLUSIVO",
+        "trace_id": "6cb67878f1fee050e82e5c65407179cf",
+        "erro": null
+      },
+      {
+        "golden_id": 4,
+        "expected": "VERDADEIRO",
+        "got": "INCONCLUSIVO",
+        "trace_id": "4a68f72f61a12769374fa4d8436e0936",
+        "erro": null
+      }
+    ]
+  },
+  "analise_dos_erros": {
+    "4": "resolve_proposition correta, mas sem etapa seguinte para consultar a votação (roteamento de uma etapa)",
+    "5": "id_proposicao inventado pelo LLM (12345); votação vazia (roteamento de uma etapa)",
+    "15": "id_proposicao inventado pelo LLM (5678); votação vazia (roteamento de uma etapa)",
+    "11": "check_parliamentary_expenses sem o parâmetro obrigatório 'ano'; o certo seria list_expense_categories",
+    "17": "check_institutional_rule com o tópico tramitacao_comissoes (da Câmara) para uma claim sobre CEAPS"
+  }
+}

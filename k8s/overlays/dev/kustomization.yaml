@@ -1,0 +1,13 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+# Tags das imagens ficam aqui (e não nos Deployments). O CI de produção
+# sobrescreve com `kustomize edit set image ...:<git sha>`.
+images:
+  - name: factcheck-router
+    newTag: v2
+  - name: factcheck-judge
+    newTag: v2

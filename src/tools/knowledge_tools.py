@@ -26,6 +26,7 @@ INSTITUTIONAL_TOPICS: Tuple[str, ...] = (
     "teto_gastos_campanha",
     "cota_compra_bens",
     "tramitacao_comissoes",
+    "consultoria_ceaps",
 )
 
 # Fontes primárias de dados oficiais mapeadas
@@ -83,6 +84,17 @@ def _load_data_source_coverage(base_dir: Optional[Union[str, Path]] = None) -> D
     if base_dir is None:
         _CACHED_COVERAGE = data
     return data
+
+
+def available_data_types(base_dir: Optional[Union[str, Path]] = None) -> Tuple[str, ...]:
+    """Todos os ``tipo_dado`` catalogados na base de cobertura de fontes (ordem estável)."""
+    coverage = _load_data_source_coverage(base_dir)
+    found: List[str] = []
+    for source_info in coverage.values():
+        for tipo in source_info.get("tipos_dados", {}):
+            if tipo not in found:
+                found.append(tipo)
+    return tuple(found)
 
 
 def check_institutional_rule(

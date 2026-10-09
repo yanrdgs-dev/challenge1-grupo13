@@ -1,0 +1,14 @@
+# Input Rail: Guarda de Neutralidade e Moderação (Regra 6 da Constituição)
+
+define user ask partisan opinion
+  "qual o melhor partido político"
+  "qual o pior candidato"
+  "em quem eu devo votar"
+  "você apoia esse governo"
+
+define flow check neutrality moderation
+  user ask partisan opinion
+  bot respond neutral political policy
+
+define bot respond neutral political policy
+  "O assistente opera sob estrita neutralidade política e técnica (Regra 6 de AGENTS.md), dedicando-se exclusivamente à checagem de fatos com base em registros públicos oficiais."

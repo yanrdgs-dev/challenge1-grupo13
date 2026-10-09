@@ -1,0 +1,33 @@
+# Porteiro do Ollama: só deixa passar quem envia `Authorization: Bearer <OLLAMA_API_KEY>`.
+# O Ollama não tem autenticação; o túnel (cloudflared) aponta para ESTA porta, nunca para o 11434.
+# Use scripts/start_ollama_tunnel.py, que valida a chave, testa o 401/200 e só então abre o túnel.
+{
+	admin off
+	auto_https off
+}
+
+:{$PROXY_PORT:8080} {
+	# Só o túnel, que roda nesta máquina, chega aqui.
+	bind 127.0.0.1
+
+	request_body {
+		max_size 2MB
+	}
+
+	# Chave correta E um endpoint de inferência. Nada de gestão de modelos pela internet,
+	# mesmo para quem tem a chave.
+	@authorized {
+		header Authorization "Bearer {env.OLLAMA_API_KEY}"
+		path /api/chat /api/generate /api/tags
+	}
+
+	handle @authorized {
+		reverse_proxy localhost:11434 {
+			# A chave termina aqui: o Ollama não precisa dela.
+			header_up -Authorization
+			header_up Host {upstream_hostport}
+		}
+	}
+
+	respond "Unauthorized" 401
+}

@@ -1,0 +1,27 @@
+# Input Rail: Guarda de Especificidade e Boatos (Regra 3 da Constituição)
+
+define user express vague rumour
+  "segundo comentários nas redes sociais"
+  "ouvi dizer que um deputado"
+  "estão dizendo que um parlamentar gastou"
+  "um senador teria gastado muito dinheiro"
+  "um deputado gastou muito recentemente"
+
+define user ask future speculation
+  "a câmara deve votar em breve"
+  "vai votar em breve um projeto"
+  "está para votar uma proposta"
+
+define flow check claim specificity
+  user express vague rumour
+  bot respond inconclusive underspecified
+
+define flow check future speculation
+  user ask future speculation
+  bot respond inconclusive future event
+
+define bot respond inconclusive underspecified
+  "Alegação subespecificada ou baseada em fontes não verificáveis. Não é possível determinar a veracidade de uma afirmação sem identificação nominal do parlamentar e data de referência rastreável (Regra 3 da Constituição do Agente)."
+
+define bot respond inconclusive future event
+  "A alegação refere-se a um evento futuro ou previsão legislativa. Fatos ainda não ocorridos não possuem registro oficial e resultam em INCONCLUSIVO (Regra 3 da Constituição do Agente)."

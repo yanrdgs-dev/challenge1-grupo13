@@ -1,0 +1,46 @@
+# Produção na VM do Azure. Usado pelo CD (.github/workflows/cd.yml), que define GHCR_OWNER e IMAGE_TAG
+# (o SHA do commit publicado pelo CI). Segredos e URLs ficam em /srv/factcheck/.env, só na VM.
+services:
+  judge-service:
+    image: ghcr.io/${GHCR_OWNER:?defina GHCR_OWNER}/factcheck-judge:${IMAGE_TAG:?defina IMAGE_TAG}
+    env_file: /srv/factcheck/.env
+    environment:
+      GIT_SHA: ${IMAGE_TAG}
+    restart: unless-stopped
+    # Sem `ports`: o judge só é acessível pelo router, dentro da rede do compose.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  router-service:
+    image: ghcr.io/${GHCR_OWNER:?defina GHCR_OWNER}/factcheck-router:${IMAGE_TAG:?defina IMAGE_TAG}
+    env_file: /srv/factcheck/.env
+    environment:
+      GIT_SHA: ${IMAGE_TAG}
+      JUDGE_SERVICE_URL: http://judge-service:8000
+    depends_on:
+      judge-service:
+        condition: service_healthy
+    volumes:
+      # Parquets gerados na VM pelo pipeline de ingestão; a imagem não os contém.
+      - /srv/factcheck/data/processed:/app/data/processed:ro
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+# Rede criada uma vez na VM, com sub-rede fixa:
+#   docker network create --subnet 172.28.0.0/24 --gateway 172.28.0.1 factcheck
+# O túnel SSH do Ollama escuta no gateway (172.28.0.1:11434), alcançável só por estes containers.
+networks:
+  default:
+    name: factcheck
+    external: true

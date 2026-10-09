@@ -1,0 +1,94 @@
+name: CD
+
+# Deploy na VM do Azure (Docker Compose) com a imagem do commit que passou no CI na main.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "SHA completo (40 caracteres) de um commit cujas imagens já estão no GHCR"
+        required: true
+
+permissions:
+  contents: read
+
+# Um deploy por vez e nunca cancelado no meio: cancelar deixaria a VM com versões misturadas.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 20
+    env:
+      SHA: ${{ inputs.sha || github.event.workflow_run.head_sha }}
+      VM_HOST: ${{ vars.AZURE_VM_HOST }}
+      VM_USER: ${{ vars.AZURE_VM_USER || 'deploy' }}
+      KNOWN_HOSTS: ${{ vars.AZURE_VM_KNOWN_HOSTS }}
+    steps:
+      - name: Valida o SHA e a configuração
+        run: |
+          if ! printf '%s' "$SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "SHA inválido: precisa ter 40 caracteres hexadecimais." >&2
+            exit 1
+          fi
+          if [ -z "$VM_HOST" ] || [ -z "$KNOWN_HOSTS" ]; then
+            echo "Defina as variables AZURE_VM_HOST e AZURE_VM_KNOWN_HOSTS (ssh-keyscan da VM, conferido)." >&2
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.SHA }}
+      - name: Prepara o SSH com a chave do host fixada
+        env:
+          SSH_KEY: ${{ secrets.AZURE_VM_SSH_KEY }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Envia o compose de produção
+        run: |
+          scp -i ~/.ssh/deploy_key -o UserKnownHostsFile=~/.ssh/known_hosts \
+            docker-compose.prod.yml "${VM_USER}@${VM_HOST}:/srv/factcheck/docker-compose.prod.yml"
+      - name: Deploy com health check e rollback
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          ssh -i ~/.ssh/deploy_key -o UserKnownHostsFile=~/.ssh/known_hosts "${VM_USER}@${VM_HOST}" \
+            bash -s -- "$SHA" "$OWNER" <<'REMOTE'
+          set -euo pipefail
+          cd /srv/factcheck
+          export GHCR_OWNER="$2"
+          PREVIOUS_TAG=$(cat .current_tag 2>/dev/null || true)
+          compose() { docker compose -f docker-compose.prod.yml "$@"; }
+
+          export IMAGE_TAG="$1"
+          compose pull
+          compose up -d --remove-orphans
+
+          healthy=""
+          for _ in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/health > /dev/null; then healthy=1; break; fi
+            sleep 4
+          done
+
+          if [ -z "$healthy" ]; then
+            echo "Health check falhou para $1." >&2
+            if [ -n "$PREVIOUS_TAG" ]; then
+              echo "Voltando para $PREVIOUS_TAG." >&2
+              export IMAGE_TAG="$PREVIOUS_TAG"
+              compose up -d --remove-orphans
+            fi
+            exit 1
+          fi
+          echo "$1" > .current_tag
+          REMOTE
+      - name: Remove a chave do runner
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

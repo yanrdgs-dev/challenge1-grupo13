@@ -24,6 +24,65 @@ def get_default_legislative_client() -> LegislativeClient:
     return _DEFAULT_CLIENT
 
 
+# Siglas de matérias que um termo popular pode citar ("PEC da Reforma Tributária").
+_CITABLE_SIGLAS = frozenset(
+    {"PL", "PLP", "PLN", "PLS", "PLC", "PEC", "MPV", "PDL", "PDC", "PRC", "PLV", "PDS", "PRS"}
+)
+# Tipos acessórios (pedidos, indicações, requerimentos): só valem quando o termo os cita.
+_ACCESSORY_SIGLAS = frozenset(
+    {"REQ", "RIC", "RCP", "REL", "INC", "INA", "RQN", "RQS", "RQC", "RPA", "SUG", "EMC", "EMS", "RDF", "REP", "RPR", "RIR"}
+)
+
+
+def _split_cited_sigla(termo: str) -> tuple[str, str]:
+    """Separa a sigla citada no termo (se houver) do restante, para pontuar só o assunto."""
+    from src.tools.normalizer import normalize_proposition_sigla
+
+    tokens = termo.split()
+    cited = ""
+    rest = []
+    for token in tokens:
+        sigla = normalize_proposition_sigla(token)
+        if not cited and sigla in (_CITABLE_SIGLAS | _ACCESSORY_SIGLAS):
+            cited = sigla
+        else:
+            rest.append(token)
+    return cited, " ".join(rest)
+
+
+# Palavras sem valor de busca: não contam como termo de conteúdo ("PEC da Reforma Tributária").
+_STOPWORDS = frozenset(
+    {"a", "o", "as", "os", "de", "da", "do", "das", "dos", "e", "em", "na", "no", "nas", "nos",
+     "para", "por", "com", "sobre", "que", "um", "uma", "lei", "projeto"}
+)
+
+
+def _content_terms(text: str) -> List[str]:
+    from src.tools.normalizer import normalize_text
+
+    return [t for t in normalize_text(text).split() if t not in _STOPWORDS]
+
+
+def _covers_all_terms(terms: List[str], ementa_norm: str) -> bool:
+    """True se todo termo de conteúdo da busca aparece na ementa (evita casar só por 'tributária')."""
+    ementa_tokens = set(ementa_norm.split())
+    return all(term in ementa_tokens for term in terms)
+
+
+def _prefer_main_propositions(
+    items: List[Dict[str, Any]], cited_sigla: str
+) -> List[Dict[str, Any]]:
+    """Filtra pela sigla citada; sem sigla, descarta tipos acessórios se sobrar proposição principal."""
+
+    def tipo(item: Dict[str, Any]) -> str:
+        return str(item.get("siglaTipo") or item.get("sigla") or "").upper()
+
+    if cited_sigla:
+        return [it for it in items if tipo(it) == cited_sigla]
+    principais = [it for it in items if tipo(it) not in _ACCESSORY_SIGLAS]
+    return principais or items
+
+
 class PropositionCandidateSummary(TypedDict):
     """Resumo de candidato concorrente em buscas ambíguas ou amplas."""
 
@@ -188,17 +247,27 @@ def resolve_proposition(
             if not raw_items:
                 return _empty_response(casa=casa_norm)
 
+            # Termo popular pode citar a sigla ("PEC da ..."): filtra por ela e pontua só o assunto.
+            cited_sigla, termo_assunto = _split_cited_sigla(termo_busca)
+            raw_items = _prefer_main_propositions(raw_items, cited_sigla)
+            if not raw_items:
+                return _empty_response(casa=casa_norm)
+
             # Avaliação de relevância e similaridade com RapidFuzz
             from rapidfuzz import fuzz
             from src.tools.normalizer import normalize_text
 
-            termo_norm = normalize_text(termo_busca)
+            termo_norm = normalize_text(termo_assunto or termo_busca)
+            content_terms = _content_terms(termo_assunto or termo_busca)
             scored_candidates: List[tuple[float, Dict[str, Any], PropositionCandidateSummary]] = []
 
             for item in raw_items:
                 ementa = item.get("ementa") or ""
                 ementa_norm = normalize_text(ementa)
                 score = float(fuzz.token_set_ratio(termo_norm, ementa_norm))
+                if content_terms and not _covers_all_terms(content_terms, ementa_norm):
+                    # Ementa sem algum termo da busca não é a matéria citada: abaixo do limiar mínimo.
+                    score = min(score, 60.0)
 
                 # Bônus para concordância de ano caso informado
                 if ano is not None and item.get("ano") == ano:

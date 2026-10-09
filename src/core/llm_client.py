@@ -1,10 +1,15 @@
 """Cliente de inferência LLM com suporte a múltiplos provedores e contingência automática."""
 
+import json
 import logging
 import os
-from typing import Optional, Set
+import time
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Set
 import httpx
 from dotenv import load_dotenv
+
+from src.observability import tracing
 
 # Carrega as variáveis do arquivo .env caso exista
 load_dotenv()
@@ -15,6 +20,19 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("LLMClient")
+
+
+@dataclass
+class ChatResult:
+    """Resultado normalizado de uma chamada de chat, independente do provedor."""
+
+    content: str
+    tool_calls: List[Dict[str, Any]] = field(default_factory=list)
+    usage: Dict[str, Optional[int]] = field(default_factory=dict)
+    provider: str = ""
+    model: str = ""
+    latency_ms: float = 0.0
+    used_fallback: bool = False
 
 
 class LLMClient:
@@ -117,6 +135,248 @@ class LLMClient:
                     f"Falha no provedor '{self.primary_provider}' e nenhum fallback disponível: {e}"
                 ) from e
 
+    def chat(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        model: Optional[str] = None,
+        json_mode: bool = False,
+        prompt: Any = None,
+    ) -> ChatResult:
+        """Executa um chat com mensagens (e tools opcionais), com fallback automático.
+
+        Args:
+            messages: Mensagens no formato role/content.
+            tools: Catálogo de tools para function calling (opcional).
+            model: Modelo a usar no provedor primário (o fallback usa o modelo do seu .env).
+            json_mode: Se True, solicita saída JSON ao provedor.
+            prompt: Cliente de prompt do Langfuse; liga a generation à versão usada (opcional).
+
+        Returns:
+            ChatResult com texto, tool calls normalizadas, uso de tokens e metadados.
+
+        Raises:
+            ValueError: Se a lista de mensagens for vazia.
+            RuntimeError: Quando a inferência e o fallback falharem.
+        """
+        if not messages or not isinstance(messages, list):
+            raise ValueError("messages deve ser uma lista não vazia.")
+
+        try:
+            return self._chat_provider(
+                self.primary_provider, messages, tools, model, json_mode, self.timeout,
+                prompt=prompt,
+            )
+        except Exception as e:
+            logger.warning("Falha no provedor '%s' (chat): %s", self.primary_provider, e)
+            if self.fallback_provider and self.fallback_provider != self.primary_provider:
+                try:
+                    result = self._chat_provider(
+                        self.fallback_provider, messages, tools, None, json_mode,
+                        self.fallback_timeout, is_fallback=True, prompt=prompt,
+                    )
+                    result.used_fallback = True
+                    return result
+                except Exception as fallback_err:
+                    raise RuntimeError(
+                        f"Falha total nos serviços de LLM: provedor '{self.primary_provider}' "
+                        f"({e}) e fallback '{self.fallback_provider}' ({fallback_err}) falharam."
+                    ) from fallback_err
+            raise RuntimeError(
+                f"Falha no provedor '{self.primary_provider}' e nenhum fallback disponível: {e}"
+            ) from e
+
+    def _default_model(self, provider: str) -> str:
+        """Modelo configurado no ambiente para o provedor."""
+        if provider == "ollama":
+            return os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+        if provider == "groq":
+            return os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+        return os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+    def _chat_provider(
+        self,
+        provider: str,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]],
+        model: Optional[str],
+        json_mode: bool,
+        timeout: float,
+        is_fallback: bool = False,
+        prompt: Any = None,
+    ) -> ChatResult:
+        if provider not in self.SUPPORTED_PROVIDERS:
+            raise ValueError(
+                f"Provedor desconhecido: '{provider}'. Provedores suportados: {sorted(self.SUPPORTED_PROVIDERS)}"
+            )
+
+        # Só o Ollama aceita o modelo informado; Groq/OpenAI usam o modelo do ambiente.
+        planned_model = (model if provider == "ollama" and model else None) or self._default_model(provider)
+        base_metadata = {
+            "provider": provider,
+            "fallback": is_fallback,
+            "json_mode": json_mode,
+            "with_tools": bool(tools),
+        }
+
+        generation_kwargs: Dict[str, Any] = {}
+        if prompt is not None:
+            generation_kwargs["prompt"] = prompt
+
+        with tracing.observation(
+            "llm.chat",
+            as_type="generation",
+            model=planned_model,
+            input=messages,
+            metadata=base_metadata,
+            model_parameters={"temperature": self._temperature()},
+            **generation_kwargs,
+        ) as generation:
+            start = time.perf_counter()
+            try:
+                if provider == "ollama":
+                    result = self._chat_ollama(messages, tools, planned_model, json_mode, timeout)
+                else:
+                    result = self._chat_openai_compatible(provider, messages, tools, json_mode, timeout)
+            except Exception as exc:
+                generation.update(level="ERROR", status_message=str(exc))
+                raise
+
+            result.latency_ms = round((time.perf_counter() - start) * 1000, 2)
+            usage = {
+                key: value
+                for key, value in (
+                    ("input", result.usage.get("input_tokens")),
+                    ("output", result.usage.get("output_tokens")),
+                )
+                if value is not None
+            }
+            update: Dict[str, Any] = {
+                "model": result.model,
+                "output": result.tool_calls or result.content,
+                "metadata": {**base_metadata, "latency_ms": result.latency_ms},
+            }
+            if usage:
+                update["usage_details"] = usage
+            generation.update(**update)
+            return result
+
+    @staticmethod
+    def _ollama_headers() -> Dict[str, str]:
+        """Header do proxy que protege o Ollama exposto por túnel; vazio quando não há chave."""
+        api_key = (os.getenv("OLLAMA_API_KEY") or "").strip()
+        return {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
+    def _chat_ollama(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]],
+        model: str,
+        json_mode: bool,
+        timeout: float,
+    ) -> ChatResult:
+        """Chat via API do Ollama (/api/chat)."""
+        base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+        body: Dict[str, Any] = {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "options": {"temperature": self._temperature()},
+        }
+        if tools:
+            body["tools"] = tools
+        if json_mode:
+            body["format"] = "json"
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.post(f"{base_url}/api/chat", json=body, headers=self._ollama_headers())
+            resp.raise_for_status()
+            data = resp.json()
+        message = data.get("message", {})
+        return ChatResult(
+            content=message.get("content") or "",
+            tool_calls=self._normalize_tool_calls(message.get("tool_calls")),
+            usage={
+                "input_tokens": data.get("prompt_eval_count"),
+                "output_tokens": data.get("eval_count"),
+            },
+            provider="ollama",
+            model=data.get("model") or model,
+        )
+
+    def _chat_openai_compatible(
+        self,
+        provider: str,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]],
+        json_mode: bool,
+        timeout: float,
+    ) -> ChatResult:
+        """Chat via APIs compatíveis com OpenAI (Groq e OpenAI)."""
+        if provider == "groq":
+            api_key = os.getenv("GROQ_API_KEY")
+            if not api_key or api_key == "sua_chave_groq_aqui":
+                raise ValueError("GROQ_API_KEY não configurada ou inválida no arquivo .env")
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            used_model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+        else:
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key or api_key == "sua_chave_openai_aqui":
+                raise ValueError("OPENAI_API_KEY não configurada ou inválida no arquivo .env")
+            url = "https://api.openai.com/v1/chat/completions"
+            used_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+        body: Dict[str, Any] = {
+            "model": used_model,
+            "messages": messages,
+            "temperature": self._temperature(),
+        }
+        if tools:
+            body["tools"] = tools
+        if json_mode:
+            body["response_format"] = {"type": "json_object"}
+
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.post(url, headers=headers, json=body)
+            resp.raise_for_status()
+            data = resp.json()
+
+        message = data["choices"][0]["message"]
+        usage = data.get("usage") or {}
+        return ChatResult(
+            content=message.get("content") or "",
+            tool_calls=self._normalize_tool_calls(message.get("tool_calls")),
+            usage={
+                "input_tokens": usage.get("prompt_tokens"),
+                "output_tokens": usage.get("completion_tokens"),
+            },
+            provider=provider,
+            model=data.get("model") or used_model,
+        )
+
+    @staticmethod
+    def _temperature() -> float:
+        """Temperatura de amostragem (``LLM_TEMPERATURE``). Padrão 0: respostas reproduzíveis."""
+        try:
+            return float(os.getenv("LLM_TEMPERATURE", "0"))
+        except ValueError:
+            return 0.0
+
+    @staticmethod
+    def _normalize_tool_calls(raw_calls: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
+        """Converte tool calls de qualquer provedor para {name, arguments(dict)}."""
+        normalized: List[Dict[str, Any]] = []
+        for call in raw_calls or []:
+            fn = call.get("function", {})
+            args = fn.get("arguments", {})
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args) if args.strip() else {}
+                except json.JSONDecodeError:
+                    args = {}
+            normalized.append({"name": fn.get("name"), "arguments": args})
+        return normalized
+
     def _call_provider(self, provider: str, prompt: str, timeout: float) -> str:
         """Roteia a chamada para a função correspondente ao provedor.
 
@@ -154,7 +414,9 @@ class LLMClient:
         }
 
         with httpx.Client(timeout=timeout) as client:
-            response = client.post(f"{base_url}/api/generate", json=payload)
+            response = client.post(
+                f"{base_url}/api/generate", json=payload, headers=self._ollama_headers()
+            )
             response.raise_for_status()
             data = response.json()
             return data.get("response", "")

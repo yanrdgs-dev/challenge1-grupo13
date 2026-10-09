@@ -1,28 +1,40 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: router-deployment
+  name: judge-deployment
   labels:
-    app: router-service
+    app: judge-service
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: router-service
+      app: judge-service
   template:
     metadata:
       labels:
-        app: router-service
+        app: judge-service
     spec:
+      # Cobre o preStop (5s) + o flush do Langfuse no shutdown do FastAPI.
+      terminationGracePeriodSeconds: 30
       containers:
-        - name: router-agent
-          image: factcheck-router:v2
+        - name: judge-agent
+          image: factcheck-judge
           imagePullPolicy: IfNotPresent
+          lifecycle:
+            preStop:
+              # Dá tempo de o pod sair do balanceamento antes do SIGTERM; o flush
+              # dos traces acontece no shutdown do serviço.
+              exec:
+                command: ["sleep", "5"]
           ports:
             - containerPort: 8000
           envFrom:
             - configMapRef:
                 name: factcheck-config
+            # Chaves do Langfuse. Opcional: sem o Secret, os pods sobem com tracing desligado.
+            - secretRef:
+                name: factcheck-langfuse
+                optional: true
           resources:
             requests:
               cpu: "250m"
@@ -46,13 +58,13 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: router-service
+  name: judge-service
   labels:
-    app: router-service
+    app: judge-service
 spec:
-  type: LoadBalancer
+  type: ClusterIP
   selector:
-    app: router-service
+    app: judge-service
   ports:
     - port: 8000
       targetPort: 8000

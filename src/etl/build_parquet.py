@@ -268,6 +268,9 @@ def process_csv_to_parquet(
     min_reduction_pct: float = 70.0,
     prefer_brasil: bool = False,
     filter_pattern: Optional[str] = None,
+    selected_columns: Optional[List[str]] = None,
+    schema_name: Optional[str] = None,
+    prune_redundant: bool = True,
 ) -> Dict[str, Any]:
     """Executa o pipeline completo de ingestão, tratamento e serialização em Parquet.
 
@@ -282,6 +285,9 @@ def process_csv_to_parquet(
         min_reduction_pct: Percentual mínimo exigido de redução de tamanho (padrão 70.0%).
         prefer_brasil: Se True, filtra apenas arquivos com sufixo _BRASIL.csv quando disponíveis.
         filter_pattern: Padrão textual opcional para filtrar nomes de arquivos CSV.
+        selected_columns: Lista explícita de colunas a manter no Parquet final.
+        schema_name: Schema predefinido usado para poda de colunas.
+        prune_redundant: Se True, detecta o schema automaticamente e poda colunas.
 
     Returns:
         Dicionário com sumário e estatísticas da execução.
@@ -356,11 +362,19 @@ def process_csv_to_parquet(
         full_df = pl.concat(dfs, how="diagonal_relaxed")
 
     total_rows = full_df.height
+    total_cols_before = full_df.width
     logger.info("Total de registros ingeridos: %d", total_rows)
 
     # Aplica sanitização e cast de tipos
     logger.info("Aplicando sanitização e tipagem...")
-    cleaned_df = clean_dataframe(full_df, partition_col=partition_col)
+    cleaned_df = clean_dataframe(
+        full_df,
+        partition_col=partition_col,
+        selected_columns=selected_columns,
+        schema_name=schema_name,
+        prune_redundant=prune_redundant,
+    )
+    total_cols_after = cleaned_df.width
 
     if "VR_PAGTO_DESPESA" in cleaned_df.columns:
         actual_dtype = cleaned_df.schema["VR_PAGTO_DESPESA"]
@@ -735,6 +749,23 @@ def parse_args(args: Optional[List[str]] = None) -> argparse.Namespace:
         default="datasets",
         help="Diretório raiz dos datasets (padrão: datasets).",
     )
+    parser.add_argument(
+        "--schema",
+        dest="schema_name",
+        default=None,
+        help="Schema predefinido para poda de colunas (ex: tse_bens). Padrão: detecção automática.",
+    )
+    parser.add_argument(
+        "--columns",
+        dest="selected_columns",
+        default=None,
+        help="Lista de colunas a manter, separadas por vírgula.",
+    )
+    parser.add_argument(
+        "--no-prune",
+        action="store_true",
+        help="Desativa a poda automática de colunas.",
+    )
     return parser.parse_args(args)
 
 
@@ -751,6 +782,12 @@ def main() -> None:
                 sys.exit(1)
             sys.exit(0)
 
+        selected_cols = (
+            [c.strip() for c in args.selected_columns.split(",") if c.strip()]
+            if args.selected_columns
+            else None
+        )
+        prune_redundant = not args.no_prune
         summary = process_csv_to_parquet(
             input_path=args.input_path,
             output_dir=args.output_dir,
