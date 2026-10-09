@@ -25,8 +25,8 @@ def compose():
 def test_images_come_from_ghcr_pinned_by_the_deployed_commit(compose):
     for name in ("router-service", "judge-service"):
         image = compose["services"][name]["image"]
-        assert image.startswith("ghcr.io/${GHCR_OWNER}/factcheck-")
-        assert image.endswith(":${IMAGE_TAG:?")  or ":${IMAGE_TAG:?" in image, "IMAGE_TAG obrigatório, sem padrão"
+        assert image.startswith("ghcr.io/${GHCR_OWNER:?")
+        assert ":${IMAGE_TAG:?" in image, "IMAGE_TAG obrigatório, sem valor padrão"
 
 
 def test_no_service_uses_a_mutable_tag(compose):
