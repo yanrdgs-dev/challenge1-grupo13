@@ -434,3 +434,41 @@ def test_explicit_requerimento_term_is_not_filtered_out():
     result = resolve_proposition(casa="camara", termo_busca="REQ reforma tributária", client=client)
 
     assert result["id_proposicao"] == 1
+
+
+# --------------------------------------------------------------------------- #
+# Relevância: o termo de busca precisa aparecer na ementa (sem falso positivo)
+# --------------------------------------------------------------------------- #
+
+
+def test_lone_candidate_that_misses_a_content_term_is_not_accepted():
+    """Regressão da claim 5: a PEC 9/2023 (fundo partidário) não é a 'Reforma Tributária'."""
+    client = _client_with([
+        _item(
+            164727, "PEC", 9, 2023,
+            "Impõe aos partidos políticos a obrigatoriedade da aplicação de recursos financeiros para as "
+            "candidaturas de pessoas pretas e pardas e reforça a imunidade tributária dos partidos políticos "
+            "conforme previsto na Constituição Federal.",
+        ),
+    ])
+
+    result = resolve_proposition(casa="camara", termo_busca="PEC da Reforma Tributária", client=client)
+
+    assert result["id_proposicao"] is None
+    assert result["ambiguous"] is False
+
+
+def test_term_matches_when_every_content_term_is_in_the_ementa_even_with_stopwords_around():
+    client = _client_with([_item(45, "PEC", 45, 2019, _EMENTA_REFORMA)])
+
+    result = resolve_proposition(casa="camara", termo_busca="PEC da Reforma Tributária", client=client)
+
+    assert result["id_proposicao"] == 45
+
+
+def test_accents_and_case_do_not_hide_a_content_term():
+    client = _client_with([_item(45, "PEC", 45, 2019, "ALTERA O SISTEMA TRIBUTÁRIO E INSTITUI A REFORMA TRIBUTÁRIA.")])
+
+    result = resolve_proposition(casa="camara", termo_busca="reforma tributaria", client=client)
+
+    assert result["id_proposicao"] == 45
