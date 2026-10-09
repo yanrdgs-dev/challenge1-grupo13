@@ -481,3 +481,71 @@ def test_chat_without_prompt_does_not_pass_prompt_to_generation(observations):
         client.chat(MESSAGES)
 
     assert "prompt" not in observations[0].kwargs
+
+
+# --------------------------------------------------------------------------- #
+# D.1: Ollama atrás de túnel com proxy que exige Authorization: Bearer
+# --------------------------------------------------------------------------- #
+
+SECRET = "chave-super-secreta-do-tunel"
+
+
+def _generate_response():
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {"response": "ok"}
+    return resp
+
+
+def test_chat_sends_bearer_header_when_ollama_api_key_is_set(monkeypatch):
+    monkeypatch.setenv("OLLAMA_API_KEY", SECRET)
+    client = LLMClient(primary_provider="ollama", fallback_provider="")
+    with patch("httpx.Client.post", return_value=_ollama_chat_response()) as mock_post:
+        client.chat(MESSAGES)
+    assert mock_post.call_args[1]["headers"] == {"Authorization": f"Bearer {SECRET}"}
+
+
+def test_generate_sends_bearer_header_when_ollama_api_key_is_set(monkeypatch):
+    monkeypatch.setenv("OLLAMA_API_KEY", SECRET)
+    client = LLMClient(primary_provider="ollama", fallback_provider="")
+    with patch("httpx.Client.post", return_value=_generate_response()) as mock_post:
+        client.generate("Olá")
+    assert mock_post.call_args[1]["headers"] == {"Authorization": f"Bearer {SECRET}"}
+
+
+@pytest.mark.parametrize("value", [None, "", "   "])
+def test_no_authorization_header_without_a_usable_key(monkeypatch, value):
+    if value is None:
+        monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+    else:
+        monkeypatch.setenv("OLLAMA_API_KEY", value)
+    client = LLMClient(primary_provider="ollama", fallback_provider="")
+    with patch("httpx.Client.post", return_value=_ollama_chat_response()) as mock_post:
+        client.chat(MESSAGES)
+    assert not mock_post.call_args[1].get("headers")
+
+
+def test_ollama_key_is_not_sent_to_the_fallback_provider(monkeypatch):
+    """A chave do túnel é só do Ollama: o Groq recebe a própria chave, nunca a do proxy."""
+    monkeypatch.setenv("OLLAMA_API_KEY", SECRET)
+    monkeypatch.setenv("GROQ_API_KEY", "groq-key")
+    client = LLMClient(primary_provider="ollama", fallback_provider="groq")
+    groq_resp = MagicMock()
+    groq_resp.json.return_value = {
+        "model": "llama",
+        "choices": [{"message": {"content": "ok"}}],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+    }
+    with patch("httpx.Client.post", side_effect=[httpx.ConnectError("caiu"), groq_resp]) as mock_post:
+        client.chat(MESSAGES)
+    groq_call = mock_post.call_args_list[1]
+    assert SECRET not in str(groq_call)
+
+
+def test_failure_message_does_not_leak_the_ollama_key(monkeypatch):
+    monkeypatch.setenv("OLLAMA_API_KEY", SECRET)
+    client = LLMClient(primary_provider="ollama", fallback_provider="")
+    with patch("httpx.Client.post", side_effect=httpx.ConnectError("conexão recusada")):
+        with pytest.raises(RuntimeError) as exc_info:
+            client.chat(MESSAGES)
+    assert SECRET not in str(exc_info.value)
