@@ -81,6 +81,38 @@ O `deploy/Caddyfile` só aceita `Authorization: Bearer <chave>` e só encaminha 
 
 Em qualquer caminho a máquina precisa ficar ligada e acordada (o script mantém o `caffeinate` no macOS). Se ela dormir, a VM recebe timeout.
 
+## Frontend (Pólis)
+
+```
+navegador ──HTTP :80──► nginx (container frontend) ──► /api/*  ──► router-service ──► judge-service
+                                   └─► /, /assets/*  (build estático do Vite)
+```
+
+O container `frontend` é o **único publicado** na VM (porta 80). Router e judge ficam internos, só na rede do compose. O router passa a expor, além do `/check`, as rotas que o frontend usa (`src/services/frontend_api.py`), todas sobre o mesmo pipeline (guardrails → router → tool → judge → guardrails):
+
+| Rota | O que faz |
+|---|---|
+| `GET /api/health` | Estático; não depende do Ollama. É o que o health check do CD consulta, por dentro do nginx |
+| `GET /api/suggestions` | Sugestões da tela inicial |
+| `POST /api/check` | `{query, session_id?}` → `{id, query, verdict, text, subdetails, sources, rule_matched}`. O `id` é o `trace_id` do Langfuse; o `text` é o texto do julgador, sem reescrita (regra 6) |
+| `POST /api/check/stream` | Mesma resposta em SSE: eventos `step` (`tools`, `search`, `synthesis`, emitidos nas etapas reais do pipeline), `token` e `done`. Há `: keepalive` a cada 15 s, porque a checagem leva dezenas de segundos |
+| `POST /api/feedback` | 👍/👎 vira o score categórico `feedback_usuario` no trace da resposta. Mensagens antigas do navegador (ids que não são trace ids) são aceitas e ignoradas |
+
+**Comportamentos a conhecer**
+- Os `token` do stream são o texto do veredito enviado em pedaços **depois** de o judge terminar: o judge não gera em streaming. O que é real é o progresso (`step`).
+- Se o pipeline falhar no meio do stream (por exemplo, Ollama fora do ar), o stream termina com um `done` `INCONCLUSIVO`, `rule_matched: servico_indisponivel` e um texto de indisponibilidade, sem o erro técnico. Já `POST /api/check` devolve 503.
+- O nginx limita as rotas de checagem a **20 requisições por minuto por IP** (rajada de 5) e devolve 429 acima disso: cada checagem ocupa o Ollama local por ~40 s. Atrás de um NAT compartilhado (rede de campus), vários usuários dividem esse limite. O frontend mostra a mensagem genérica "não foi possível conectar" em um 429.
+- O frontend envia o `session_id` da conversa (`session-<timestamp>`, sem dado pessoal), que o Langfuse usa para agrupar as mensagens de um mesmo chat.
+- Sem domínio, o acesso é por `http://<ip-da-vm>`: **o tráfego não é cifrado**. HTTPS exige um nome de domínio (certificado) e uma mudança no nginx.
+
+**Para o site ficar acessível, falta abrir a porta 80 no NSG** (hoje só a 22 está aberta):
+```
+az network nsg rule create -g polis-rg --nsg-name polis-vmNSG -n http-publico --priority 1020 --direction Inbound --access Allow --protocol Tcp --source-address-prefixes Internet --destination-port-ranges 80
+```
+Para fechar: `az network nsg rule delete -g polis-rg --nsg-name polis-vmNSG -n http-publico`. E o Ollama precisa estar alcançável (túnel SSH ligado) para as checagens funcionarem; sem ele o site abre, mas toda checagem responde "indisponível".
+
+**Validado na VM (09/10/2026, numa stack de teste isolada, antes do deploy):** `docker build` do frontend (inclui `tsc -b`) e do router; `nginx -t`; a casca da SPA sem cache, o asset com hash `immutable` e os cabeçalhos de segurança; `/api/*` pelo nginx; uma checagem real em streaming com o Ollama da máquina de desenvolvimento (`step=tools` em 0,0 s, ou seja, sem buffer; `done` aos 36 s com `VERDADEIRO` e fonte); o caminho de falha (503 e `done` de indisponibilidade); o feedback (`registrado: true` com trace id real); e o limite (6 passam, 19 recebem 429). **Não foi testado:** a interface num navegador (não há Node nem navegador automatizado aqui), então o comportamento visual, o histórico em `localStorage` e os botões de feedback não foram exercitados.
+
 ## Como o deploy se protege
 
 - Só roda depois do CI verde na `main` (ou manualmente, com um SHA já publicado). O SHA é validado como 40 caracteres hexadecimais antes de ir para o comando remoto.
@@ -94,7 +126,7 @@ Em qualquer caminho a máquina precisa ficar ligada e acordada (o script mantém
 - Nenhum dos workflows rodou no GitHub ainda; a estrutura é validada por `tests/test_ci_workflow.py` e `tests/test_cd.py`, e os scripts de shell tiveram a sintaxe conferida com `bash -n`. O primeiro deploy real vai exigir ajustes.
 - O rollback só desfaz a imagem; mudança incompatível nos parquets não é revertida.
 - O `cd.yml` ainda não rodou: faltam o environment `production`, o secret `AZURE_VM_SSH_KEY` e as variables `AZURE_VM_HOST` e `AZURE_VM_KNOWN_HOSTS`, e a porta 22 aberta à internet é superfície de ataque (varredura constante).
-- Sem o frontend: ele ainda não tem Dockerfile (Fase 7). Quando tiver, entra no `docker-compose.prod.yml` e no build do CI.
+- O frontend tem imagem (`docker/Dockerfile.frontend`) e entra no compose de produção e no CI (build + `nginx -t`), mas só fica visível na internet depois de abrir a porta 80 no NSG.
 - A VM é um ponto único de falha; vale um backup do `data/processed` (a ingestão regenera os parquets, mas o tempo ainda não foi medido).
 - As actions estão fixadas por versão maior (`@v4`, `@v6`), não por SHA.
 - O achado 3 do plano segue aberto: sem fallback, um timeout do Ollama vira 503.
