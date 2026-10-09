@@ -1,0 +1,98 @@
+name: Eval
+
+# Golden experiment como portão de aceite (regra 5). Roda num runner self-hosted na VM, onde estão
+# os parquets (data/processed) e o Ollama. Não roda em PR de fork: o código executaria na VM.
+on:
+  pull_request:
+    paths:
+      - "src/**"
+      - "scripts/**"
+      - "golden_dataset_v1.json"
+      - "evaluation/**"
+      - "pyproject.toml"
+      - "uv.lock"
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      prompt_label:
+        description: "Label dos prompts no Langfuse (use staging para testar uma versão nova)"
+        default: production
+
+permissions:
+  contents: read
+
+# Um único grupo: o Ollama da VM é compartilhado e dois experiments ao mesmo tempo estouram o timeout.
+concurrency:
+  group: golden-eval-vm
+  cancel-in-progress: false
+
+env:
+  GIT_SHA: ${{ github.sha }}
+  LANGFUSE_TRACING_ENABLED: "true"
+  LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+  LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+  LANGFUSE_BASE_URL: ${{ vars.LANGFUSE_BASE_URL || 'https://us.cloud.langfuse.com' }}
+  LANGFUSE_PROMPT_LABEL: ${{ inputs.prompt_label || 'production' }}
+  # Explícito: o padrão do código é curto demais para modelos locais (um 503 por timeout reprova o gate).
+  LLM_TIMEOUT: "120"
+  OLLAMA_BASE_URL: ${{ vars.OLLAMA_BASE_URL || 'http://localhost:11434' }}
+
+jobs:
+  golden:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, factcheck-vm]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Instala as dependências (versões do uv.lock)
+        run: uv sync --frozen
+      - name: Liga os dados da VM
+        env:
+          FACTCHECK_DATA_DIR: ${{ vars.FACTCHECK_DATA_DIR }}
+        run: |
+          if [ -z "$FACTCHECK_DATA_DIR" ] || [ ! -d "$FACTCHECK_DATA_DIR" ]; then
+            echo "FACTCHECK_DATA_DIR ausente ou inexistente: sem os parquets o experiment mediria o dado errado." >&2
+            exit 1
+          fi
+          rm -rf data/processed
+          ln -s "$FACTCHECK_DATA_DIR" data/processed
+      - name: Sobe judge e router
+        # Portas próprias (18000/18001) e uvicorn direto do .venv: o PID guardado é o do servidor.
+        run: |
+          .venv/bin/uvicorn src.services.judge_service:app --port 18001 > "${{ runner.temp }}/judge.log" 2>&1 &
+          echo $! >> "${{ runner.temp }}/service.pids"
+          JUDGE_SERVICE_URL=http://localhost:18001 \
+            .venv/bin/uvicorn src.services.router_service:app --port 18000 > "${{ runner.temp }}/router.log" 2>&1 &
+          echo $! >> "${{ runner.temp }}/service.pids"
+          for port in 18001 18000; do
+            for _ in $(seq 1 60); do
+              curl -fsS "http://localhost:${port}/health" > /dev/null && break
+              sleep 2
+            done
+            curl -fsS "http://localhost:${port}/health" > /dev/null
+          done
+      - name: Golden experiment (gate)
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run python scripts/run_golden_experiment.py --run-name "ci-${{ github.sha }}" \
+            --router-url http://localhost:18000 \
+            2>&1 | tee "${{ runner.temp }}/golden.log"
+      - name: Upload do log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-eval-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/golden.log
+            ${{ runner.temp }}/router.log
+            ${{ runner.temp }}/judge.log
+          if-no-files-found: warn
+      - name: Encerra os serviços
+        if: always()
+        run: |
+          if [ -f "${{ runner.temp }}/service.pids" ]; then
+            xargs kill < "${{ runner.temp }}/service.pids" 2>/dev/null || true
+          fi
