@@ -361,3 +361,76 @@ def test_resolve_proposition_performance_and_cache():
 
 
 
+
+
+# --------------------------------------------------------------------------- #
+# Tarefa 3.8: termos populares citam a sigla e preferem a proposição principal
+# --------------------------------------------------------------------------- #
+
+_EMENTA_REFORMA = "Altera o Sistema Tributário Nacional e institui a reforma tributária sobre o consumo."
+
+
+def _client_with(items):
+    return LegislativeClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"dados": items}))
+    )
+
+
+def _item(id_, sigla, numero, ano, ementa):
+    return {"id": id_, "siglaTipo": sigla, "numero": numero, "ano": ano, "ementa": ementa}
+
+
+def test_popular_term_with_sigla_filters_out_requerimentos():
+    client = _client_with([
+        _item(1, "REQ", 100, 2023, "Requer a reforma tributária em regime de urgência."),
+        _item(2, "REQ", 101, 2023, "Requer audiência sobre a reforma tributária."),
+        _item(45, "PEC", 45, 2019, _EMENTA_REFORMA),
+    ])
+
+    result = resolve_proposition(casa="camara", termo_busca="PEC da Reforma Tributária", client=client)
+
+    assert result["ambiguous"] is False
+    assert result["id_proposicao"] == 45
+    assert result["sigla_tipo"] == "PEC"
+
+
+def test_term_citing_sigla_without_matching_item_is_not_found():
+    client = _client_with([
+        _item(1, "REQ", 100, 2023, "Requer a reforma tributária em regime de urgência."),
+        _item(7, "PL", 7, 2023, _EMENTA_REFORMA),
+    ])
+
+    result = resolve_proposition(casa="camara", termo_busca="PEC da Reforma Tributária", client=client)
+
+    assert result["id_proposicao"] is None
+    assert result["ambiguous"] is False
+
+
+def test_term_without_sigla_prefers_main_proposition_over_requerimento():
+    client = _client_with([
+        _item(1, "REQ", 100, 2023, _EMENTA_REFORMA),
+        _item(45, "PEC", 45, 2019, _EMENTA_REFORMA),
+    ])
+
+    result = resolve_proposition(casa="camara", termo_busca="reforma tributária", client=client)
+
+    assert result["id_proposicao"] == 45
+
+
+def test_term_keeps_requerimentos_when_they_are_the_only_matches():
+    client = _client_with([_item(1, "REQ", 100, 2023, _EMENTA_REFORMA)])
+
+    result = resolve_proposition(casa="camara", termo_busca="reforma tributária", client=client)
+
+    assert result["id_proposicao"] == 1
+
+
+def test_explicit_requerimento_term_is_not_filtered_out():
+    client = _client_with([
+        _item(1, "REQ", 100, 2023, _EMENTA_REFORMA),
+        _item(45, "PEC", 45, 2019, _EMENTA_REFORMA),
+    ])
+
+    result = resolve_proposition(casa="camara", termo_busca="REQ reforma tributária", client=client)
+
+    assert result["id_proposicao"] == 1
