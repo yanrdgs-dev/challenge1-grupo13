@@ -175,4 +175,4 @@ def test_v2_has_balanced_comparison_claims(v2):
     compare = [c for c in v2 if "compare_candidates" in c.get("expected_tools", [])]
     verdicts = [c["expected_verdict"] for c in compare]
     assert verdicts.count("VERDADEIRO") == verdicts.count("FALSO") >= 4
-    assert verdicts.count("INCONCLUSIVO") >= 3
+    assert verdicts.count("INCONCLUSIVO") >= 2  # ambíguo e 2026; a de turno sem ano é barrada antes de qualquer tool
