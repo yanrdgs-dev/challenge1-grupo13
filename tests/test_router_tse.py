@@ -362,3 +362,110 @@ def test_resolve_candidate_is_described_as_identity_only():
     """Escolhida sozinha ela não responde nada: as outras tools de candidato já resolvem o nome."""
     desc = _tool("resolve_candidate")["description"]
     assert "SOMENTE" in desc and "NÃO use" in desc
+
+
+# ------------------- comparação de candidatos ------------------- #
+
+RES_A = {**RESOLVED, "sq_candidato": 11, "nome_urna": "LULA"}
+RES_B = {**RESOLVED, "sq_candidato": 22, "nome_urna": "JAIR BOLSONARO"}
+COMPARED = {"encontrado": True, "status": "ok", "metrica": "patrimonio", "lider": {"sq_candidato": 11}}
+
+
+def _args(**extra):
+    return {"candidatos": ["Lula", "Jair Bolsonaro"], "ano": 2022, "metrica": "patrimonio", **extra}
+
+
+def test_compare_candidates_is_in_the_catalog():
+    params = _tool("compare_candidates")["parameters"]
+    assert {"candidatos", "ano", "metrica"} <= set(params["required"])
+    assert params["properties"]["candidatos"]["type"] == "array"
+    assert set(params["properties"]["metrica"]["enum"]) == {"votos_validos", "patrimonio", "receitas", "despesas_contratadas"}
+    assert "turno" in params["properties"] and "turno" not in params["required"]
+
+
+def test_compare_resolves_every_name_first_and_passes_only_canonical_ids():
+    with patch.object(router_service, "resolve_candidate", side_effect=[RES_A, RES_B]) as resolver, \
+         patch.object(router_service, "compare_candidates", return_value=dict(COMPARED)) as tool:
+        res = execute_tool("compare_candidates", _args())
+    assert resolver.call_count == 2
+    assert [c.kwargs["nome_busca"] for c in resolver.call_args_list] == ["Lula", "Jair Bolsonaro"]
+    tool.assert_called_once_with(sq_candidatos=[11, 22], ano=2022, metrica="patrimonio", turno=None)
+    assert [e["sq_candidato"] for e in res["entidades_resolvidas"]] == [11, 22]
+
+
+def test_compare_forwards_turno_for_votes():
+    with patch.object(router_service, "election_results_available", return_value=True), \
+         patch.object(router_service, "resolve_candidate", side_effect=[RES_A, RES_B]), \
+         patch.object(router_service, "compare_candidates", return_value=dict(COMPARED)) as tool:
+        execute_tool("compare_candidates", _args(metrica="votos_validos", turno=2))
+    assert tool.call_args.kwargs["turno"] == 2 and tool.call_args.kwargs["metrica"] == "votos_validos"
+
+
+@pytest.mark.parametrize("second", [AMBIGUOUS, NOT_FOUND])
+def test_compare_with_an_unresolved_name_never_reaches_the_data_tool(second):
+    with patch.object(router_service, "resolve_candidate", side_effect=[RES_A, second]), \
+         patch.object(router_service, "compare_candidates") as tool:
+        res = execute_tool("compare_candidates", _args())
+    tool.assert_not_called()
+    assert res["status"] == "entidade_nao_resolvida" and evidence_failed(res)
+    assert res["ambiguous"] is (second is AMBIGUOUS)
+    assert [c["candidato_informado"] for c in res["candidatos_nao_resolvidos"]] == ["Jair Bolsonaro"]
+
+
+def test_compare_votes_without_turno_stops_before_resolving():
+    with patch.object(router_service, "resolve_candidate") as resolver, patch.object(router_service, "compare_candidates") as tool:
+        res = execute_tool("compare_candidates", _args(metrica="votos_validos"))
+    resolver.assert_not_called()
+    tool.assert_not_called()
+    assert res["status"] == "especificacao_insuficiente" and evidence_failed(res)
+
+
+def test_compare_votes_for_a_year_without_results_does_not_even_resolve():
+    with patch.object(router_service, "election_results_available", return_value=False), \
+         patch.object(router_service, "resolve_candidate") as resolver:
+        res = execute_tool("compare_candidates", _args(metrica="votos_validos", turno=1, ano=2026))
+    resolver.assert_not_called()
+    assert res["status"] == "resultado_indisponivel" and "ainda não foram atualizados" in res["motivo"]
+
+
+def test_compare_other_metrics_work_for_2026_because_candidacies_are_published():
+    with patch.object(router_service, "election_results_available", return_value=False), \
+         patch.object(router_service, "resolve_candidate", side_effect=[RES_A, RES_B]), \
+         patch.object(router_service, "compare_candidates", return_value=dict(COMPARED)):
+        assert execute_tool("compare_candidates", _args(ano=2026))["encontrado"] is True
+
+
+@pytest.mark.parametrize("bad", [{"candidatos": ["Lula"]}, {"candidatos": []}, {"candidatos": "Lula"},
+                                 {"candidatos": ["A", "B", "C", "D", "E"]}, {"candidatos": ["Lula", ""]}, {"candidatos": [1, 2]}])
+def test_compare_rejects_wrong_candidate_lists_before_any_tool(bad):
+    result = execute_tool("compare_candidates", _args(**bad))
+    assert result["status"] == "parametros_invalidos" and "candidatos" in result["erro"]
+
+
+def test_compare_accepts_names_in_a_single_string():
+    normalized, problem = validate_tool_args("compare_candidates", _args(candidatos="Lula e Jair Bolsonaro"))
+    assert problem is None and normalized["candidatos"] == ["Lula", "Jair Bolsonaro"]
+    normalized, problem = validate_tool_args("compare_candidates", _args(candidatos="Lula, Jair Bolsonaro"))
+    assert problem is None and normalized["candidatos"] == ["Lula", "Jair Bolsonaro"]
+
+
+def test_compare_sources_base_date_by_metric_and_prompt():
+    assert derive_sources("compare_candidates", {}, {"encontrado": True, "status": "ok"}) == [TSE]
+    info = {"fontes": {
+        "tse-votacao_candidato_munzona_2022": {"baixado_em": "2026-10-10T01:00:00+00:00"},
+        "tse-bem_candidato_2022": {"baixado_em": "2026-10-10T02:00:00+00:00"},
+        "tse-prestacao_de_contas_eleitorais_candidatos_2022": {"baixado_em": "2026-10-10T03:00:00+00:00"},
+    }}
+    ok = {"encontrado": True}
+    expected = {"votos_validos": "01", "patrimonio": "02", "receitas": "03", "despesas_contratadas": "03"}
+    for metrica, hour in expected.items():
+        assert data_date("compare_candidates", {"ano": 2022, "metrica": metrica}, ok, info) == f"2026-10-10T{hour}:00:00+00:00"
+    assert data_date("compare_candidates", {"ano": 2022}, ok, info) is None
+    assert "compare_candidates" in ROUTER_SYSTEM_PROMPT
+
+
+def test_compare_filters_are_grounded_in_the_claim():
+    from src.services.tool_args import ground_candidate_args
+    args = ground_candidate_args("compare_candidates", _args(cargo="Deputado Federal", uf="SP"),
+                                 "Em 2022, Lula teve mais patrimônio declarado que Jair Bolsonaro.")
+    assert "cargo" not in args and "uf" not in args and args["candidatos"] == ["Lula", "Jair Bolsonaro"]
