@@ -1,0 +1,422 @@
+[
+  {
+    "id": 1,
+    "claim": "Em 2023, o deputado que mais gastou a cota parlamentar (CEAP) foi Pompeo de Mattos (PDT-RS).",
+    "expected_verdict": "VERDADEIRO",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 2,
+    "claim": "Senadores podem usar a verba indenizatória (CEAPS) para pagar consultorias e assessorias técnicas para o mandato.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "GASTOS",
+    "target_entity": "Senado Federal"
+  },
+  {
+    "id": 3,
+    "claim": "Dá para consultar no Portal da Transparência quanto cada ministério gastou com diárias e passagens em viagens oficiais.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "GASTOS",
+    "target_entity": "Portal da Transparência"
+  },
+  {
+    "id": 4,
+    "claim": "A urgência do PL 2630/2020, o chamado 'PL das Fake News', foi aprovada pelo Plenário da Câmara dos Deputados.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "VOTACOES",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 5,
+    "claim": "O Senado aprovou, em votação nominal, o texto-base da PEC da Reforma Tributária em 2023.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "VOTACOES",
+    "target_entity": "Senado Federal"
+  },
+  {
+    "id": 6,
+    "claim": "O valor da cota parlamentar que cada deputado recebe por mês muda de acordo com o estado que ele representa.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 7,
+    "claim": "É possível consultar publicamente quais deputados faltaram às sessões do Plenário da Câmara.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "VOTACOES",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 8,
+    "claim": "Os repasses do chamado 'orçamento secreto' (emendas de relator, RP9) foram detalhados no Portal da Transparência depois de decisão do STF.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "GASTOS",
+    "target_entity": "Portal da Transparência"
+  },
+  {
+    "id": 9,
+    "claim": "Dá para ver no site do TSE quanto cada candidato declarou ter gastado na campanha eleitoral.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "GASTOS",
+    "target_entity": "Dados Abertos - TSE"
+  },
+  {
+    "id": 10,
+    "claim": "A confirmação de ministros do Supremo Tribunal Federal pelo plenário do Senado é feita por votação secreta.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "VOTACOES",
+    "target_entity": "Senado Federal"
+  },
+  {
+    "id": 11,
+    "claim": "Deputados podem pedir reembolso de gastos com alimentação usando a cota parlamentar.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 12,
+    "claim": "Quando os líderes partidários já estão de acordo, a Câmara pode aprovar um projeto por votação simbólica, sem que cada deputado vote individualmente.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "VOTACOES",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 13,
+    "claim": "Todo deputado federal tem um teto fixo de R$ 500,00 por ano para gastar com combustível pela cota parlamentar.",
+    "expected_verdict": "FALSO",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 14,
+    "claim": "O Portal da Transparência escondeu 100% das despesas com viagens internacionais dos ministros em 2023.",
+    "expected_verdict": "FALSO",
+    "category": "GASTOS",
+    "target_entity": "Portal da Transparência"
+  },
+  {
+    "id": 15,
+    "claim": "A votação do Marco Temporal na Câmara dos Deputados em 2023 foi unânime, sem nenhum deputado votando contra.",
+    "expected_verdict": "FALSO",
+    "category": "VOTACOES",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 16,
+    "claim": "Um deputado pode usar a cota parlamentar para comprar um imóvel em seu próprio nome.",
+    "expected_verdict": "FALSO",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 17,
+    "claim": "O Senado proibiu totalmente o uso da cota de gastos (CEAPS) para pagar passagens aéreas.",
+    "expected_verdict": "FALSO",
+    "category": "GASTOS",
+    "target_entity": "Senado Federal"
+  },
+  {
+    "id": 18,
+    "claim": "Nenhum projeto de lei aprovado na Câmara dos Deputados passa por votação nas comissões temáticas.",
+    "expected_verdict": "FALSO",
+    "category": "VOTACOES",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 19,
+    "claim": "Um partido pode receber a cota do Fundo Partidário sem prestar contas ao TSE de como gastou o dinheiro.",
+    "expected_verdict": "FALSO",
+    "category": "GASTOS",
+    "target_entity": "Dados Abertos - TSE"
+  },
+  {
+    "id": 20,
+    "claim": "O Senado Federal nunca votou a derrubada ou manutenção de um veto presidencial em sessão do Congresso.",
+    "expected_verdict": "FALSO",
+    "category": "VOTACOES",
+    "target_entity": "Senado Federal"
+  },
+  {
+    "id": 21,
+    "claim": "É preciso pagar uma assinatura para acessar os dados abertos de licitações no Portal da Transparência.",
+    "expected_verdict": "FALSO",
+    "category": "GASTOS",
+    "target_entity": "Portal da Transparência"
+  },
+  {
+    "id": 22,
+    "claim": "Um senador pode usar a cota parlamentar para pagar os gastos da própria campanha eleitoral.",
+    "expected_verdict": "FALSO",
+    "category": "GASTOS",
+    "target_entity": "Senado Federal"
+  },
+  {
+    "id": 23,
+    "claim": "As sessões do Plenário da Câmara dos Deputados não ficam registradas em nenhuma ata ou sistema eletrônico.",
+    "expected_verdict": "FALSO",
+    "category": "VOTACOES",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 24,
+    "claim": "O TSE proíbe que se divulgue publicamente o teto de gastos de campanha para presidente e governador.",
+    "expected_verdict": "FALSO",
+    "category": "GASTOS",
+    "target_entity": "Dados Abertos - TSE"
+  },
+  {
+    "id": 25,
+    "claim": "Um deputado gastou uma quantia muito alta com passagem aérea usando a cota parlamentar recentemente.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 26,
+    "claim": "Um grupo de senadores votou contra uma proposta polêmica sobre segurança pública que estava sendo discutida no Senado.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "VOTACOES",
+    "target_entity": "Senado Federal"
+  },
+  {
+    "id": 27,
+    "claim": "Nas redes sociais estão dizendo que um deputado usou a cota parlamentar para pagar despesas pessoais da família.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 28,
+    "claim": "A Câmara dos Deputados deve votar em breve um projeto de lei sobre inteligência artificial.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "VOTACOES",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 29,
+    "claim": "Um senador teria gastado muito dinheiro público com contratos de consultoria no ano passado.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "GASTOS",
+    "target_entity": "Senado Federal"
+  },
+  {
+    "id": 30,
+    "claim": "Segundo comentários na imprensa, houve uma votação apertada na Câmara dos Deputados sobre um projeto ligado à área fiscal.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "VOTACOES",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 31,
+    "claim": "No segundo turno da eleição presidencial de 2022, Lula recebeu 60.345.999 votos válidos.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "get_candidate_votes",
+      "get_election_result"
+    ]
+  },
+  {
+    "id": 32,
+    "claim": "Em 2022, Jair Bolsonaro ficou em segundo lugar no primeiro turno da eleição para presidente.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "get_election_result",
+      "get_candidate_votes"
+    ]
+  },
+  {
+    "id": 33,
+    "claim": "O registro de candidatura de Pablo Marçal à Presidência da República em 2022 consta como cancelado no TSE.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "check_candidate_status"
+    ]
+  },
+  {
+    "id": 34,
+    "claim": "Em 2022, Lula declarou ao TSE bens que somam mais de 7 milhões de reais.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "get_candidate_assets"
+    ]
+  },
+  {
+    "id": 35,
+    "claim": "Em 2022, a campanha de Lula à Presidência declarou mais despesas contratadas do que a de Jair Bolsonaro.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "get_top_campaign_finances",
+      "get_campaign_finances"
+    ]
+  },
+  {
+    "id": 36,
+    "claim": "Em 2022, Lula declarou ao TSE a ocupação de torneiro mecânico.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "check_candidate_profile"
+    ]
+  },
+  {
+    "id": 37,
+    "claim": "O perfil de Instagram jairmessiasbolsonaro está entre as redes sociais que Jair Bolsonaro registrou no TSE em 2022.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "verify_official_social_media"
+    ]
+  },
+  {
+    "id": 38,
+    "claim": "Tarcísio de Freitas foi o candidato mais votado no primeiro turno da eleição para governador de São Paulo em 2022.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "get_election_result",
+      "get_candidate_votes"
+    ]
+  },
+  {
+    "id": 39,
+    "claim": "Em 2022, Jair Bolsonaro venceu o segundo turno da eleição presidencial.",
+    "expected_verdict": "FALSO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "get_election_result",
+      "get_candidate_votes"
+    ]
+  },
+  {
+    "id": 40,
+    "claim": "Em 2022, Simone Tebet ficou em segundo lugar no primeiro turno da eleição para presidente.",
+    "expected_verdict": "FALSO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "get_election_result",
+      "get_candidate_votes"
+    ]
+  },
+  {
+    "id": 41,
+    "claim": "Em 2022, Jair Bolsonaro declarou ao TSE um patrimônio superior a 10 milhões de reais.",
+    "expected_verdict": "FALSO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "get_candidate_assets"
+    ]
+  },
+  {
+    "id": 42,
+    "claim": "Em 2022, a campanha de Jair Bolsonaro à Presidência declarou mais despesas contratadas do que a de Lula.",
+    "expected_verdict": "FALSO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "get_top_campaign_finances",
+      "get_campaign_finances"
+    ]
+  },
+  {
+    "id": 43,
+    "claim": "Tarcísio de Freitas foi eleito governador de São Paulo em 2022 já no primeiro turno.",
+    "expected_verdict": "FALSO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "get_election_result",
+      "get_candidate_votes"
+    ]
+  },
+  {
+    "id": 44,
+    "claim": "O perfil de Instagram lulaoficial foi registrado no TSE por Jair Bolsonaro em 2022.",
+    "expected_verdict": "FALSO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "verify_official_social_media"
+    ]
+  },
+  {
+    "id": 45,
+    "claim": "O Lula ganhou no primeiro turno.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [],
+    "inconclusive_reason": "subespecificada"
+  },
+  {
+    "id": 46,
+    "claim": "Na última eleição, o candidato do PT venceu para presidente.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [],
+    "inconclusive_reason": "subespecificada"
+  },
+  {
+    "id": 47,
+    "claim": "Flávio Bolsonaro será eleito presidente em 2026.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [],
+    "inconclusive_reason": "subespecificada"
+  },
+  {
+    "id": 48,
+    "claim": "Em 2026, o candidato do PT venceu o primeiro turno da eleição para presidente.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "get_election_result"
+    ],
+    "inconclusive_reason": "evidencia_vazia"
+  },
+  {
+    "id": 49,
+    "claim": "José Silva foi eleito deputado federal por São Paulo em 2022.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "get_candidate_votes",
+      "resolve_candidate"
+    ],
+    "inconclusive_reason": "evidencia_vazia"
+  },
+  {
+    "id": 50,
+    "claim": "Em 2022, Josenildo Batista Zampieri foi eleito senador por Goiás.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "get_candidate_votes",
+      "resolve_candidate"
+    ],
+    "inconclusive_reason": "evidencia_vazia"
+  }
+]
