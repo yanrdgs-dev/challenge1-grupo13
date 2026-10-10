@@ -305,6 +305,42 @@ TOOLS_CATALOG.extend([
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_candidate_status",
+            "description": "Situação da candidatura de um CANDIDATO no TSE (deferida, indeferida, renúncia, cancelada, cassada) e se foi eleito em cada turno. Usar para 'fulano teve a candidatura indeferida', 'fulano foi eleito'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nome_candidato": {"type": "string", "description": "Nome de urna ou civil do candidato (resolvido pelo sistema antes da consulta)."},
+                    "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
+                    "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado, se a claim disser."},
+                    "uf": {"type": "string", "description": "UF da disputa, para desambiguar homônimos."},
+                    "numero": {"type": "integer", "description": "Número do candidato na urna, se citado."},
+                },
+                "required": ["nome_candidato", "ano"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_disqualification_motive",
+            "description": "Motivos de indeferimento ou cassação da candidatura de um CANDIDATO registrados no TSE (ex.: Ficha Limpa, ausência de requisito). Usar para 'por que fulano foi barrado/inelegível'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nome_candidato": {"type": "string", "description": "Nome de urna ou civil do candidato (resolvido pelo sistema antes da consulta)."},
+                    "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
+                    "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado, se a claim disser."},
+                    "uf": {"type": "string", "description": "UF da disputa, para desambiguar homônimos."},
+                    "numero": {"type": "integer", "description": "Número do candidato na urna, se citado."},
+                },
+                "required": ["nome_candidato", "ano"],
+            },
+        },
+    },
 ])
 
 ROUTER_SYSTEM_PROMPT = (
@@ -325,6 +361,7 @@ ROUTER_SYSTEM_PROMPT = (
     "- Se a alegação afirma que um dado público pode (ou não) ser consultado numa fonte oficial (Portal da Transparência, TSE, Câmara), utilize 'check_data_source_coverage'.\n"
     "- Se a alegação trata do RESULTADO de uma eleição (quem ganhou, total de votos de um cargo, ranking), utilize 'get_election_result'; "
     "se trata dos votos ou da eleição de um CANDIDATO específico, utilize 'get_candidate_votes' (o nome é resolvido pelo sistema; use 'resolve_candidate' só para identificar o candidato). "
+    "Para a SITUAÇÃO da candidatura (deferida, indeferida, renúncia, cassada) utilize 'check_candidate_status'; para o MOTIVO de um indeferimento ou cassação, 'check_disqualification_motive' (não precisam de turno). "
     "NÃO invente ano nem turno: se a alegação não diz o ano ('na última eleição') ou o turno, deixe o parâmetro vazio, para que a evidência seja INCONCLUSIVO. "
     "Se a alegação é sobre o resultado da eleição de 2026, chame mesmo assim a tool de resultado com ano 2026: o sistema informa que os dados abertos do TSE ainda não foram atualizados. Votos de eleição são do TSE; votos em plenário do Congresso são das tools de votação.\n"
     "Extraia todos os parâmetros possíveis (casa, número, ano, sigla, estado/UF) diretamente da frase."

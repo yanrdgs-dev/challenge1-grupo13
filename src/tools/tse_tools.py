@@ -452,4 +452,6 @@ def check_disqualification_motive(sq_candidato: Any, ano: Optional[int], base_di
         "situacao_julgamento": status.get("situacao_julgamento"),
         "total_motivos": len(motivos),
         "motivos": motivos,
+        "aviso": "A tabela registra só os motivos de indeferimento ou cassação julgados: a ausência de linha "
+                 "não prova que a candidatura foi regular; veja detalhe_situacao.",
     }

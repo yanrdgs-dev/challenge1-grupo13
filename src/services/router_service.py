@@ -39,6 +39,8 @@ from src.tools.knowledge_tools import check_data_source_coverage, check_institut
 from src.tools.resolve_politician import resolve_politician
 from src.tools.resolve_proposition import resolve_proposition
 from src.tools.tse_tools import (
+    check_candidate_status,
+    check_disqualification_motive,
     election_results_available,
     get_candidate_votes,
     get_election_result,
@@ -175,11 +177,9 @@ def _resolve_parlamentar_id(casa: str, valor: str) -> Dict[str, Any]:
     return {"id": str(canonical)}
 
 
-def _candidate_votes(args: Dict[str, Any]) -> Dict[str, Any]:
-    """Resolve o candidato (regra 2) e só então consulta os votos com o SQ_CANDIDATO canônico."""
+def _with_resolved_candidate(args: Dict[str, Any], run: Callable[[int], Dict[str, Any]]) -> Dict[str, Any]:
+    """Resolve o candidato (regra 2) e só então chama a tool de dado com o SQ_CANDIDATO canônico."""
     nome = str(args["nome_candidato"]).strip()
-    if not election_results_available(args["ano"]):
-        return results_unavailable(args["ano"])  # sem votação publicada (ex.: 2026): nem resolve o nome
     with tracing.observation(
         "resolve_candidate", input={"nome_busca": nome, "ano": args["ano"], "cargo": args.get("cargo")}
     ) as span:
@@ -192,9 +192,17 @@ def _candidate_votes(args: Dict[str, Any]) -> Dict[str, Any]:
             ambiguous=bool(res.get("ambiguous")), candidato_informado=nome, resolucao=res,
             motivo=res.get("motivo"),
         )
-    votes = get_candidate_votes(sq_candidato=res["sq_candidato"], ano=args["ano"], turno=args["turno"])
+    evidence = run(res["sq_candidato"])
     resolution = {k: res.get(k) for k in ("sq_candidato", "nome_urna", "nome_civil", "partido", "cargo", "uf", "ano")}
-    return {**votes, "entidade_resolvida": resolution}
+    return {**evidence, "entidade_resolvida": resolution}
+
+
+def _candidate_votes(args: Dict[str, Any]) -> Dict[str, Any]:
+    if not election_results_available(args["ano"]):
+        return results_unavailable(args["ano"])  # sem votação publicada (ex.: 2026): nem resolve o nome
+    return _with_resolved_candidate(
+        args, lambda sq: get_candidate_votes(sq_candidato=sq, ano=args["ano"], turno=args["turno"])
+    )
 
 
 def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -267,6 +275,10 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
         return get_election_result(cargo=args["cargo"], ano=args["ano"], turno=args["turno"], uf=args.get("uf"))
     if tool_name == "get_candidate_votes":
         return _candidate_votes(args)
+    if tool_name == "check_candidate_status":
+        return _with_resolved_candidate(args, lambda sq: check_candidate_status(sq_candidato=sq, ano=args["ano"]))
+    if tool_name == "check_disqualification_motive":
+        return _with_resolved_candidate(args, lambda sq: check_disqualification_motive(sq_candidato=sq, ano=args["ano"]))
     if tool_name == "check_institutional_rule":
         # Regra 4: base normativa curada; não consulta dado transacional nem resolve entidade.
         try:
