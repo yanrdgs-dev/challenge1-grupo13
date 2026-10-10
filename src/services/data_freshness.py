@@ -26,6 +26,10 @@ _TSE_TABLES = {
     "get_candidate_votes": "tse-votacao_candidato_munzona_",
     "check_candidate_status": "tse-consulta_cand_complementar_",
     "check_disqualification_motive": "tse-motivo_cassacao_",
+    "check_candidate_profile": "tse-consulta_cand_",
+    "get_candidate_assets": "tse-bem_candidato_",
+    "check_cash_and_special_assets": "tse-bem_candidato_",
+    "verify_official_social_media": "tse-rede_social_candidato_",  # 2022 vem uma fonte por UF
 }
 
 _cache: Dict[str, Tuple[Tuple[int, int], Optional[Dict[str, Any]]]] = {}
@@ -91,7 +95,7 @@ def data_date(
     if tool_name in _TSE_TABLES:
         ano = args.get("ano")
         table = _TSE_TABLES[tool_name]
-        return _latest(fontes, [f"{table}{ano}"]) if ano is not None else None
+        return _latest(fontes, _family(fontes, f"{table}{ano}")) if ano is not None else None
 
     if tool_name == "resolve_politician":
         ids = ["camara-deputados", "senado-senadores"] + _family(fontes, "tse-consulta_cand_")

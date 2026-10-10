@@ -38,6 +38,12 @@ from src.tools.gastos_tools import (
 from src.tools.knowledge_tools import check_data_source_coverage, check_institutional_rule
 from src.tools.resolve_politician import resolve_politician
 from src.tools.resolve_proposition import resolve_proposition
+from src.tools.tse_perfil_tools import (
+    check_cash_and_special_assets,
+    check_candidate_profile,
+    get_candidate_assets,
+    verify_official_social_media,
+)
 from src.tools.tse_tools import (
     check_candidate_status,
     check_disqualification_motive,
@@ -277,6 +283,16 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
         return _candidate_votes(args)
     if tool_name == "check_candidate_status":
         return _with_resolved_candidate(args, lambda sq: check_candidate_status(sq_candidato=sq, ano=args["ano"]))
+    if tool_name == "check_candidate_profile":
+        return _with_resolved_candidate(args, lambda sq: check_candidate_profile(sq_candidato=sq, ano=args["ano"]))
+    if tool_name == "get_candidate_assets":
+        return _with_resolved_candidate(args, lambda sq: get_candidate_assets(sq_candidato=sq, ano=args["ano"]))
+    if tool_name == "check_cash_and_special_assets":
+        return _with_resolved_candidate(args, lambda sq: check_cash_and_special_assets(sq_candidato=sq, ano=args["ano"]))
+    if tool_name == "verify_official_social_media":
+        return _with_resolved_candidate(
+            args, lambda sq: verify_official_social_media(sq_candidato=sq, ano=args["ano"], termo=args.get("termo"))
+        )
     if tool_name == "check_disqualification_motive":
         return _with_resolved_candidate(args, lambda sq: check_disqualification_motive(sq_candidato=sq, ano=args["ano"]))
     if tool_name == "check_institutional_rule":

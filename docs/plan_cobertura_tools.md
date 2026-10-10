@@ -61,6 +61,7 @@ Fora do escopo: `scrape_dados_abertos_tse` (raspagem de HTML, lê só 10 itens e
 2. Resultado: `get_election_result(cargo, ano, uf, turno)`, `get_candidate_votes(sq_candidato, ano, turno)`, `check_candidate_status` e `check_disqualification_motive`.
    **Passo 2 entregue em parte (2026-10-10):** `resolve_candidate`, `get_election_result` e `get_candidate_votes` (`src/tools/tse_tools.py`), no catálogo do roteador, com fonte TSE e data da base no veredito. `get_candidate_votes` resolve o nome por `resolve_candidate` no roteador e só então consulta (regra 2). Conferido com os parquets reais: 1º turno de 2022 LULA 57.259.504 e JAIR BOLSONARO 51.072.345 (118.229.719 válidos); 2º turno 60.345.999 e 58.206.354. Ano ou turno ausente, e 2026, devolvem evidência vazia com `status` (regra 3). **Passo 2 concluído** com `check_candidate_status` e `check_disqualification_motive` (situação por turno; motivos de `cassacao`, com aviso de que ausência de linha não prova regularidade; ambas resolvem o nome antes, sem exigir turno). O prompt do roteador no Langfuse (`production`) precisa ser atualizado com as regras novas.
 3. Perfil e patrimônio: `check_candidate_profile`, `get_candidate_assets`, `check_cash_and_special_assets`, `verify_official_social_media`.
+   **Passo 3 entregue (2026-10-10)** em `src/tools/tse_perfil_tools.py`, no catálogo do roteador (todas resolvem o nome antes, sem turno). Sem bem declarado não é patrimônio zero (aviso na evidência); "Não divulgável" e marcadores viram `None`; CPF, título, e-mail e data de nascimento não saem; redes sociais valem só para o que o candidato registrou no TSE (aceita `termo` para checar um perfil). Conferido com Lula e Bolsonaro 2022 e Lula 2026.
 4. Finanças de campanha: totais de receitas e despesas por candidato.
 5. Guarda de especificidade: "primeiro turno" ou "a última eleição" sem ano vira INCONCLUSIVO (regra 3).
 6. Golden v2: ao menos 10 claims de TSE nos três vereditos, incluindo 2º turno e candidato ambíguo.
@@ -91,4 +92,4 @@ Decidir se tramitação, vetos e presença entram no catálogo do roteador. Se e
 
 Fase 0, Fase 0.5, Fase 1 (descoberta primeiro), Fases 2 e 3 em paralelo, Fases 4 e 5 acompanhando desde a Fase 1.
 
-**Onde estamos (2026-10-10):** Fases 0 e 0.5 concluídas; Fase 1, passo 1 (descoberta) concluído. Passo 2 concluído; próximo, o passo 3 (perfil e patrimônio: `check_candidate_profile`, `get_candidate_assets`, `check_cash_and_special_assets`, `verify_official_social_media`).
+**Onde estamos (2026-10-10):** Fases 0 e 0.5 concluídas; Fase 1, passo 1 (descoberta) concluído. Passos 2 e 3 concluídos; próximo, o passo 4 (finanças de campanha: receitas e despesas por candidato).
