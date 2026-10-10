@@ -150,7 +150,8 @@ def format_status(status: Dict[str, Any], now: Optional[datetime] = None) -> str
         lines.append("Carga pendente: há dados baixados ainda não convertidos em parquet (o próximo build os publica).")
     lines.append(f"Fontes registradas: {status['fontes_registradas']}")
     if status["historico"]:
-        lines += ["", f"Últimas {len(status['historico'])} execuções:"]
+        n = len(status["historico"])
+        lines += ["", "Execução registrada:" if n == 1 else f"Últimas {n} execuções:"]
         for h in reversed(status["historico"]):
             lines.append(f"  {_fmt(h['terminou_em'])}  {'ok    ' if h['resultado'] == 'ok' else 'FALHOU'}  "
                          f"novidades: {h['novidades']}  build: {h['build']}")
