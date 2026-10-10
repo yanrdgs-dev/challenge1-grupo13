@@ -121,6 +121,10 @@ describe("origens", () => {
     assert.equal(originLabel("tse"), "TSE")
     assert.equal(originLabel("outra"), "outra")
   })
+  it("tolera o campo ausente (JSON de um backend anterior à contagem por origem)", () => {
+    assert.deepEqual(sortedOrigins(undefined), [])
+    assert.deepEqual(sortedOrigins(null), [])
+  })
   it("ordem fixa Câmara, Senado, TSE e depois as demais", () => {
     assert.deepEqual(sortedOrigins({ tse: 45, zeta: 1, camara: 26, senado: 11 }), [
       ["camara", 26],
