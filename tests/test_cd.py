@@ -34,10 +34,10 @@ def test_no_service_uses_a_mutable_tag(compose):
         assert "latest" not in service["image"]
 
 
-def test_only_the_frontend_is_published_router_and_judge_stay_internal(compose):
+def test_only_the_proxy_is_published_router_and_judge_stay_internal(compose):
     assert "ports" not in compose["services"]["judge-service"]
     assert "ports" not in compose["services"]["router-service"]
-    assert compose["services"]["frontend"]["ports"]
+    assert compose["services"]["caddy"]["ports"]
 
 
 def test_router_reads_parquets_from_the_vm_disk_read_only(compose):

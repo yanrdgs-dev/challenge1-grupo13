@@ -134,8 +134,8 @@ def test_prod_runs_the_frontend_image_of_the_deployed_commit(prod):
     assert ":${IMAGE_TAG:?" in image
 
 
-def test_only_the_frontend_is_published_router_and_judge_stay_internal(prod):
-    assert prod["services"]["frontend"]["ports"] == ["80:80"]
+def test_only_the_proxy_is_published_frontend_router_and_judge_stay_internal(prod):
+    assert "ports" not in prod["services"]["frontend"], "quem publica 80/443 é o Caddy (tests/test_https_domain.py)"
     assert "ports" not in prod["services"]["router-service"]
     assert "ports" not in prod["services"]["judge-service"]
 

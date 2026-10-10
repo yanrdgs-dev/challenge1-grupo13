@@ -84,11 +84,11 @@ Em qualquer caminho a máquina precisa ficar ligada e acordada (o script mantém
 ## Frontend (Pólis)
 
 ```
-navegador ──HTTP :80──► nginx (container frontend) ──► /api/*  ──► router-service ──► judge-service
-                                   └─► /, /assets/*  (build estático do Vite)
+navegador ──HTTPS :443──► Caddy ──► nginx (container frontend) ──► /api/*  ──► router-service ──► judge-service
+ (HTTP :80 → redirect)                         └─► /, /assets/*  (build estático do Vite)
 ```
 
-O container `frontend` é o **único publicado** na VM (porta 80). Router e judge ficam internos, só na rede do compose. O router passa a expor, além do `/check`, as rotas que o frontend usa (`src/services/frontend_api.py`), todas sobre o mesmo pipeline (guardrails → router → tool → judge → guardrails):
+O **Caddy** é o único publicado na VM (portas 80 e 443). Frontend, router e judge ficam internos, só na rede do compose. O router passa a expor, além do `/check`, as rotas que o frontend usa (`src/services/frontend_api.py`), todas sobre o mesmo pipeline (guardrails → router → tool → judge → guardrails):
 
 | Rota | O que faz |
 |---|---|
@@ -103,7 +103,8 @@ O container `frontend` é o **único publicado** na VM (porta 80). Router e judg
 - Se o pipeline falhar no meio do stream (por exemplo, Ollama fora do ar), o stream termina com um `done` `INCONCLUSIVO`, `rule_matched: servico_indisponivel` e um texto de indisponibilidade, sem o erro técnico. Já `POST /api/check` devolve 503.
 - O nginx limita as rotas de checagem a **20 requisições por minuto por IP** (rajada de 5) e devolve 429 acima disso: cada checagem ocupa o Ollama local por ~40 s. Atrás de um NAT compartilhado (rede de campus), vários usuários dividem esse limite. O frontend mostra a mensagem genérica "não foi possível conectar" em um 429.
 - O frontend envia o `session_id` da conversa (`session-<timestamp>`, sem dado pessoal), que o Langfuse usa para agrupar as mensagens de um mesmo chat.
-- Sem domínio, o acesso é por `http://<ip-da-vm>`: **o tráfego não é cifrado**. HTTPS exige um nome de domínio (certificado) e uma mudança no nginx.
+- **HTTPS (`polis.software`):** o Caddy (`deploy/Caddyfile.site`, enviado pelo CD para `/srv/factcheck/Caddyfile.site`) emite e renova sozinho o certificado Let's Encrypt, redireciona HTTP→HTTPS e o `www` para o domínio raiz. Os certificados ficam no volume `caddy_data`. O nginx confia no `X-Forwarded-For` só da rede do compose (`172.28.0.0/24`), para o limite de 429 continuar por cliente. O health check do CD segue em `http://localhost/api/health`, por um bloco `http://localhost` do Caddyfile, sem certificado.
+- **Pré-requisitos do certificado:** registro `A` de `polis.software` e de `www` para o IP estático da VM (name.com) e NSG com 80 e 443 abertas (a 80 é necessária para o desafio do Let's Encrypt). Sem o DNS apontando, o Caddy sobe e fica tentando; o site em HTTPS só funciona depois que o DNS propagar.
 
 **Para o site ficar acessível, falta abrir a porta 80 no NSG** (hoje só a 22 está aberta):
 ```
@@ -126,7 +127,7 @@ Para fechar: `az network nsg rule delete -g polis-rg --nsg-name polis-vmNSG -n h
 - Nenhum dos workflows rodou no GitHub ainda; a estrutura é validada por `tests/test_ci_workflow.py` e `tests/test_cd.py`, e os scripts de shell tiveram a sintaxe conferida com `bash -n`. O primeiro deploy real vai exigir ajustes.
 - O rollback só desfaz a imagem; mudança incompatível nos parquets não é revertida.
 - O `cd.yml` ainda não rodou: faltam o environment `production`, o secret `AZURE_VM_SSH_KEY` e as variables `AZURE_VM_HOST` e `AZURE_VM_KNOWN_HOSTS`, e a porta 22 aberta à internet é superfície de ataque (varredura constante).
-- O frontend tem imagem (`docker/Dockerfile.frontend`) e entra no compose de produção e no CI (build + `nginx -t`), mas só fica visível na internet depois de abrir a porta 80 no NSG.
+- O frontend tem imagem (`docker/Dockerfile.frontend`) e entra no compose de produção e no CI (build + `nginx -t`), e fica visível na internet pelo Caddy (portas 80 e 443 abertas no NSG).
 - A VM é um ponto único de falha; vale um backup do `data/processed` (a ingestão regenera os parquets, mas o tempo ainda não foi medido).
 - As actions estão fixadas por versão maior (`@v4`, `@v6`), não por SHA.
 - O achado 3 do plano segue aberto: sem fallback, um timeout do Ollama vira 503.
