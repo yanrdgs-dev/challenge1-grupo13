@@ -28,6 +28,7 @@ from src.services import frontend_api
 from src.observability.prompts import get_prompt
 from src.prompts.defaults import PROMPT_ROUTER_SYSTEM
 from src.services.tool_args import validate_tool_args
+from src.services.data_freshness import data_date, ensure_data_date_cited, load_ingestion_info
 from src.services.sources import derive_sources, ensure_source_cited, evidence_failed, merge_sources
 from src.tools.gastos_tools import (
     check_parliamentary_expenses,
@@ -84,6 +85,11 @@ class CheckClaimResponse(BaseModel):
     confianca: str
     justificativa: str
     fontes_primarias: List[str]
+    dados_atualizados_em: Optional[str] = Field(
+        default=None,
+        description="Quando a base de dados consultada foi atualizada pela última vez (ISO 8601, UTC). "
+                    "Nulo quando a tool não leu dados ingeridos.",
+    )
     tempo_total_ms: float
     tempo_roteamento_ms: float
     tempo_julgamento_ms: Optional[float] = None
@@ -542,6 +548,11 @@ def _run_check(
         else []
     )
     justificativa = ensure_source_cited(justificativa, fontes)
+    # Data da base consultada: determinística, a partir da tool que executou (como a fonte), não do LLM.
+    dados_atualizados_em = (
+        data_date(tool_name, tool_args, evidence, load_ingestion_info()) if tool_executed else None
+    )
+    justificativa = ensure_data_date_cited(justificativa, dados_atualizados_em)
     with tracing.observation(
         "guardrails.output",
         input={"verdict": veredito, "tool_executed": tool_executed, "sources": fontes},
@@ -575,6 +586,7 @@ def _run_check(
         confianca=confianca,
         justificativa=justificativa,
         fontes_primarias=fontes,
+        dados_atualizados_em=dados_atualizados_em,
         tempo_total_ms=round(tempo_total_ms, 2),
         tempo_roteamento_ms=round(tempo_roteamento_ms, 2),
         tempo_julgamento_ms=tempo_julgamento_ms,

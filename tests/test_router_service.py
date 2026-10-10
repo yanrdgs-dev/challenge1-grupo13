@@ -200,3 +200,62 @@ def test_router_links_generation_to_prompt_version(mock_llm):
         router_service._chat_for_routing("claim qualquer", router_service.TOOLS_CATALOG)
 
     assert mock_llm.chat.call_args.kwargs["prompt"] is prompt_client
+
+
+# ------------------------------- data da base no veredito ------------------------------- #
+
+INFO_DATES = {"gerado_em": "2026-10-10T14:21:12+00:00", "fontes": {
+    "camara-ceap-2023": {"baixado_em": "2026-10-10T14:13:18+00:00"},
+}}
+
+
+def _check_expenses(mock_llm, evidence, judge=None):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "check_parliamentary_expenses", "arguments": {"casa": "camara", "ano": 2023}}])
+    with patch.object(router_service, "execute_tool", return_value=evidence), \
+         patch.object(router_service, "_call_judge", return_value=judge or _judge_response()), \
+         patch.object(router_service, "load_ingestion_info", return_value=INFO_DATES):
+        return client.post("/check", json={"claim": "O deputado Fulano gastou R$ 10 mil em 2023 com combustível."})
+
+
+def test_verdict_cites_the_base_date_when_the_tool_read_ingested_data(mock_llm):
+    resp = _check_expenses(mock_llm, {"qtd_lancamentos": 3, "valor_total": 10.0})
+    data = resp.json()
+    assert resp.status_code == 200
+    assert data["dados_atualizados_em"] == "2026-10-10T14:13:18+00:00"
+    assert "Base de dados consultada atualizada em 10/10/2026 às 11:13" in data["justificativa"]
+
+
+def test_citation_is_identical_for_every_verdict(mock_llm):
+    tails = set()
+    for verdict in ("VERDADEIRO", "FALSO", "INCONCLUSIVO"):
+        data = _check_expenses(mock_llm, {"qtd_lancamentos": 3}, _judge_response(veredito=verdict)).json()
+        tails.add(data["justificativa"].split("Base de dados")[-1])
+    assert len(tails) == 1  # neutralidade (regra 6): mesma frase para qualquer veredito
+
+
+def test_no_date_when_the_tool_failed(mock_llm):
+    data = _check_expenses(mock_llm, {"erro": "sem dados"}).json()
+    assert data["dados_atualizados_em"] is None and "Base de dados consultada" not in data["justificativa"]
+
+
+def test_no_date_when_the_ingestion_info_is_unavailable(mock_llm):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "check_parliamentary_expenses", "arguments": {"casa": "camara", "ano": 2023}}])
+    with patch.object(router_service, "execute_tool", return_value={"qtd_lancamentos": 3}), \
+         patch.object(router_service, "_call_judge", return_value=_judge_response()), \
+         patch.object(router_service, "load_ingestion_info", return_value=None):
+        data = client.post("/check", json={"claim": "O deputado Fulano gastou R$ 10 mil em 2023."}).json()
+    assert data["dados_atualizados_em"] is None and "Base de dados consultada" not in data["justificativa"]
+
+
+def test_frontend_response_shows_the_date_as_a_detail_line():
+    from types import SimpleNamespace
+
+    from src.services.frontend_api import to_frontend_response
+
+    response = SimpleNamespace(
+        claim="c", veredito="VERDADEIRO", justificativa="t", fontes_primarias=["Câmara"], confianca="ALTA",
+        ferramentas_usadas=["check_parliamentary_expenses"], trace_id="abc", regra_acionada=None,
+        dados_atualizados_em="2026-10-10T14:13:18+00:00")
+    assert any("atualizad" in line.lower() and "10/10/2026" in line for line in to_frontend_response(response).subdetails)
