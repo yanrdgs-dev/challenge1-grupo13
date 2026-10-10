@@ -10,14 +10,16 @@ Regras do projeto valem em todas as fases: teste antes do código (regra 7), su�
 - Voto individual de parlamentar e voto por partido não têm tool.
 - TSE: a EDA especificou 6 tools (`check_candidate_profile`, `get_candidate_assets`, `check_cash_and_special_assets`, `verify_official_social_media`, `check_vote_destination_status`, `check_disqualification_motive`), mas a `tools_specification.md` foi dimensionada para as 30 claims do golden v1 e as cortou. O ETL já converte votação por município/zona, totalização presidencial e votação por seção de 2022, e nenhuma tool lê esses parquets.
 - Base normativa com 12 tópicos e base de cobertura com 4 fontes, escritas à mão para o golden v1.
-- `aprovado` na votação é heurística (`aprovacao == 1` ou "aprovad" na descrição).
-- Os dados foram baixados à mão; não há rotina de atualização nem data da última carga.
+- `aprovado` na votação é heurística (`aprovacao == 1` ou "aprovad" na descrição). **Resolvido na Fase 0.**
+- Os dados foram baixados à mão; não há rotina de atualização nem data da última carga. **Resolvido na Fase 0.5** (ingestão incremental de hora em hora na VM, com a data da base citada no veredito).
 
 ## Fase 0: correções de veredito (P)
 
 1. `aprovado` passa a ser tri-estado (`True`, `False`, `None`). Só o campo `aprovacao` da API decide; o texto da descrição deixa de ser critério. `None` significa indeterminado e leva a INCONCLUSIVO.
 2. O placar de votos conta tipos de voto não reconhecidos em `outros`, e o teste garante que a soma das opções é igual a `total`.
 3. A presença continua inferida por diferença contra os deputados em exercício; o retorno deixa isso explícito (`ausentes_inferidos` e observação sobre suplentes e licenciados).
+
+**Status (2026-10-10): concluída** (PR #52 mergeado; prompt do juiz em `production` no Langfuse).
 
 ## Fase 0.5: ingestão automática dos dados (M)
 
@@ -31,13 +33,31 @@ Hoje os CSVs são baixados à mão. A `origin/feat/webscraping` tem `scripts/dow
 6. Encadear `download → build_parquet → dim_politicos` num comando, agendado na VM com lock, e gravar a data de cada carga para o juiz poder citá-la.
 7. Cuidados: os arquivos do TSE são grandes (os 5 principais de 2022 somam cerca de 1,3 GB); conferir o disco da VM antes.
 
-**Status (2026-10-10):** passos 1 a 6 entregues no código (PRs #53 e `feat/fase0-5-manifesto-e-agendamento`). Detalhes de uso e instalação em `docs/ingestion.md`. Pendente fora do código: instalar o timer na VM (`deploy/ingestion/`), o que depende de conferir disco e memória de lá. O passo 5 trouxe `senado/materias` pelo serviço `/dadosabertos/processo` (o `materia/pesquisa/lista` está descontinuado) e os anos 2022 a 2026 de Câmara e Senado. As votações da Câmara são baixadas, mas ainda não convertidas em parquet (Fase 2).
+**Status (2026-10-10): concluída**, em produção na VM (PRs #53 a #58 e o da data da base). Uso, instalação e avisos em `docs/ingestion.md`.
+
+| Passo | Entregue |
+|---|---|
+| 1 e 2 | Download seguro em `src/etl/download_datasets.py`: SSL ligado, `.part` + renomeação, `Content-Length`, `sha256` opcional, 3 tentativas com espera em erro transitório, extração de zip atômica. Rede mockada em todos os testes. |
+| 3 | Manifesto `src/etl/datasets_manifest.json` (fontes de Câmara e Senado e regras do TSE), validado. Não há `sha256` fixo por fonte, porque os arquivos do governo mudam; o `sha256` real de cada carga fica no estado. |
+| 4 | Cliente CKAN do TSE (`src/etl/tse_ckan.py`) para 2022 e 2026; os nomes de recurso vêm do CKAN. Recursos de `resultados-2026` ainda não publicados viram aviso, não falha. |
+| 5 | `senado/materias` pelo serviço `/dadosabertos/processo` (o `materia/pesquisa/lista` está descontinuado) e os anos 2022 a 2026 de Câmara e Senado. |
+| 6 | Pipeline `download → build_parquet → dim_politicos` (`src/etl/pipeline.py`) com lock, build em staging e publicação atômica, timer horário do systemd na VM, `ingestion_info.json` e `ingestion_status.json`. O veredito **cita a data da base** (`src/services/data_freshness.py`) quando a tool leu dados ingeridos. |
+| 7 | Disco e memória da VM conferidos (61 GB, 36 GB livres; 7,8 GB de RAM); o build roda com limite de 4 GB. |
+
+O que passou do plano:
+- **Ingestão incremental**: `HEAD` por fonte (`ETag`, `Last-Modified` ou tamanho), com disjuntor por host lento. Novidade é de conteúdo (`sha256`), então fonte dinâmica com bytes idênticos não dispara rebuild.
+- **Senado não dispara rebuild** (`"triggers_build": false` no manifesto): as matérias e a lista de senadores mudam quase toda hora. São baixadas e aguardam o próximo build disparado por Câmara ou TSE.
+- **Estado e avisos**: `--status`, página `https://polis.software/status`, `GET /api/ingestion/status`, webhook (ntfy) e heartbeat (healthchecks.io).
+- **Correções que a ingestão exigiu**: leitura em blocos de CSV grande (um de 4 GB derrubou a máquina de desenvolvimento), poda de colunas do TSE (`docs/data_schemas.md`), `ideCadastro` no CEAP, cadastro de senadores normalizado, `cod_senador` no `dim_politicos`, recarga do `PoliticianCache` quando o parquet muda.
+
+Limitações conhecidas: as votações da Câmara são baixadas, mas não viram parquet (Fase 2); `camara/proposicoes` tem uma partição `ano=0` que vem do próprio CSV da Câmara; os parquets do Senado podem ficar algumas horas atrás da fonte; só há aviso de data para tools que leem parquet (as que consultam a API ao vivo ou a base normativa não têm).
 
 Fora do escopo: `scrape_dados_abertos_tse` (raspagem de HTML, lê só 10 itens e não baixa) e `url_scraper.py` (artigos de notícia).
 
 ## Fase 1: tools do TSE (G)
 
 1. Descoberta: abrir os parquets na VM e documentar o esquema em `docs/data_schemas.md` (turnos, cargos, anos, UFs). Confirmar se o 2º turno foi ingerido.
+   *Já confirmado (2026-10-10):* o 2º turno de 2022 foi ingerido (`votacao_munzona` com `NR_TURNO` 1 e 2) e os votos de presidente batem com o resultado oficial nos dois turnos (Lula 57.259.504 e Bolsonaro 51.072.345 no 1º; 60.345.999 e 58.206.354 no 2º). O TSE 2026 tem candidatos, bens, prestação de contas e redes sociais, mas `resultados-2026` ainda só tem relatórios em PDF; claims sobre o resultado de 2026 devem dar INCONCLUSIVO (regra 3). Falta documentar o esquema (colunas, valores de `NR_TURNO`, `DS_CARGO`, UFs) em `docs/data_schemas.md`.
 2. Resultado: `get_election_result(cargo, ano, uf, turno)`, `get_candidate_votes(sq_candidato, ano, turno)`, `check_candidate_status` e `check_disqualification_motive`.
 3. Perfil e patrimônio: `check_candidate_profile`, `get_candidate_assets`, `check_cash_and_special_assets`, `verify_official_social_media`.
 4. Finanças de campanha: totais de receitas e despesas por candidato.
@@ -55,8 +75,8 @@ Decidir se tramitação, vetos e presença entram no catálogo do roteador. Se e
 
 ## Fase 4: cobertura e atualização (M)
 
-- Rotina de atualização dos parquets (parte já entregue pela Fase 0.5).
-- CEAP anterior a 2024 e parquets de matérias do Senado.
+- Rotina de atualização dos parquets: **entregue na Fase 0.5** (`docs/ingestion.md`).
+- CEAP anterior a 2024 e parquets de matérias do Senado: **entregues na Fase 0.5** (CEAP e CEAPS de 2022 a 2026 e `senado/materias`).
 - Base normativa com campos de vigência e data de revisão, e mais tópicos além dos 12 atuais.
 
 ## Fase 5: avaliação que mede de verdade (M)
@@ -69,3 +89,5 @@ Decidir se tramitação, vetos e presença entram no catálogo do roteador. Se e
 ## Ordem
 
 Fase 0, Fase 0.5, Fase 1 (descoberta primeiro), Fases 2 e 3 em paralelo, Fases 4 e 5 acompanhando desde a Fase 1.
+
+**Onde estamos (2026-10-10):** Fases 0 e 0.5 concluídas. Próxima: Fase 1, começando pela descoberta do esquema do TSE.

@@ -160,6 +160,15 @@ Os arquivos de `deploy/ingestion/` não são enviados pelo CD: ao alterá-los, c
 - Quem ler `processed/` em memória precisa recarregar: o `PoliticianCache` (catálogo de parlamentares) faz isso sozinho quando o `dim_politicos.parquet` muda.
 - O CD não envia `deploy/ingestion/`: ao mudar o script, o service ou o timer, copie de novo para a VM.
 
+## O veredito cita a data da base
+
+Quando uma tool leu dados ingeridos, o veredito termina com `Base de dados consultada atualizada em 10/10/2026 às 11:13 (horário de Brasília).` e a resposta traz o campo `dados_atualizados_em` (ISO, UTC); o frontend mostra a mesma data nos detalhes. A data é determinística (como a fonte em `sources.py`): vem da tool que de fato executou e do `ingestion_info.json`, nunca do LLM, e a frase é igual para qualquer veredito (regra 6).
+
+- **Gastos (CEAP/CEAPS):** a data do ano consultado (ou a mais recente da casa, se a claim não tem ano).
+- **Tramitação e apensamento:** a data das proposições da Câmara ou das matérias do Senado.
+- **`resolve_politician`:** a mais recente entre deputados, senadores e candidatos do TSE.
+- **Sem data:** tools que consultam a API ao vivo (`resolve_proposition`, resultado de votação) ou a base normativa curada.
+
 ## Resultados de 2026
 
 `resultados-2026` no CKAN do TSE só tinha relatórios em PDF logo após o 1º turno. Quando o TSE publicar a
