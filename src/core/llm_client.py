@@ -349,6 +349,32 @@ class LLMClient:
         api_key = (os.getenv("OLLAMA_API_KEY") or "").strip()
         return {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
+    @staticmethod
+    def _probe_timeout() -> float:
+        """Timeout do teste de vida do Ollama (``OLLAMA_PROBE_TIMEOUT``, padrão 3 s). ``0`` desliga."""
+        raw = os.getenv("OLLAMA_PROBE_TIMEOUT", "3")
+        try:
+            value = float(raw)
+        except ValueError:
+            return 3.0
+        if value == 0:
+            return 0.0
+        return value if value > 0 else 3.0
+
+    def _probe_ollama(self, base_url: str) -> None:
+        """Confere em segundos se o Ollama responde, antes de esperar o timeout longo do chat.
+
+        O Ollama chega pelo túnel SSH reverso: com o Mac fora, o túnel aceita a conexão e não responde.
+        ``GET /api/tags`` só lista os modelos instalados (não gera nada). Falha ao responder levanta
+        exceção, e a cadeia trata como falha do Ollama (conta no disjuntor) e segue para o próximo.
+        """
+        probe_timeout = self._probe_timeout()
+        if probe_timeout <= 0:
+            return
+        with httpx.Client(timeout=probe_timeout) as client:
+            resp = client.get(f"{base_url}/api/tags", headers=self._ollama_headers())
+            resp.raise_for_status()
+
     def _chat_ollama(
         self,
         messages: List[Dict[str, Any]],
@@ -359,6 +385,7 @@ class LLMClient:
     ) -> ChatResult:
         """Chat via API do Ollama (/api/chat)."""
         base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+        self._probe_ollama(base_url)
         body: Dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -484,6 +511,7 @@ class LLMClient:
         """Executa inferência local via API do Ollama."""
         base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
         model = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+        self._probe_ollama(base_url)
 
         payload = {
             "model": model,
