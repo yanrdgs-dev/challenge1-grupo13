@@ -163,3 +163,13 @@ Para atingir **latência analítica em milissegundos** via **DuckDB** e **Polars
 | **Product Owner (P.O.)** | Eduarda | `[ ] Pendente de Aprovação` | 22/09/2026 |
 | **Scrum Master** | Yan | `[X] Revisado` | 22/09/2026 |
 | **Engenharia de Dados** | Davi / Ester / Ruan | `[X] Implementado` | 22/09/2026 |
+
+---
+
+## Regra de detecção automática de schema (poda)
+
+A poda automática (`prune_redundant`) só se aplica quando a tabela é reconhecida sem ambiguidade:
+
+- `tse_candidatos`: tem `SQ_CANDIDATO` e `NM_URNA_CANDIDATO` ou `CD_CARGO` **e nenhuma medida** (`NR_TURNO`, colunas `QT_*` ou `VR_*`). Tabelas de resultado (votação por zona e por seção), receitas e despesas contratadas também têm `SQ_CANDIDATO`, mas carregam votos e valores que o schema de cadastro descartaria.
+- `tse_despesas`: tem `VR_PAGTO_DESPESA` **e** `SQ_CANDIDATO`. As despesas pagas de 2022 vêm por prestador de contas (`SQ_PRESTADOR_CONTAS`), sem coluna de candidato, e por isso não são podadas.
+- Tabela não reconhecida mantém todas as colunas.
