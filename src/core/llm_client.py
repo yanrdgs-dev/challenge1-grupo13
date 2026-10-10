@@ -82,6 +82,7 @@ class LLMClient:
         fallback_provider: Optional[str] = None,
         timeout: Optional[float] = None,
         providers: Optional[List[str]] = None,
+        role: Optional[str] = None,
     ):
         """Inicializa o cliente com base em parâmetros ou variáveis de ambiente.
 
@@ -90,6 +91,8 @@ class LLMClient:
             fallback_provider: Provedor de contingência (ou None/'' para desabilitar).
             timeout: Tempo limite do primeiro provedor, em segundos.
             providers: Cadeia ordenada completa (tem precedência sobre os demais).
+            role: Papel do cliente ('router' ou 'judge'). Nos provedores de nuvem, habilita
+                ``<PAPEL>_<PROVEDOR>_MODEL`` (ex.: ``JUDGE_GROQ_MODEL``) antes de ``<PROVEDOR>_MODEL``.
 
         Sem nenhum argumento, vale ``LLM_PROVIDERS``; se ela não existir, ``LLM_PROVIDER`` + ``FALLBACK_PROVIDER``.
         """
@@ -113,6 +116,7 @@ class LLMClient:
         if not self.providers:
             self.providers = ["ollama"]
 
+        self.role = (role or "").strip().lower() or None
         self.primary_provider = self.providers[0]
         self.fallback_provider = self.providers[1] if len(self.providers) > 1 else None
 
@@ -255,10 +259,22 @@ class LLMClient:
         """Modelo configurado no ambiente para o provedor."""
         if provider == "ollama":
             return os.getenv("OLLAMA_MODEL", "llama3.1:8b")
-        spec = OPENAI_COMPATIBLE.get(provider)
-        if spec:
-            return os.getenv(spec["model_env"], spec["default_model"])
+        if provider in OPENAI_COMPATIBLE:
+            return self._cloud_model(provider)
         return os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+    def _cloud_model(self, provider: str) -> str:
+        """Modelo de um provedor de nuvem: ``<PAPEL>_<PROVEDOR>_MODEL``, depois ``<PROVEDOR>_MODEL``, depois o padrão.
+
+        A Groq limita o uso por modelo: papéis com modelos diferentes têm cotas separadas.
+        """
+        spec = OPENAI_COMPATIBLE[provider]
+        if self.role:
+            by_role = (os.getenv(f"{self.role.upper()}_{provider.upper()}_MODEL") or "").strip()
+            if by_role:
+                return by_role
+        shared = (os.getenv(spec["model_env"]) or "").strip()
+        return shared or spec["default_model"]
 
     def _chat_provider(
         self,
@@ -383,7 +399,7 @@ class LLMClient:
         if not api_key or api_key == spec["placeholder"]:
             raise ProviderConfigError(f"{spec['key_env']} não configurada ou inválida no arquivo .env")
         url = spec["url"]
-        used_model = os.getenv(spec["model_env"], spec["default_model"])
+        used_model = self._cloud_model(provider)
 
         body: Dict[str, Any] = {
             "model": used_model,
@@ -489,7 +505,7 @@ class LLMClient:
         if not api_key or api_key == "sua_chave_groq_aqui":
             raise ProviderConfigError("GROQ_API_KEY não configurada ou inválida no arquivo .env")
 
-        model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+        model = self._cloud_model("groq")
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -515,7 +531,7 @@ class LLMClient:
         if not api_key or api_key == "sua_chave_openai_aqui":
             raise ProviderConfigError("OPENAI_API_KEY não configurada ou inválida no arquivo .env")
 
-        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        model = self._cloud_model("openai")
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
