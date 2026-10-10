@@ -224,3 +224,11 @@ def test_notification_memory_is_cleared_on_success(tmp_path):
     assert st.notify.get("last_failure_signature")
     go(tmp_path, run_ok(), ENV, st=st)
     assert not st.notify.get("last_failure_signature")
+
+
+def test_news_message_breaks_down_by_origin():
+    run = run_ok(["camara-a"], built=True)
+    run["downloaded"] = 82
+    run["changes_by_origin"] = {"camara": 26, "senado": 11, "tse": 45}
+    _, text = format_message(run, recovered=False)
+    assert "camara 26" in text and "senado 11" in text and "tse 45" in text

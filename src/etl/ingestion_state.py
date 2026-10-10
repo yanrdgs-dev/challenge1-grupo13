@@ -17,6 +17,18 @@ MAX_CHANGES = 30  # ids de fontes guardados por execução (o total fica em `dow
 MAX_FAILURES = 5
 
 
+def origin_of(item_id: str) -> str:
+    """Origem de uma fonte pelo prefixo do id (camara, senado, tse)."""
+    return item_id.split("-", 1)[0]
+
+
+def count_by_origin(item_ids: List[str]) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    for item_id in item_ids:
+        counts[origin_of(item_id)] = counts.get(origin_of(item_id), 0) + 1
+    return counts
+
+
 class IngestionState:
     def __init__(self, path: Path):
         self.path = Path(path)
@@ -84,6 +96,7 @@ class IngestionState:
             "started_at": started_at, "finished_at": finished_at,
             "exit_code": exit_code, "downloaded": downloaded, "built": built,
             "changes": list(changes or [])[:MAX_CHANGES],
+            "changes_by_origin": count_by_origin(list(changes or [])),  # contado antes de truncar os ids
             "failures": [str(f) for f in (failures or [])][:MAX_FAILURES],
         }
         self.last_run = run

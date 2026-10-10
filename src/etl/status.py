@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.etl.ingestion_state import IngestionState
+from src.etl.ingestion_state import IngestionState, count_by_origin, origin_of
 
 STATUS_FILE = "ingestion_status.json"
 HISTORY_SHOWN = 10
@@ -45,7 +45,22 @@ def _build_label(run: Dict[str, Any]) -> str:
     return "falhou" if run.get("exit_code", 0) != 0 else "ignorado"
 
 
-def _summary(run: Dict[str, Any]) -> Dict[str, Any]:
+def _origins(run: Dict[str, Any], state: IngestionState) -> Dict[str, int]:
+    """Novidades por origem. Execuções gravadas antes do campo existir têm só os ids truncados: nesse caso as
+    fontes registradas cuja data de download cai dentro da execução dão a contagem real."""
+    if run.get("changes_by_origin"):
+        return dict(run["changes_by_origin"])
+    if not run.get("downloaded"):
+        return {}
+    started, finished = _parse(run.get("started_at")), _parse(run.get("finished_at"))
+    if started is None or finished is None:
+        return count_by_origin(list(run.get("changes", [])))
+    in_window = [fid for fid, rec in state.files.items()
+                 if (when := _parse(rec.get("downloaded_at"))) is not None and started <= when <= finished]
+    return count_by_origin(in_window) if in_window else count_by_origin(list(run.get("changes", [])))
+
+
+def _summary(run: Dict[str, Any], state: IngestionState) -> Dict[str, Any]:
     started, finished = _parse(run.get("started_at")), _parse(run.get("finished_at"))
     return {
         "iniciou_em": run.get("started_at"),
@@ -55,6 +70,7 @@ def _summary(run: Dict[str, Any]) -> Dict[str, Any]:
         "exit_code": run.get("exit_code"),
         "fontes_com_novidade": list(run.get("changes", [])),
         "total_novidades": run.get("downloaded", 0),
+        "novidades_por_origem": _origins(run, state),
         "build": _build_label(run),
         "falhas": list(run.get("failures", [])),
     }
@@ -72,10 +88,11 @@ def build_status(state: IngestionState, now: Optional[datetime] = None) -> Dict[
     downloaded_dates = [rec["downloaded_at"] for rec in state.files.values() if rec.get("downloaded_at")]
     return {
         "gerado_em": _now(now).isoformat(timespec="seconds"),
-        "ultima_execucao": _summary(history[-1]) if history else None,
+        "ultima_execucao": _summary(history[-1], state) if history else None,
         "ultimo_sucesso_em": last_ok["finished_at"] if last_ok else None,
         "ultima_novidade": (
-            {"em": last_news["finished_at"], "total": last_news["downloaded"], "fontes": list(last_news.get("changes", []))}
+            {"em": last_news["finished_at"], "total": last_news["downloaded"],
+             "por_origem": _origins(last_news, state), "fontes": list(last_news.get("changes", []))}
             if last_news else None
         ),
         "carga_pendente": bool(state.pending_build),
@@ -128,7 +145,9 @@ def format_status(status: Dict[str, Any], now: Optional[datetime] = None) -> str
     if run["total_novidades"]:
         shown = run["fontes_com_novidade"][:SOURCES_SHOWN]
         extra = run["total_novidades"] - len(shown)
-        lines.append(f"Novidades: {run['total_novidades']} fonte(s): {', '.join(shown)}" + (f" e mais {extra}" if extra > 0 else ""))
+        origins = ", ".join(f"{o} {n}" for o, n in sorted(run.get("novidades_por_origem", {}).items()))
+        lines.append(f"Novidades: {run['total_novidades']} fonte(s)" + (f" ({origins})" if origins else "")
+                     + f": {', '.join(shown)}" + (f" e mais {extra}" if extra > 0 else ""))
     else:
         lines.append("Novidades: nenhuma")
     build_txt = {"publicado": "parquets publicados", "ignorado": "ignorado (sem novidades e parquets já publicados)",

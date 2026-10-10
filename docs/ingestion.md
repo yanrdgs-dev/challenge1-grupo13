@@ -47,7 +47,7 @@ o build falhou (os parquets publicados continuam os de antes).
 
 ## Ver o estado da ingestão
 
-Três jeitos, do mais simples ao mais automático:
+Quatro jeitos, do mais simples ao mais automático:
 
 ```bash
 # 1. No terminal (na VM ou local): última execução, novidades, falhas, histórico
@@ -55,15 +55,18 @@ ssh polis '/srv/factcheck/run-ingestion.sh --status'
 ssh polis '/srv/factcheck/run-ingestion.sh --status --json'
 ssh polis '/srv/factcheck/run-ingestion.sh --status --max-age-hours 6'   # código 2 se o último sucesso for mais velho
 
-# 2. Pelo router (público, sem segredo): https://polis.software/api/ingestion/status
+# 2. Página no site (atualiza sozinha a cada minuto): https://polis.software/status
+#    Também há o link "Estado dos dados" no rodapé da barra lateral do verificador.
+
+# 3. JSON do router (público, sem segredo): https://polis.software/api/ingestion/status
 curl -s https://polis.software/api/ingestion/status | python3 -m json.tool
 
-# 3. O arquivo que a ingestão publica junto dos parquets
+# 4. O arquivo que a ingestão publica junto dos parquets
 cat /srv/factcheck/data/processed/ingestion_status.json
 ```
 
-O que o estado mostra: quando foi a última execução e se terminou OK, se encontrou novidades e em quais
-fontes, se o build publicou, falhas (com a mensagem), quantas execuções seguidas falharam, quando foi o
+O que o estado mostra: quando foi a última execução e se terminou OK, se encontrou novidades e quantas por origem
+(Câmara, Senado, TSE), se o build publicou, falhas (com a mensagem), quantas execuções seguidas falharam, quando foi o
 último sucesso, a última carga com novidade, a data dos dados e as 10 últimas execuções. O endpoint acrescenta
 `ultimo_sucesso_ha_horas` e `desatualizada` (padrão: sem sucesso há mais de 6 h; ajustável com
 `INGESTION_STALE_HOURS` no router).

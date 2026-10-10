@@ -45,7 +45,8 @@ def test_status_reports_the_last_news_even_when_the_last_run_had_none(tmp_path):
     runs = [run(10, downloaded=2, built=True, changes=["camara-ceap-2026", "tse-bem_candidato_2026"]), run(3), run(1)]
     s = build_status(state_with(tmp_path, runs), NOW)
     assert s["ultima_execucao"]["total_novidades"] == 0
-    assert s["ultima_novidade"] == {"em": iso(10), "total": 2, "fontes": ["camara-ceap-2026", "tse-bem_candidato_2026"]}
+    assert s["ultima_novidade"] == {"em": iso(10), "total": 2, "por_origem": {"camara": 1, "tse": 1},
+                                    "fontes": ["camara-ceap-2026", "tse-bem_candidato_2026"]}
 
 
 def test_status_failed_run_and_consecutive_failures(tmp_path):
@@ -143,3 +144,41 @@ def test_format_status_history_heading_agrees_in_number(tmp_path):
     assert "Últimas 1 execuções" not in one and "Execução registrada" in one
     many = format_status(build_status(state_with(tmp_path, [run(2), run(1)]), NOW), NOW)
     assert "Últimas 2 execuções" in many
+
+
+# ------------------------------- novidades por origem ------------------------------- #
+
+def run_with_origins(hours_ago, by_origin, **kw):
+    r = run(hours_ago, downloaded=sum(by_origin.values()), built=True, **kw)
+    r["changes"] = [f"{o}-x{i}" for o, n in by_origin.items() for i in range(n)]
+    return r
+
+
+def test_status_reports_news_by_origin_even_when_the_id_list_is_truncated(tmp_path):
+    st = IngestionState.load(tmp_path / "s.json")
+    changes = [f"camara-{i}" for i in range(26)] + [f"senado-{i}" for i in range(11)] + [f"tse-{i}" for i in range(45)]
+    st.record_run(iso(1), iso(1), 0, len(changes), True, changes=changes)
+    s = build_status(st, NOW)
+    assert s["ultima_execucao"]["novidades_por_origem"] == {"camara": 26, "senado": 11, "tse": 45}
+    assert s["ultima_novidade"]["por_origem"] == {"camara": 26, "senado": 11, "tse": 45}
+
+
+def test_status_rebuilds_origin_counts_for_runs_recorded_before_the_field_existed(tmp_path):
+    # execução antiga: só 30 ids guardados e sem contagem; as fontes registradas têm a data de download da execução
+    st = IngestionState.load(tmp_path / "s.json")
+    st.history = [{"started_at": iso(2), "finished_at": iso(1.9), "exit_code": 0, "downloaded": 6, "built": True,
+                   "changes": ["camara-a", "camara-b", "senado-a"], "failures": []}]
+    st.last_run = st.history[-1]
+    for fid, when in [("camara-a", 2), ("camara-b", 2), ("senado-a", 2), ("tse-a", 1.95), ("tse-b", 1.95), ("tse-c", 1.95),
+                      ("tse-velho", 50)]:
+        st.record_file(fid, url="u", dest="d", fingerprint=None, size=1, sha256=None, downloaded_at=iso(when))
+    s = build_status(st, NOW)
+    assert s["ultima_execucao"]["novidades_por_origem"] == {"camara": 2, "senado": 1, "tse": 3}
+
+
+def test_format_status_shows_origin_breakdown(tmp_path):
+    st = IngestionState.load(tmp_path / "s.json")
+    changes = [f"camara-{i}" for i in range(3)] + [f"tse-{i}" for i in range(5)]
+    st.record_run(iso(1), iso(1), 0, 8, True, changes=changes)
+    text = format_status(build_status(st, NOW), NOW)
+    assert "8 fonte(s)" in text and "camara 3" in text and "tse 5" in text
