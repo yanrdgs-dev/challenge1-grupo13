@@ -225,9 +225,15 @@ def download_zip_csv(
         _unlink(zip_path)
 
 
-def local_zip_state(directory: Path, prefix: str) -> tuple:
-    """(existe, mtime mais recente, None) dos CSVs extraídos de um zip, identificados pelo prefixo."""
+def local_zip_state(directory: Path, prefix: str, recorded: bool = False) -> tuple:
+    """(existe, mtime mais recente, None) dos CSVs extraídos de um zip, identificados pelo prefixo.
+
+    Alguns zips (ex.: prestação de contas do TSE) contêm CSVs com nome diferente do zip. Se a carga já
+    foi registrada no estado (`recorded`), qualquer CSV no diretório conta como a cópia local.
+    """
     files = [f for f in Path(directory).glob(f"{prefix}*.csv") if f.stat().st_size > MIN_VALID_SIZE]
+    if not files and recorded:
+        files = [f for f in Path(directory).glob("*.csv") if f.stat().st_size > MIN_VALID_SIZE]
     if not files:
         return False, None, None
     return True, max(f.stat().st_mtime for f in files), None
@@ -255,7 +261,8 @@ def _sync_source(
 ):
     dest = base_dir / source.dest
     if source.kind == "zip_csv":
-        exists, mtime, size = local_zip_state(dest, source.prefix)
+        record = state.get_file(source.id)
+        exists, mtime, size = local_zip_state(dest, source.prefix, recorded=bool(record and record.get("downloaded_at")))
 
         def do(force_: bool) -> DownloadInfo:
             return download_zip_csv(source.url, dest, source.prefix, source.desc, client=client,

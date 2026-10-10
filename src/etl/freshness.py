@@ -48,7 +48,9 @@ class Decision:
     adopt: bool = False  # cópia local aceita como base: registrar a impressão digital remota sem baixar
 
 
-HEAD_TIMEOUT = httpx.Timeout(10.0, read=20.0)  # verificar novidade tem de ser barato; o GET é que é lento
+# Verificar novidade tem de ser barato (o GET é que é lento). O httpx tenta cada endereço resolvido
+# (IPv4 e IPv6) com o timeout de conexão, então um portal fora do ar custa várias vezes este valor.
+HEAD_TIMEOUT = httpx.Timeout(5.0, read=15.0)
 
 
 class HostBreaker:

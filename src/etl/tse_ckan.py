@@ -127,7 +127,9 @@ def run_tse_downloads(
                     if state is None:
                         download_zip_csv(item.url, item.dest_dir, item.stem, item.desc, client=client)
                         continue
-                    exists, mtime, size = local_zip_state(item.dest_dir, item.stem)
+                    record = state.get_file(f"tse-{item.stem}")
+                    exists, mtime, size = local_zip_state(
+                        item.dest_dir, item.stem, recorded=bool(record and record.get("downloaded_at")))
                     outcome = sync_item(
                         f"tse-{item.stem}", item.url, refresh="validators", state=state, client=client,
                         local_exists=exists, local_mtime=mtime, local_size=size,
