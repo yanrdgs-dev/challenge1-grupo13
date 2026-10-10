@@ -133,3 +133,32 @@ def test_failed_download_does_not_record_state_and_propagates(tmp_path):
         sync_item("a", URL, refresh="validators", state=st, client=client, local_exists=False, local_mtime=None,
                   local_size=None, download=lambda f: download_file(URL, tmp_path / "a.csv", "t", client=client))
     assert st.get_file("a") is None
+
+
+def test_refresh_always_with_identical_content_is_not_a_news_item(tmp_path):
+    srv, st = Server(validators=False), new_state(tmp_path)
+    first = run(srv, tmp_path, st, refresh="always")
+    assert first.action == "baixado"
+    downloaded_at = st.get_file("a")["downloaded_at"]
+    second = run(srv, tmp_path, st, refresh="always")
+    assert srv.gets == 2  # baixou para comparar
+    assert second.action == "sem_novidade" and "idêntico" in second.reason
+    assert st.get_file("a")["downloaded_at"] == downloaded_at  # a data do dado não muda
+
+
+def test_refresh_always_with_changed_content_is_a_news_item(tmp_path):
+    srv, st = Server(validators=False), new_state(tmp_path)
+    run(srv, tmp_path, st, refresh="always")
+    srv.body = b"x;y\n" + b"9;9\n" * 500
+    out = run(srv, tmp_path, st, refresh="always")
+    assert out.action == "baixado" and (tmp_path / "a.csv").read_bytes() == srv.body
+    assert st.get_file("a")["sha256"] == hashlib.sha256(srv.body).hexdigest()
+
+
+def test_republished_file_with_same_bytes_is_not_a_news_item(tmp_path):
+    srv, st = Server(), new_state(tmp_path)
+    run(srv, tmp_path, st)
+    srv.etag = '"v2"'  # o portal republicou, mas o conteúdo é o mesmo
+    out = run(srv, tmp_path, st)
+    assert out.action == "sem_novidade" and "idêntico" in out.reason
+    assert st.get_file("a")["fingerprint"]["etag"] == '"v2"'  # a impressão digital nova é registrada

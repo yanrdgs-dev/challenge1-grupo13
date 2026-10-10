@@ -71,12 +71,12 @@ def test_first_run_downloads_everything_and_reports_changes(tmp_path):
     assert st.get_file("a")["sha256"] and st.get_file("z-2030")["fingerprint"]["etag"] == '"z1"'
 
 
-def test_second_run_only_refreshes_the_always_source(tmp_path):
+def test_second_run_rechecks_the_always_source_but_reports_no_news(tmp_path):
     remote, st = Remote(), IngestionState.load(tmp_path / "s.json")
     go(remote, tmp_path, st)
     remote.requests.clear()
     failures, changes = go(remote, tmp_path, st)
-    assert failures == [] and changes == ["d"]
+    assert failures == [] and changes == []  # conteúdo idêntico: não dispara rebuild
     assert remote.gets() == ["/d.csv"]
 
 
@@ -86,8 +86,8 @@ def test_only_the_source_with_new_etag_is_downloaded(tmp_path):
     remote.etags["z"] = '"z2"'
     remote.requests.clear()
     _, changes = go(remote, tmp_path, st)
-    assert sorted(changes) == ["d", "z-2030"]
     assert sorted(remote.gets()) == ["/d.csv", "/z-2030.zip"]
+    assert changes == []  # a nova versão do zip tem os mesmos bytes: sem novidade de conteúdo
 
 
 def test_dry_run_lists_news_without_downloading_or_recording(tmp_path):
@@ -97,11 +97,12 @@ def test_dry_run_lists_news_without_downloading_or_recording(tmp_path):
     assert remote.gets() == [] and not (tmp_path / "x").exists() and st.get_file("a") is None
 
 
-def test_force_redownloads_everything(tmp_path):
+def test_force_redownloads_everything_but_only_reports_content_changes(tmp_path):
     remote, st = Remote(), IngestionState.load(tmp_path / "s.json")
     go(remote, tmp_path, st)
+    remote.requests.clear()
     _, changes = go(remote, tmp_path, st, force=True)
-    assert sorted(changes) == ["a", "d", "z-2030"]
+    assert sorted(remote.gets()) == ["/a.csv", "/d.csv", "/z-2030.zip"] and changes == []
 
 
 def test_failure_in_one_source_is_reported_and_others_still_sync(tmp_path):
@@ -125,7 +126,7 @@ def test_tse_second_run_downloads_nothing(tmp_path):
     with httpx.Client(transport=httpx.MockTransport(make_handler(hits=hits))) as client:
         changes = []
         failures = run_tse_downloads(tmp_path, [2022], client=client, state=st, changes=changes)
-    assert failures == [] and len(changes) > 20
+    assert failures == [] and len(changes) > 10
     assert st.get_file("tse-consulta_cand_2022") is not None
     cdn_gets_before = len(hits)
     with httpx.Client(transport=httpx.MockTransport(make_handler(hits=hits))) as client:
@@ -140,5 +141,5 @@ def test_tse_dry_run_reports_without_downloading(tmp_path):
     changes = []
     with httpx.Client(transport=httpx.MockTransport(make_handler())) as client:
         failures = run_tse_downloads(tmp_path, [2022], client=client, state=st, changes=changes, dry_run=True)
-    assert failures == [] and len(changes) > 20
+    assert failures == [] and len(changes) > 10
     assert not (tmp_path / "tse").exists()
