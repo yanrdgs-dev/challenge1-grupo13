@@ -39,6 +39,22 @@ def test_judge_template_keeps_the_rules_and_the_json_contract():
         assert expected in JUDGE_PROMPT_TEMPLATE
 
 
+def test_judge_template_treats_null_approval_as_undetermined_never_rejected():
+    assert "aprovado: null" in JUDGE_PROMPT_TEMPLATE
+    text = JUDGE_PROMPT_TEMPLATE.lower()
+    assert "indeterminado" in text and "nunca" in text and "rejeitad" in text
+
+
+def test_judge_template_explains_outros_as_votes_outside_the_options():
+    assert "outros" in JUDGE_PROMPT_TEMPLATE
+    assert "fora das opções" in JUDGE_PROMPT_TEMPLATE
+
+
+def test_judge_template_describes_ausentes_inferidos_as_inferred():
+    assert "ausentes_inferidos" in JUDGE_PROMPT_TEMPLATE
+    assert "inferid" in JUDGE_PROMPT_TEMPLATE.lower()
+
+
 # ------------------------------ uso no judge ------------------------------ #
 
 def judge_result(content='{"veredito": "FALSO"}'):
