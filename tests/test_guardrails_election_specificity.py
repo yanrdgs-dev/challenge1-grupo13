@@ -40,6 +40,9 @@ ALLOWED = [
     "Nikolas Ferreira é deputado federal por Minas Gerais.",
     "O deputado Fulano de Tal votou a favor do PL 2630 de 2020.",
     "Em 2026, o candidato do PT venceu o primeiro turno.",
+    "O deputado eleito Nikolas Ferreira é do PL.",
+    "A PEC foi aprovada em primeiro turno na Câmara dos Deputados.",
+    "O Senado aprovou o projeto em segundo turno de votação.",
     "O turno único é regra para vereadores em qualquer eleição municipal?",
 ]
 

@@ -65,6 +65,7 @@ Fora do escopo: `scrape_dados_abertos_tse` (raspagem de HTML, lê só 10 itens e
 4. Finanças de campanha: totais de receitas e despesas por candidato.
    **Passo 4 entregue (2026-10-10)** em `src/tools/tse_financas_tools.py`: `get_campaign_finances` (receitas, despesas contratadas e pagas; a paga liga por `SQ_PRESTADOR_CONTAS`) e `get_top_campaign_finances` (ranking por cargo, receitas ou despesas contratadas). Cada candidato tem um só tipo de prestação e um só prestador no ano (conferido), então somar não duplica. Prestação não final (a de 2026 é parcial) traz aviso; sem prestação publicada não é gasto zero; nenhum doador ou fornecedor sai. Conferido: Lula 2022 receitas R$ 135.539.287,82 e despesas contratadas R$ 131.313.037,45; Presidente 2022 lidera Lula, Bolsonaro, Thronicke.
 5. Guarda de especificidade: "primeiro turno" ou "a última eleição" sem ano vira INCONCLUSIVO (regra 3).
+   **Passo 5 entregue (2026-10-10)** em `src/guardrails/actions.py` (`check_input_specificity`), antes de qualquer LLM ou tool: turno ordinal sem ano, "a última eleição"/"eleição passada", resultado eleitoral ("ganhou", "foi eleito") sem ano, e resultado futuro ("vai ganhar", "será eleito"), mesmo com ano. Não bloqueia regras e acesso a dados (golden 9 e 24), "deputado eleito" como descrição nem "PEC aprovada em primeiro turno" no plenário. A justificativa é a mesma para qualquer direção da claim (regra 6). Limite: é heurística de texto; claim sem as palavras-gatilho segue para as tools, que também recusam ano/turno ausentes.
 6. Golden v2: ao menos 10 claims de TSE nos três vereditos, incluindo 2º turno e candidato ambíguo.
 7. Opcional: ampliar para 2018, 2020 e 2024 conforme o volume de dados.
 
@@ -93,4 +94,4 @@ Decidir se tramitação, vetos e presença entram no catálogo do roteador. Se e
 
 Fase 0, Fase 0.5, Fase 1 (descoberta primeiro), Fases 2 e 3 em paralelo, Fases 4 e 5 acompanhando desde a Fase 1.
 
-**Onde estamos (2026-10-10):** Fases 0 e 0.5 concluídas; Fase 1, passo 1 (descoberta) concluído. Passos 2, 3 e 4 concluídos; próximo, o passo 5 (guarda de especificidade) e o 6 (golden v2).
+**Onde estamos (2026-10-10):** Fases 0 e 0.5 concluídas; Fase 1, passo 1 (descoberta) concluído. Passos 2 a 5 concluídos; próximo, o passo 6 (golden v2).
