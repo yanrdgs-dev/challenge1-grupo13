@@ -1,12 +1,14 @@
 """GET /api/ingestion/status: o estado da última ingestão, lido do arquivo publicado junto dos parquets."""
 
 import json
+import re
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from src.api.main import app
+from src.services.router_service import app  # o app que a imagem do router executa (ver o teste de guarda abaixo)
 
 client = TestClient(app)
 
@@ -61,3 +63,11 @@ def test_never_succeeded_is_reported_as_stale(processed):
     (processed / "ingestion_status.json").write_text(json.dumps(status_payload(resultado="falhou")), encoding="utf-8")
     body = client.get("/api/ingestion/status").json()
     assert body["desatualizada"] is True and body["ultimo_sucesso_ha_horas"] is None
+
+
+def test_route_lives_on_the_app_the_router_image_actually_runs():
+    """Guarda: o primeiro deploy do endpoint 404ou porque ele estava em src.api.main, que o Docker não usa."""
+    dockerfile = (Path(__file__).resolve().parents[1] / "docker" / "Dockerfile.router").read_text(encoding="utf-8")
+    module, attr = re.search(r'"uvicorn",\s*"([\w.]+):(\w+)"', dockerfile).groups()
+    assert (module, attr) == ("src.services.router_service", "app"), "o CMD do router mudou: ajuste este teste e o registro da rota"
+    assert "/api/ingestion/status" in {getattr(r, "path", None) for r in app.routes}
