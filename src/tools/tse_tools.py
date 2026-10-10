@@ -204,12 +204,22 @@ def _valid_votes_frame(base_dir: Optional[Path], ano: int, turno: int,
         return None
 
 
-def _unavailable(ano: int) -> Dict[str, Any]:
+def election_results_available(ano: int, base_dir: Optional[Path] = None) -> bool:
+    """Há votação do TSE ingerida para o ano? Em 2026 ainda não: só candidaturas, bens e prestação de contas."""
+    return _scan(base_dir, "votacao_munzona", ano) is not None
+
+
+def results_unavailable(ano: int) -> Dict[str, Any]:
+    """Evidência vazia para ano sem votação publicada; o roteador responde isso direto, sem juiz."""
     if ano >= 2026:
-        motivo = f"O TSE ainda não publicou resultado de votação para {ano}; só candidaturas, bens e prestação de contas."
+        motivo = (f"Os dados abertos do TSE ainda não foram atualizados com o resultado da eleição de {ano}: "
+                  "até agora só há candidaturas, bens e prestação de contas.")
     else:
         motivo = f"Sem base de votação do TSE para {ano}."
-    return _empty("resultado_indisponivel", motivo, candidatos=[])
+    return _empty("resultado_indisponivel", motivo, ano=ano, candidatos=[])
+
+
+_unavailable = results_unavailable
 
 
 def _per_candidate(df: pl.DataFrame) -> pl.DataFrame:

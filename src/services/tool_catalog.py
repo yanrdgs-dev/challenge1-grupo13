@@ -326,6 +326,6 @@ ROUTER_SYSTEM_PROMPT = (
     "- Se a alegação trata do RESULTADO de uma eleição (quem ganhou, total de votos de um cargo, ranking), utilize 'get_election_result'; "
     "se trata dos votos ou da eleição de um CANDIDATO específico, utilize 'get_candidate_votes' (o nome é resolvido pelo sistema; use 'resolve_candidate' só para identificar o candidato). "
     "NÃO invente ano nem turno: se a alegação não diz o ano ('na última eleição') ou o turno, deixe o parâmetro vazio, para que a evidência seja INCONCLUSIVO. "
-    "Votos de eleição são do TSE; votos em plenário do Congresso são das tools de votação.\n"
+    "Se a alegação é sobre o resultado da eleição de 2026, chame mesmo assim a tool de resultado com ano 2026: o sistema informa que os dados abertos do TSE ainda não foram atualizados. Votos de eleição são do TSE; votos em plenário do Congresso são das tools de votação.\n"
     "Extraia todos os parâmetros possíveis (casa, número, ano, sigla, estado/UF) diretamente da frase."
 )

@@ -2,6 +2,8 @@
 
 from unittest.mock import patch
 
+import pytest
+
 from src.services import router_service
 from src.services.data_freshness import data_date
 from src.services.router_service import execute_tool
@@ -17,6 +19,13 @@ AMBIGUOUS = {"encontrado": False, "status": "ambiguo", "sq_candidato": None, "am
 NOT_FOUND = {"encontrado": False, "status": "nao_encontrado", "sq_candidato": None, "ambiguous": False,
              "candidatos_alternativos": []}
 VOTES = {"encontrado": True, "status": "ok", "sq_candidato": 77, "votos_validos": 10, "ano": 2022, "turno": 1}
+
+
+@pytest.fixture(autouse=True)
+def _votes_published():
+    """Por padrão a votação do ano existe; os testes de 2026 sobrescrevem."""
+    with patch.object(router_service, "election_results_available", return_value=True):
+        yield
 
 
 def _tool(name):
