@@ -18,7 +18,7 @@ import httpx
 
 logger = logging.getLogger("ETL.Download")
 
-USER_AGENT = "factcheck-agent/0.1 (+dados abertos; ingestão automática)"
+USER_AGENT = "factcheck-agent/0.1 (+dados abertos; ingestao automatica)"
 MIN_VALID_SIZE = 1000
 ANOS = [2022, 2023, 2024, 2025, 2026]
 
