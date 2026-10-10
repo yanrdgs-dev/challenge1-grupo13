@@ -133,7 +133,7 @@ def test_fetch_resources_http_error_is_explicit_error():
 
 
 def test_fetch_resources_invalid_json_is_explicit_error():
-    with client_for(lambda r: httpx.Response(200, content=b"<html>manutenção</html>")) as client, pytest.raises(
+    with client_for(lambda r: httpx.Response(200, content=b"<html>manutencao</html>")) as client, pytest.raises(
         DownloadError, match="JSON"
     ):
         fetch_resources("candidatos-2022", client=client)
