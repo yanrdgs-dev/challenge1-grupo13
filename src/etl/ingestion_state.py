@@ -5,13 +5,16 @@ import logging
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from src.etl.freshness import Fingerprint
 
 logger = logging.getLogger("ETL.State")
 
 STATE_VERSION = 1
+HISTORY_LIMIT = 50
+MAX_CHANGES = 30  # ids de fontes guardados por execução (o total fica em `downloaded`)
+MAX_FAILURES = 5
 
 
 class IngestionState:
@@ -20,6 +23,8 @@ class IngestionState:
         self.files: Dict[str, Dict[str, Any]] = {}
         self.pending_build = False  # há dados novos ainda não convertidos em parquet
         self.last_run: Optional[Dict[str, Any]] = None
+        self.history: List[Dict[str, Any]] = []  # últimas execuções, da mais antiga para a mais nova
+        self.notify: Dict[str, Any] = {}  # memória dos avisos (evita repetir a mesma falha a cada hora)
 
     @classmethod
     def load(cls, path: Path) -> "IngestionState":
@@ -31,11 +36,14 @@ class IngestionState:
             state.files = dict(data.get("files", {}))
             state.pending_build = bool(data.get("pending_build", False))
             state.last_run = data.get("last_run")
+            state.history = list(data.get("history", []))
+            state.notify = dict(data.get("notify", {}))
         except (json.JSONDecodeError, AttributeError, TypeError, ValueError) as e:
             backup = state.path.with_name(state.path.name + ".corrupt")
             logger.error("Estado ilegível em %s (%s); guardado em %s e recomeçando vazio", state.path, e, backup)
             os.replace(state.path, backup)
             state.files, state.pending_build, state.last_run = {}, False, None
+            state.history, state.notify = [], {}
         return state
 
     def get_file(self, item_id: str) -> Optional[Dict[str, Any]]:
@@ -62,11 +70,24 @@ class IngestionState:
             "adopted": adopted,
         }
 
-    def record_run(self, started_at: str, finished_at: str, exit_code: int, downloaded: int, built: bool) -> None:
-        self.last_run = {
+    def record_run(
+        self,
+        started_at: str,
+        finished_at: str,
+        exit_code: int,
+        downloaded: int,
+        built: bool,
+        changes: Optional[List[str]] = None,
+        failures: Optional[List[str]] = None,
+    ) -> None:
+        run = {
             "started_at": started_at, "finished_at": finished_at,
             "exit_code": exit_code, "downloaded": downloaded, "built": built,
+            "changes": list(changes or [])[:MAX_CHANGES],
+            "failures": [str(f) for f in (failures or [])][:MAX_FAILURES],
         }
+        self.last_run = run
+        self.history = (self.history + [dict(run)])[-HISTORY_LIMIT:]
 
     def save(self) -> None:
         """Grava de forma atômica: nunca deixa um estado pela metade."""
@@ -74,6 +95,7 @@ class IngestionState:
         payload = {
             "version": STATE_VERSION, "files": self.files,
             "pending_build": self.pending_build, "last_run": self.last_run,
+            "history": self.history, "notify": self.notify,
         }
         fd, tmp = tempfile.mkstemp(dir=self.path.parent, prefix=self.path.name + ".", suffix=".tmp")
         try:

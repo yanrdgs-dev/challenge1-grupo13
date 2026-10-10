@@ -6,6 +6,8 @@
   vê dados pela metade, e uma falha deixa os parquets atuais intactos.
 - Um lock de arquivo impede duas execuções simultâneas (cron sobreposto): a segunda sai sem fazer nada.
 - Qualquer download falho aborta antes do build (`--allow-partial` libera).
+- Cada execução grava o histórico no estado, publica `ingestion_status.json` junto dos parquets e avisa por
+  webhook/heartbeat conforme as variáveis `INGESTION_*` (ver `notify.py`). `--status` mostra o estado.
 """
 
 import argparse
@@ -18,12 +20,14 @@ import sys
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterator, List, Optional, Sequence
+from typing import Iterator, List, Optional, Sequence, Tuple
 
 from src.etl.build_dim_politicos import build_and_save_dim_politicos
 from src.etl.build_parquet import process_all_datasets
 from src.etl.download_datasets import run_downloads
 from src.etl.ingestion_state import IngestionState
+from src.etl.notify import notify_run
+from src.etl.status import build_status, format_status, is_stale, write_status_file
 from src.etl.tse_ckan import run_tse_downloads
 
 logger = logging.getLogger("ETL.Pipeline")
@@ -91,19 +95,21 @@ def publish_staging(staging: Path, final: Path) -> None:
         shutil.rmtree(staging, ignore_errors=True)
 
 
-def _build_and_publish(datasets_dir: Path, processed_dir: Path, state: IngestionState) -> bool:
+def _build_and_publish(datasets_dir: Path, processed_dir: Path, state: IngestionState) -> Tuple[bool, List[str]]:
+    """Constrói em staging e publica. Devolve (sucesso, mensagens de erro)."""
     staging = processed_dir.with_name(processed_dir.name + ".staging")
     shutil.rmtree(staging, ignore_errors=True)
     try:
         build_failures: List = []
         summaries = process_all_datasets(datasets_dir=datasets_dir, output_base=staging, failures=build_failures)
         if build_failures:
-            for name, error in build_failures:
-                logger.error("build_parquet falhou em '%s': %s", name, error)
-            return False
+            errors = [f"build_parquet falhou em '{name}': {error}" for name, error in build_failures]
+            for e in errors:
+                logger.error("%s", e)
+            return False, errors
         if not summaries:
             logger.error("build_parquet não gerou nenhum dataset")
-            return False
+            return False, ["build_parquet não gerou nenhum dataset"]
         build_and_save_dim_politicos(
             output_path=str(staging / "dim_politicos.parquet"),
             camara_deputados_path=str(staging / "camara" / "deputados.parquet"),
@@ -114,12 +120,38 @@ def _build_and_publish(datasets_dir: Path, processed_dir: Path, state: Ingestion
         write_ingestion_info(staging, state)
         publish_staging(staging, processed_dir)
         logger.info("Parquets publicados em %s (%d datasets + dim_politicos)", processed_dir, len(summaries))
-        return True
+        return True, []
     except Exception as e:  # noqa: BLE001 - qualquer falha do build vira código de saída; nada é publicado
         logger.error("Falha ao construir/publicar os parquets: %s", e, exc_info=True)
-        return False
+        return False, [f"falha ao construir/publicar os parquets: {e}"]
     finally:
         shutil.rmtree(staging, ignore_errors=True)
+
+
+def _publish_status_and_notify(state: IngestionState, processed_dir: Path) -> None:
+    """Publica o status e avisa. Melhor esforço: nenhuma falha aqui muda o resultado da ingestão."""
+    try:
+        write_status_file(processed_dir, build_status(state))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Não foi possível publicar ingestion_status.json: %s", e)
+    try:
+        notify_run(state.last_run, state, os.environ)
+        state.save()  # notify_run atualiza a memória de avisos
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Aviso da ingestão falhou: %s", e)
+
+
+def show_status(datasets_dir: Path, as_json: bool, max_age_hours: Optional[float]) -> int:
+    """`--status`: só lê o estado; não baixa, não constrói e não pega o lock."""
+    status = build_status(IngestionState.load(datasets_dir / STATE_FILE))
+    stale = max_age_hours is not None and is_stale(status, max_age_hours)
+    if as_json:
+        print(json.dumps(status, ensure_ascii=False, indent=2))
+    else:
+        print(format_status(status))
+        if stale:
+            print(f"\nATENÇÃO: ingestão desatualizada (sem sucesso nas últimas {max_age_hours:g} h).")
+    return 2 if stale else 0
 
 
 def run_pipeline(
@@ -166,9 +198,13 @@ def _run_locked(
             logger.info("Nenhuma novidade nas fontes")
         return 1 if failures else 0
 
+    errors: List[str] = [str(f) for f in failures]
+
     def finish(code: int, built: bool) -> int:
-        state.record_run(started_at, _now(), code, downloaded=len(changes), built=built)
+        state.record_run(started_at, _now(), code, downloaded=len(changes), built=built,
+                         changes=changes, failures=errors)
         state.save()
+        _publish_status_and_notify(state, processed_dir)
         return code
 
     if changes:
@@ -191,7 +227,9 @@ def _run_locked(
         return finish(0, built=False)
 
     logger.info(">>> Etapa 2/2: build_parquet + dim_politicos <<<")
-    if not _build_and_publish(datasets_dir, processed_dir, state):
+    built_ok, build_errors = _build_and_publish(datasets_dir, processed_dir, state)
+    if not built_ok:
+        errors.extend(build_errors)
         return finish(1, built=False)
     state.pending_build = False
     return finish(0, built=True)
@@ -208,9 +246,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--check", action="store_true", help="só informa se há novidade nas fontes; não baixa nem constrói")
     parser.add_argument("--force", action="store_true", help="rebaixa tudo, mesmo sem novidade")
     parser.add_argument("--force-build", action="store_true", help="reconstrói os parquets mesmo sem novidade")
+    parser.add_argument("--status", action="store_true", help="mostra o estado da ingestão e sai (não baixa nem constrói)")
+    parser.add_argument("--json", action="store_true", help="com --status, imprime JSON")
+    parser.add_argument("--max-age-hours", type=float, default=None,
+                        help="com --status, sai com código 2 se o último sucesso for mais velho que isto")
     parser.add_argument("--skip-download", action="store_true", help="só roda o build")
     parser.add_argument("--allow-partial", action="store_true", help="monta parquet mesmo com downloads falhos")
     args = parser.parse_args(argv)
+
+    if args.status:
+        return show_status(Path(args.datasets_dir), args.json, args.max_age_hours)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     return run_pipeline(
