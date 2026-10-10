@@ -112,12 +112,12 @@ export function originLabel(origin: string): string {
   return ORIGIN_LABELS[origin] ?? origin
 }
 
-export function sortedOrigins(byOrigin: Record<string, number>): Array<[string, number]> {
+export function sortedOrigins(byOrigin: Record<string, number> | null | undefined): Array<[string, number]> {
   const rank = (origin: string) => {
     const i = ORIGIN_ORDER.indexOf(origin)
     return i === -1 ? ORIGIN_ORDER.length : i
   }
-  return Object.entries(byOrigin).sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
+  return Object.entries(byOrigin ?? {}).sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
 }
 
 export function describeBuild(build: "publicado" | "ignorado" | "falhou"): string {

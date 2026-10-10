@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 
 import {
   describeBuild,
@@ -38,7 +38,7 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   )
 }
 
-function OriginChips({ byOrigin }: { byOrigin: Record<string, number> }) {
+function OriginChips({ byOrigin }: { byOrigin: Record<string, number> | null | undefined }) {
   const entries = sortedOrigins(byOrigin)
   if (entries.length === 0) return null
   return (
@@ -63,7 +63,7 @@ function Result({ resultado }: { resultado: "ok" | "falhou" }) {
   )
 }
 
-function StatusBody({ status }: { status: IngestionStatus }) {
+export function StatusBody({ status }: { status: IngestionStatus }) {
   const level = statusLevel(status)
   const style = LEVEL_STYLE[level]
   const run = status.ultima_execucao
@@ -204,33 +204,39 @@ function StatusBody({ status }: { status: IngestionStatus }) {
 export default function StatusPage() {
   const [state, setState] = useState<LoadState>({ kind: "loading" })
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
-
-  const load = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const response = await fetch("/api/ingestion/status", { signal, headers: { Accept: "application/json" } })
-      if (response.status === 404) {
-        setState({ kind: "missing" })
-      } else if (!response.ok) {
-        setState({ kind: "error", message: `O servidor respondeu ${response.status}.` })
-      } else {
-        setState({ kind: "ready", status: (await response.json()) as IngestionStatus })
-      }
-      setUpdatedAt(new Date())
-    } catch (error) {
-      if ((error as Error).name === "AbortError") return
-      setState({ kind: "error", message: "Não foi possível consultar o servidor." })
-    }
-  }, [])
+  // Incrementar força uma nova consulta (botão "Atualizar") sem chamar setState direto dentro do efeito.
+  const [reloads, setReloads] = useState(0)
 
   useEffect(() => {
     const controller = new AbortController()
-    void load(controller.signal)
-    const timer = setInterval(() => void load(controller.signal), REFRESH_MS)
+
+    async function load() {
+      try {
+        const response = await fetch("/api/ingestion/status", {
+          signal: controller.signal,
+          headers: { Accept: "application/json" },
+        })
+        if (response.status === 404) {
+          setState({ kind: "missing" })
+        } else if (!response.ok) {
+          setState({ kind: "error", message: `O servidor respondeu ${response.status}.` })
+        } else {
+          setState({ kind: "ready", status: (await response.json()) as IngestionStatus })
+        }
+        setUpdatedAt(new Date())
+      } catch (error) {
+        if ((error as Error).name === "AbortError") return
+        setState({ kind: "error", message: "Não foi possível consultar o servidor." })
+      }
+    }
+
+    void load()
+    const timer = setInterval(() => void load(), REFRESH_MS)
     return () => {
       controller.abort()
       clearInterval(timer)
     }
-  }, [load])
+  }, [reloads])
 
   return (
     <div className="min-h-screen bg-[#fcfdfc] text-slate-800">
@@ -247,7 +253,7 @@ export default function StatusPage() {
             {updatedAt && <span>Consultado às {updatedAt.toLocaleTimeString("pt-BR")}</span>}
             <button
               type="button"
-              onClick={() => void load()}
+              onClick={() => setReloads((n) => n + 1)}
               className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-700 hover:bg-slate-50"
             >
               Atualizar
