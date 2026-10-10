@@ -21,10 +21,25 @@ DESPESAS_PAGAS_COM_CANDIDATO = ["ANO_ELEICAO", "SG_UF", "SQ_CANDIDATO", "NM_CAND
 BENS = ["ANO_ELEICAO", "SG_UF", "SQ_CANDIDATO", "DS_TIPO_BEM_CANDIDATO", "DS_BEM_CANDIDATO", "VR_BEM_CANDIDATO"]
 
 
+def frame(columns):
+    return pl.DataFrame({c: ["1"] for c in columns})
+
+
 # ------------------------------- detecção ------------------------------- #
 
 def test_candidate_registry_is_still_detected():
     assert detect_schema_by_columns(CANDIDATOS) == "tse_candidatos"
+
+
+def test_real_candidate_registry_with_turn_and_spending_cap_is_still_detected():
+    # o cadastro oficial traz NR_TURNO e VR_DESPESA_MAX_CAMPANHA (teto de gastos): não são medidas de fato
+    assert detect_schema_by_columns(CANDIDATOS + ["NR_TURNO", "VR_DESPESA_MAX_CAMPANHA"]) == "tse_candidatos"
+
+
+def test_real_candidate_registry_is_pruned_to_the_formal_schema():
+    cleaned = clean_dataframe(frame(CANDIDATOS + ["NR_TURNO", "VR_DESPESA_MAX_CAMPANHA"]), partition_col=None)
+    assert "NR_TURNO" not in cleaned.columns and "VR_DESPESA_MAX_CAMPANHA" not in cleaned.columns
+    assert "SQ_CANDIDATO" in cleaned.columns
 
 
 def test_bens_are_still_detected():
@@ -52,10 +67,6 @@ def test_despesas_pagas_2022_without_candidate_key_are_not_pruned():
 
 
 # ------------------------------- efeito na poda ------------------------------- #
-
-def frame(columns):
-    return pl.DataFrame({c: ["1"] for c in columns})
-
 
 def test_munzona_keeps_turn_and_votes():
     cleaned = clean_dataframe(frame(MUNZONA), partition_col=None)
