@@ -20,7 +20,7 @@ def calls(monkeypatch):
         log.append(("download_tse", Path(base_dir), list(anos)))
         return []
 
-    def fake_build(datasets_dir, output_base):
+    def fake_build(datasets_dir, output_base, failures=None):
         log.append(("build_parquet", Path(datasets_dir), Path(output_base)))
         return [{"dataset_name": "x"}]
 
@@ -99,3 +99,12 @@ def test_main_parses_arguments(calls, tmp_path):
 def test_main_default_years_are_2022_and_2026(calls, tmp_path):
     pipeline.main(["--datasets-dir", str(tmp_path / "d"), "--processed-dir", str(tmp_path / "p")])
     assert [c for c in calls if c[0] == "download_tse"][0][2] == [2022, 2026]
+
+
+def test_returns_nonzero_when_a_build_task_failed_even_with_other_summaries(calls, monkeypatch, tmp_path):
+    def build_with_failure(datasets_dir, output_base, failures=None):
+        failures.append(("TSE - Prestação de Contas", RuntimeError("parse error")))
+        return [{"dataset_name": "x"}]
+
+    monkeypatch.setattr(pipeline, "process_all_datasets", build_with_failure)
+    assert pipeline.run_pipeline(tmp_path / "ds", tmp_path / "out", anos_tse=[2022]) == 1

@@ -96,3 +96,40 @@ def test_large_file_without_partition_falls_back_to_eager(tmp_path):
         prune_redundant=False, large_file_bytes=1,
     )
     assert summary["rows_processed"] == 50
+
+
+# ------------------------------- robustez dos dados reais ------------------------------- #
+
+def test_streaming_keeps_rows_with_nul_byte_inside_a_text_field(tmp_path):
+    # o TSE publica campos com byte NUL no meio do texto ("estraté\x00gica"); o pyarrow rejeita a linha
+    csv = tmp_path / "dados_2022.csv"
+    write_latin1_csv(csv, rows=50)
+    data = csv.read_bytes().replace(b"ZELIA", b"ZE\x00LIA").replace("ZÉLIA".encode("latin1"), b"Z\xc9\x00LIA")
+    csv.write_bytes(data)
+    assert b"\x00" in data
+    _, out = run(tmp_path, "stream", large_file_bytes=1, stream_block_bytes=4096)
+    df = read_all(out)
+    assert df.height == 50
+    assert "ZÉLIA" in set(df["NM_CANDIDATO"].to_list())  # NUL removido, texto preservado
+
+
+def test_streaming_failure_midway_leaves_no_partial_parquet(tmp_path, monkeypatch):
+    real_clean = build_parquet.clean_dataframe
+    calls = {"n": 0}
+
+    def flaky(df, **kw):
+        calls["n"] += 1
+        if calls["n"] == 3:
+            raise RuntimeError("falha no terceiro bloco")
+        return real_clean(df, **kw)
+
+    monkeypatch.setattr(build_parquet, "clean_dataframe", flaky)
+    with pytest.raises(RuntimeError):
+        run(tmp_path, "stream", large_file_bytes=1, stream_block_bytes=4096)
+    assert not list((tmp_path / "stream").rglob("*.parquet"))
+
+
+def test_streaming_twice_does_not_duplicate_rows(tmp_path):
+    run(tmp_path, "stream", large_file_bytes=1, stream_block_bytes=4096)
+    run(tmp_path, "stream", large_file_bytes=1, stream_block_bytes=8192)  # outro nº de blocos
+    assert read_all(tmp_path / "stream").height == 3000
