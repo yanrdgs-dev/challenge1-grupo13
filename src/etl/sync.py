@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Callable, Optional
 
 import httpx
 
-from src.etl.freshness import Fingerprint, decide, head_fingerprint
+from src.etl.freshness import Fingerprint, HostBreaker, decide, head_fingerprint
 from src.etl.ingestion_state import IngestionState
 
 if TYPE_CHECKING:  # download_datasets importa este módulo; evita o ciclo
@@ -39,12 +39,13 @@ def sync_item(
     force: bool = False,
     dry_run: bool = False,
     dest: str = "",
+    breaker: Optional[HostBreaker] = None,
 ) -> SyncOutcome:
     """Baixa `url` só se houver novidade. Em `dry_run` apenas informa; falha de download propaga."""
     record = state.get_file(item_id)
     prior = Fingerprint.from_dict(record["fingerprint"]) if record else None
     needs_head = local_exists and not force and refresh == "validators"
-    remote = head_fingerprint(url, client) if needs_head else None
+    remote = head_fingerprint(url, client, breaker) if needs_head else None
 
     decision = decide(
         refresh=refresh, local_exists=local_exists, local_mtime=local_mtime, local_size=local_size,

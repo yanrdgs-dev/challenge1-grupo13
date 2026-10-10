@@ -9,6 +9,7 @@ import logging
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 import httpx
 
@@ -47,13 +48,44 @@ class Decision:
     adopt: bool = False  # cópia local aceita como base: registrar a impressão digital remota sem baixar
 
 
-def head_fingerprint(url: str, client: httpx.Client) -> Optional[Fingerprint]:
+HEAD_TIMEOUT = httpx.Timeout(10.0, read=20.0)  # verificar novidade tem de ser barato; o GET é que é lento
+
+
+class HostBreaker:
+    """Disjuntor por host: após `max_failures` HEADs seguidos falhos, pula os demais HEADs daquele host.
+
+    Um portal lento ou fora do ar não pode transformar a verificação de 100 fontes em minutos de espera.
+    Vale por execução (instância nova a cada rodada); um sucesso zera a contagem do host.
+    """
+
+    def __init__(self, max_failures: int = 2):
+        self.max_failures = max_failures
+        self._failures: Dict[str, int] = {}
+
+    def is_open(self, host: str) -> bool:
+        return self._failures.get(host, 0) >= self.max_failures
+
+    def record(self, host: str, ok: bool) -> None:
+        self._failures[host] = 0 if ok else self._failures.get(host, 0) + 1
+
+
+def head_fingerprint(
+    url: str, client: httpx.Client, breaker: Optional[HostBreaker] = None
+) -> Optional[Fingerprint]:
     """Impressão digital via HEAD. None se o servidor não respondeu direito (nunca levanta)."""
+    host = urlparse(url).netloc
+    if breaker and breaker.is_open(host):
+        logger.warning("HEAD pulado em %s: %s não respondeu nas últimas tentativas", url, host)
+        return None
     try:
-        resp = client.head(url)
+        resp = client.head(url, timeout=HEAD_TIMEOUT)
     except httpx.HTTPError as e:
         logger.warning("HEAD falhou em %s: %s", url, e)
+        if breaker:
+            breaker.record(host, ok=False)
         return None
+    if breaker:
+        breaker.record(host, ok=resp.status_code < 500)
     if resp.status_code >= 400:
         logger.warning("HEAD %s devolveu HTTP %d", url, resp.status_code)
         return None

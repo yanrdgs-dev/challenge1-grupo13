@@ -13,6 +13,7 @@ from typing import Dict, List, Optional, Sequence
 import httpx
 
 from src.etl.download_datasets import DownloadError, download_zip_csv, local_zip_state, make_client
+from src.etl.freshness import HostBreaker
 from src.etl.ingestion_state import IngestionState
 from src.etl.manifest import load_manifest, tse_config
 from src.etl.sync import sync_item
@@ -112,6 +113,7 @@ def run_tse_downloads(
     own_client = client is None
     client = client or make_client()
     failures: List[DownloadError] = []
+    breaker = HostBreaker()
     try:
         for ano in anos:
             try:
@@ -131,7 +133,7 @@ def run_tse_downloads(
                         local_exists=exists, local_mtime=mtime, local_size=size,
                         download=lambda force_, i=item: download_zip_csv(
                             i.url, i.dest_dir, i.stem, i.desc, client=client, force=force_),
-                        force=force, dry_run=dry_run,
+                        force=force, dry_run=dry_run, breaker=breaker,
                         dest=item.dest_dir.relative_to(datasets_dir).as_posix(),
                     )
                     if changes is not None and outcome.action != "sem_novidade":

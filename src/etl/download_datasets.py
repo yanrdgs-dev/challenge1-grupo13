@@ -20,7 +20,7 @@ from typing import List, Optional
 
 import httpx
 
-from src.etl.freshness import Fingerprint
+from src.etl.freshness import Fingerprint, HostBreaker
 from src.etl.ingestion_state import IngestionState
 from src.etl.manifest import Source, expand_sources, load_manifest
 from src.etl.sync import sync_item
@@ -250,7 +250,8 @@ def _download_source(source: Source, base_dir: Path, client: httpx.Client) -> No
 
 
 def _sync_source(
-    source: Source, base_dir: Path, client: httpx.Client, state: IngestionState, force: bool, dry_run: bool
+    source: Source, base_dir: Path, client: httpx.Client, state: IngestionState, force: bool, dry_run: bool,
+    breaker: Optional[HostBreaker] = None,
 ):
     dest = base_dir / source.dest
     if source.kind == "zip_csv":
@@ -269,6 +270,7 @@ def _sync_source(
     return sync_item(
         source.id, source.url, refresh=source.refresh, state=state, client=client, local_exists=exists,
         local_mtime=mtime, local_size=size, download=do, force=force, dry_run=dry_run, dest=source.dest,
+        breaker=breaker,
     )
 
 
@@ -292,13 +294,14 @@ def run_downloads(
     own_client = client is None
     client = client or make_client()
     failures: List[DownloadError] = []
+    breaker = HostBreaker()
     try:
         for source in sources:
             try:
                 if state is None:
                     _download_source(source, base_dir, client)
                 else:
-                    outcome = _sync_source(source, base_dir, client, state, force, dry_run)
+                    outcome = _sync_source(source, base_dir, client, state, force, dry_run, breaker)
                     if changes is not None and outcome.action != "sem_novidade":
                         changes.append(source.id)
             except DownloadError as e:
