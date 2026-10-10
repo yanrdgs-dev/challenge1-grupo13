@@ -254,7 +254,7 @@ TOOLS_CATALOG.extend([
         "type": "function",
         "function": {
             "name": "resolve_candidate",
-            "description": "Resolve o nome de um CANDIDATO de uma eleição (TSE) para o identificador oficial (SQ_CANDIDATO). Usar quando a claim cita um candidato de um ano de eleição específico.",
+            "description": "Identifica um CANDIDATO de uma eleição (TSE): devolve número na urna, partido, cargo, UF e SQ_CANDIDATO. Usar SOMENTE quando a claim é sobre QUEM é o candidato (número, partido, cargo). NÃO use para resultado, votos, situação, patrimônio, redes sociais ou campanha: as tools de candidato já resolvem o nome sozinhas.",
             "parameters": {
                 "type": "object",
                 "properties": {
