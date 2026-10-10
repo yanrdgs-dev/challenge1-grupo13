@@ -1,0 +1,112 @@
+"""Integração das tools de resultado do TSE no roteador: catálogo, despacho, fonte e data da base (Fase 1, passo 2)."""
+
+from unittest.mock import patch
+
+from src.services import router_service
+from src.services.data_freshness import data_date
+from src.services.router_service import execute_tool
+from src.services.sources import TSE, derive_sources, evidence_failed
+from src.services.tool_args import validate_tool_args
+from src.services.tool_catalog import ROUTER_SYSTEM_PROMPT, TOOLS_CATALOG
+
+RESOLVED = {"encontrado": True, "status": "resolvido", "sq_candidato": 77, "nome_urna": "LULA", "nome_civil": "LUIZ",
+            "cargo": "PRESIDENTE", "uf": "BR", "partido": "PT", "ano": 2022, "turnos": [1, 2],
+            "ambiguous": False, "candidatos_alternativos": []}
+AMBIGUOUS = {"encontrado": False, "status": "ambiguo", "sq_candidato": None, "ambiguous": True,
+             "candidatos_alternativos": [{"sq_candidato": 1}, {"sq_candidato": 2}]}
+NOT_FOUND = {"encontrado": False, "status": "nao_encontrado", "sq_candidato": None, "ambiguous": False,
+             "candidatos_alternativos": []}
+VOTES = {"encontrado": True, "status": "ok", "sq_candidato": 77, "votos_validos": 10, "ano": 2022, "turno": 1}
+
+
+def _tool(name):
+    return next(t["function"] for t in TOOLS_CATALOG if t["function"]["name"] == name)
+
+
+# ------------------------------ catálogo ------------------------------ #
+
+def test_catalog_exposes_the_three_tse_tools_with_ano_and_turno_required():
+    assert "ano" in _tool("resolve_candidate")["parameters"]["required"]
+    assert {"cargo", "ano", "turno"} <= set(_tool("get_election_result")["parameters"]["required"])
+    assert {"nome_candidato", "ano", "turno"} <= set(_tool("get_candidate_votes")["parameters"]["required"])
+
+
+def test_missing_turno_is_rejected_before_any_tool_runs():
+    _, problem = validate_tool_args("get_election_result", {"cargo": "Presidente", "ano": 2022})
+    assert problem and "turno" in problem
+    result = execute_tool("get_election_result", {"cargo": "Presidente", "ano": 2022})
+    assert result["status"] == "parametros_invalidos" and evidence_failed(result)
+
+
+def test_prompt_tells_the_router_to_use_tse_tools_and_not_to_guess_year_or_turn():
+    text = ROUTER_SYSTEM_PROMPT
+    assert "get_election_result" in text and "get_candidate_votes" in text
+    assert "NÃO invente" in text or "nunca invente" in text.lower()
+
+
+# ------------------------------ despacho ------------------------------ #
+
+def test_get_election_result_is_dispatched_with_normalized_args():
+    with patch.object(router_service, "get_election_result", return_value={"encontrado": True}) as tool:
+        execute_tool("get_election_result", {"cargo": "presidente", "ano": "2022", "turno": 2})
+    tool.assert_called_once_with(cargo="Presidente", ano=2022, turno=2, uf=None)
+
+
+def test_resolve_candidate_is_dispatched():
+    with patch.object(router_service, "resolve_candidate", return_value=RESOLVED) as tool:
+        res = execute_tool("resolve_candidate", {"nome_busca": "Lula", "ano": 2022, "cargo": "Presidente"})
+    assert res["sq_candidato"] == 77
+    assert tool.call_args.kwargs["ano"] == 2022
+
+
+def test_candidate_votes_resolves_the_name_first_and_uses_the_canonical_id():
+    with patch.object(router_service, "resolve_candidate", return_value=RESOLVED) as resolver, \
+         patch.object(router_service, "get_candidate_votes", return_value=dict(VOTES)) as votes:
+        res = execute_tool("get_candidate_votes", {"nome_candidato": "Lula", "ano": 2022, "turno": 1})
+    resolver.assert_called_once()
+    votes.assert_called_once_with(sq_candidato=77, ano=2022, turno=1)
+    assert res["votos_validos"] == 10
+    assert res["entidade_resolvida"]["sq_candidato"] == 77
+
+
+def test_candidate_votes_with_ambiguous_name_never_reaches_the_data_tool():
+    with patch.object(router_service, "resolve_candidate", return_value=AMBIGUOUS), \
+         patch.object(router_service, "get_candidate_votes") as votes:
+        res = execute_tool("get_candidate_votes", {"nome_candidato": "João Silva", "ano": 2022, "turno": 1})
+    votes.assert_not_called()
+    assert res["status"] == "entidade_nao_resolvida" and res["ambiguous"] is True and evidence_failed(res)
+
+
+def test_candidate_votes_with_unknown_name_never_reaches_the_data_tool():
+    with patch.object(router_service, "resolve_candidate", return_value=NOT_FOUND), \
+         patch.object(router_service, "get_candidate_votes") as votes:
+        res = execute_tool("get_candidate_votes", {"nome_candidato": "Ninguém", "ano": 2022, "turno": 1})
+    votes.assert_not_called()
+    assert res["status"] == "entidade_nao_resolvida" and evidence_failed(res)
+
+
+# ------------------------- fonte e data da base ------------------------- #
+
+def test_tse_tools_cite_the_tse_as_source():
+    for tool in ("resolve_candidate", "get_election_result", "get_candidate_votes"):
+        assert derive_sources(tool, {}, {"encontrado": True, "status": "ok"}) == [TSE], tool
+
+
+def test_empty_tse_evidence_has_no_source_and_counts_as_failed():
+    empty = {"encontrado": False, "status": "resultado_indisponivel"}
+    assert evidence_failed(empty)
+    assert derive_sources("get_election_result", {}, empty) == []
+
+
+INFO = {"fontes": {
+    "tse-consulta_cand_2022": {"baixado_em": "2026-10-10T10:00:00+00:00"},
+    "tse-consulta_cand_2026": {"baixado_em": "2026-10-10T11:00:00+00:00"},
+    "tse-votacao_candidato_munzona_2022": {"baixado_em": "2026-10-09T09:00:00+00:00"},
+}}
+
+
+def test_data_date_of_tse_tools_follows_the_year_of_the_table_read():
+    ok = {"encontrado": True}
+    assert data_date("get_election_result", {"ano": 2022}, ok, INFO) == "2026-10-09T09:00:00+00:00"
+    assert data_date("get_candidate_votes", {"ano": 2022}, ok, INFO) == "2026-10-09T09:00:00+00:00"
+    assert data_date("resolve_candidate", {"ano": 2026}, ok, INFO) == "2026-10-10T11:00:00+00:00"
