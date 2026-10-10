@@ -110,3 +110,44 @@ def test_data_date_of_tse_tools_follows_the_year_of_the_table_read():
     assert data_date("get_election_result", {"ano": 2022}, ok, INFO) == "2026-10-09T09:00:00+00:00"
     assert data_date("get_candidate_votes", {"ano": 2022}, ok, INFO) == "2026-10-09T09:00:00+00:00"
     assert data_date("resolve_candidate", {"ano": 2026}, ok, INFO) == "2026-10-10T11:00:00+00:00"
+
+
+# ------------------- 2026: dados abertos do TSE ainda não atualizados ------------------- #
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from src.core.llm_client import ChatResult  # noqa: E402
+
+UNAVAILABLE_2026 = {
+    "encontrado": False, "status": "resultado_indisponivel", "ano": 2026, "candidatos": [],
+    "motivo": "Os dados abertos do TSE ainda não foram atualizados com o resultado da eleição de 2026.",
+}
+
+
+def test_candidate_votes_for_2026_does_not_even_resolve_the_name():
+    with patch.object(router_service, "election_results_available", return_value=False), \
+         patch.object(router_service, "resolve_candidate") as resolver, \
+         patch.object(router_service, "get_candidate_votes") as votes:
+        res = execute_tool("get_candidate_votes", {"nome_candidato": "Lula", "ano": 2026, "turno": 1})
+    resolver.assert_not_called()
+    votes.assert_not_called()
+    assert res["status"] == "resultado_indisponivel" and res["ano"] == 2026
+    assert "ainda não foram atualizados" in res["motivo"]
+
+
+def test_claim_about_2026_result_answers_that_open_data_is_not_updated_without_calling_the_judge():
+    client = TestClient(router_service.app)
+    chat = ChatResult(content="", provider="ollama", model="m", usage={},
+                      tool_calls=[{"name": "get_election_result",
+                                   "arguments": {"cargo": "Presidente", "ano": 2026, "turno": 1}}])
+    with patch.object(router_service, "llm_client") as llm, \
+         patch.object(router_service, "execute_tool", return_value=UNAVAILABLE_2026), \
+         patch.object(router_service, "_call_judge") as judge:
+        llm.chat.return_value = chat
+        resp = client.post("/check", json={"claim": "O candidato do PT venceu o primeiro turno da eleição presidencial de 2026."})
+    judge.assert_not_called()
+    body = resp.json()
+    assert body["veredito"] == "INCONCLUSIVO"
+    assert "ainda não foram atualizados" in body["justificativa"]
+    assert body["regra_acionada"] == "dados_tse_nao_atualizados"
+    assert body["tool_usada"] == "get_election_result"

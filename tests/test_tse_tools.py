@@ -13,7 +13,7 @@ from typing import Any, Dict, List
 import polars as pl
 import pytest
 
-from src.tools.tse_tools import get_candidate_votes, get_election_result, resolve_candidate
+from src.tools.tse_tools import election_results_available, get_candidate_votes, get_election_result, resolve_candidate
 
 
 def _cand(sq, civil, urna, partido, cargo, uf, numero, turno=1, situacao="NÃO ELEITO", ano=2022):
@@ -315,3 +315,23 @@ class TestGetCandidateVotes:
         res = get_candidate_votes(900, ano=2026, turno=1, base_dir=tse_dir)
         assert res["encontrado"] is False
         assert res["status"] == "resultado_indisponivel"
+
+
+# --------------------------------------------------------------------------- dados de 2026 ainda não publicados
+
+class TestResultado2026NaoPublicado:
+    FRASE = "ainda não foram atualizados"
+
+    def test_resultado_de_2026_explica_que_os_dados_abertos_nao_foram_atualizados(self, tse_dir):
+        res = get_election_result("Presidente", ano=2026, turno=1, base_dir=tse_dir)
+        assert self.FRASE in res["motivo"] and "2026" in res["motivo"]
+        assert res["ano"] == 2026
+
+    def test_votos_de_candidato_em_2026_explicam_o_mesmo(self, tse_dir):
+        res = get_candidate_votes(900, ano=2026, turno=1, base_dir=tse_dir)
+        assert self.FRASE in res["motivo"]
+
+    def test_disponibilidade_do_resultado(self, tse_dir):
+        assert election_results_available(2022, base_dir=tse_dir) is True
+        assert election_results_available(2026, base_dir=tse_dir) is False
+        assert election_results_available(2018, base_dir=tse_dir) is False
