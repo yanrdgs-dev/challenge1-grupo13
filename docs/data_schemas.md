@@ -228,7 +228,7 @@ Os parquets são particionados por `ano=`. Em 2026 o TSE já publica candidatos,
 - **Comparecimento (`detalhe_votacao_secao`), Presidente, 1º turno de 2022:** aptos 156.454.011; comparecimento 123.682.372; abstenções 32.770.982; brancos 1.964.779; nulos 3.487.874; válidos 118.229.719.
 - **`totalizacao_presidente_2022` não deve ser usada para resultado:** é um histórico largo (uma coluna por candidato), todo em texto, com espaços no fim dos nomes de coluna (`DT_TOTALIZACAO     `). O resultado vem de `votacao_munzona`.
 - **Prestação de contas:** valores em reais (`Float64`). `despesas_pagas` **não tem candidato nem cargo**, só `SQ_PRESTADOR_CONTAS`; o candidato se obtém por `receitas` ou `despesas_contratadas`, onde `SQ_PRESTADOR_CONTAS` ↔ `SQ_CANDIDATO` é 1:1 (nenhum prestador com dois candidatos) e cobre 100% dos 36.431 prestadores de `despesas_pagas`.
-- **Bens:** 676 linhas com valor zero e 5 negativas; 11.021 candidatos de 2022 não declararam bens. Ausência de linha não é patrimônio zero declarado.
+- **Bens:** 676 linhas com valor zero e 5 negativas; 11.021 candidaturas de 2022 não têm nenhum bem declarado. Ausência de linha não é patrimônio zero declarado.
 
 ### 8.4 Valores sentinela
 
