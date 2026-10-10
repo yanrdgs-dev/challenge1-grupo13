@@ -43,10 +43,17 @@ def run_pipeline(
             logger.warning("Seguindo para o build com dados incompletos (--allow-partial).")
 
     logger.info(">>> Etapa 2/2: build_parquet <<<")
+    build_failures: List = []
     try:
-        summaries = process_all_datasets(datasets_dir=datasets_dir, output_base=processed_dir)
+        summaries = process_all_datasets(
+            datasets_dir=datasets_dir, output_base=processed_dir, failures=build_failures
+        )
     except Exception as e:  # noqa: BLE001 - qualquer falha do build vira código de saída
         logger.error("Falha no build_parquet: %s", e, exc_info=True)
+        return 1
+    if build_failures:
+        for name, error in build_failures:
+            logger.error("build_parquet falhou em '%s': %s", name, error)
         return 1
     if not summaries:
         logger.error("build_parquet não gerou nenhum dataset")

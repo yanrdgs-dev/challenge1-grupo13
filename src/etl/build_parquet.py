@@ -234,6 +234,38 @@ LARGE_FILE_BYTES = 500 * 1024 * 1024
 STREAM_BLOCK_BYTES = 64 * 1024 * 1024
 
 
+class _NulStrippingReader(io.RawIOBase):
+    """Lê o arquivo sem bytes NUL. O TSE publica textos com NUL no meio de um campo (\"estraté\\x00gica\"), que o
+    pyarrow trata como linha malformada; remover o NUL não altera a contagem de campos."""
+
+    def __init__(self, path: Path):
+        super().__init__()
+        self._f = open(path, "rb")
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer) -> int:
+        while True:
+            data = self._f.read(len(buffer))
+            if not data:
+                return 0
+            data = data.replace(b"\x00", b"")
+            if data:  # bloco só de NUL não pode parecer fim de arquivo
+                buffer[: len(data)] = data
+                return len(data)
+
+    def close(self) -> None:
+        self._f.close()
+        super().close()
+
+
+def _remove_stream_parts(out_path: Path) -> None:
+    """Apaga as partes gravadas pelo streaming (`part-*.parquet`) em todas as partições."""
+    for part in out_path.glob("**/part-*.parquet"):
+        part.unlink(missing_ok=True)
+
+
 def _py_encoding(encoding: str) -> str:
     return "utf-8" if encoding.lower().replace("-", "") in ("utf8", "utf8lossy") else encoding
 
@@ -270,7 +302,9 @@ def _stream_csv_to_partitioned_parquet(
     py_enc = _py_encoding(encoding)
     with open(file_path, "rb") as f:
         raw = f.read(block_bytes)
-    sample_bytes = raw[: raw.rfind(b"\n") + 1] if len(raw) == block_bytes else raw
+    truncated = len(raw) == block_bytes  # só então a última linha da amostra pode estar cortada
+    raw = raw.replace(b"\x00", b"")
+    sample_bytes = raw[: raw.rfind(b"\n") + 1] if truncated else raw
     sample_utf8 = sample_bytes.decode(py_enc, errors="replace").encode("utf-8")
     sample = pl.read_csv(
         io.BytesIO(sample_utf8), separator=delimiter, infer_schema_length=10000,
@@ -279,7 +313,7 @@ def _stream_csv_to_partitioned_parquet(
     schema = sample.schema
 
     reader = pacsv.open_csv(
-        file_path,
+        pa.PythonFile(_NulStrippingReader(file_path), mode="r"),
         read_options=pacsv.ReadOptions(block_size=block_bytes, encoding=py_enc),
         parse_options=pacsv.ParseOptions(delimiter=delimiter, newlines_in_values=True),
         convert_options=pacsv.ConvertOptions(
@@ -401,6 +435,7 @@ def process_csv_to_parquet(
     total_csv_bytes = 0
     dfs: List[pl.DataFrame] = []
     streamed_rows = streamed_cols_before = streamed_cols_after = 0
+    stream_started = False
     clean_kwargs = {
         "selected_columns": selected_columns,
         "schema_name": schema_name,
@@ -415,10 +450,17 @@ def process_csv_to_parquet(
                 "Lendo '%s' em blocos de %d MB (tamanho: %.2f MB > limite de leitura integral)",
                 file_path.name, stream_block_bytes // (1024 * 1024), file_size / 1024 / 1024,
             )
-            res = _stream_csv_to_partitioned_parquet(
-                file_path, out_path, file_idx, encoding, delimiter, partition_col,
-                stream_block_bytes, compression, compression_level, clean_kwargs,
-            )
+            if not stream_started:
+                _remove_stream_parts(out_path)  # sobras de execuções anteriores duplicariam linhas
+                stream_started = True
+            try:
+                res = _stream_csv_to_partitioned_parquet(
+                    file_path, out_path, file_idx, encoding, delimiter, partition_col,
+                    stream_block_bytes, compression, compression_level, clean_kwargs,
+                )
+            except BaseException:
+                _remove_stream_parts(out_path)  # nunca deixa parquet parcial
+                raise
             streamed_rows += res["rows"]
             streamed_cols_before = max(streamed_cols_before, res["cols_before"])
             streamed_cols_after = max(streamed_cols_after, res["cols_after"])
@@ -592,8 +634,12 @@ def process_csv_to_parquet(
 def process_all_datasets(
     datasets_dir: Union[str, Path] = "datasets",
     output_base: Union[str, Path] = "data/processed",
+    failures: Optional[List[Any]] = None,
 ) -> List[Dict[str, Any]]:
-    """Converte sistematicamente todos os datasets de Câmara, Senado e TSE para Parquet."""
+    """Converte sistematicamente todos os datasets de Câmara, Senado e TSE para Parquet.
+
+    Se `failures` for informada, recebe uma tupla `(nome, exceção)` por tarefa que falhou.
+    """
     ds_path = Path(datasets_dir)
     out_base = Path(output_base)
     summaries = []
@@ -780,6 +826,8 @@ def process_all_datasets(
             summaries.append(summary)
         except Exception as e:
             logger.error("Erro ao processar '%s': %s", task["name"], e, exc_info=True)
+            if failures is not None:
+                failures.append((task["name"], e))
 
     logger.info("\n============================================================")
     logger.info("        FINALIZADO PROCESSAMENTO DE TODOS OS DATASETS       ")
