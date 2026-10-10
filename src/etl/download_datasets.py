@@ -25,15 +25,31 @@ USER_AGENT = "factcheck-agent/0.1 (+dados abertos; ingestao automatica)"
 MIN_VALID_SIZE = 1000
 
 
+RETRY_ATTEMPTS = 3
+RETRY_BACKOFF = (2.0, 6.0)  # espera antes da 2ª e da 3ª tentativa
+
+
 class DownloadError(Exception):
     """Falha explícita de download: parcial, rede, timeout, HTTP de erro ou zip inválido."""
 
 
-def make_client(timeout: float = 60.0) -> httpx.Client:
-    """Client HTTP com verificação SSL ligada (padrão do httpx) e redirecionamentos seguidos."""
+class TransientDownloadError(DownloadError):
+    """Falha que pode passar sozinha (timeout, rede, HTTP 5xx, download parcial): vale tentar de novo."""
+
+
+def _sleep(seconds: float) -> None:
+    time.sleep(seconds)
+
+
+def make_client(read_timeout: float = 180.0) -> httpx.Client:
+    """Client HTTP com verificação SSL ligada (padrão do httpx) e redirecionamentos seguidos.
+
+    O servidor da Câmara chega a ficar mais de 60 s sem enviar bytes em arquivos grandes: o timeout de
+    leitura é folgado, o de conexão não.
+    """
     return httpx.Client(
         headers={"User-Agent": USER_AGENT, "Accept-Encoding": "identity"},
-        timeout=timeout,
+        timeout=httpx.Timeout(30.0, read=read_timeout),
         follow_redirects=True,
     )
 
@@ -51,6 +67,8 @@ def _stream_to_part(url: str, part: Path, desc: str, client: httpx.Client) -> tu
     digest = hashlib.sha256()
     try:
         with client.stream("GET", url) as resp:
+            if resp.status_code >= 500:
+                raise TransientDownloadError(f"{desc}: HTTP {resp.status_code} em {url}")
             if resp.status_code >= 400:
                 raise DownloadError(f"{desc}: HTTP {resp.status_code} em {url}")
             expected = resp.headers.get("Content-Length")
@@ -62,12 +80,12 @@ def _stream_to_part(url: str, part: Path, desc: str, client: httpx.Client) -> tu
                     digest.update(chunk)
                     written += len(chunk)
     except httpx.TimeoutException as e:
-        raise DownloadError(f"{desc}: timeout em {url}: {e}") from e
+        raise TransientDownloadError(f"{desc}: timeout em {url}: {e}") from e
     except httpx.HTTPError as e:
-        raise DownloadError(f"{desc}: erro de rede em {url}: {e}") from e
+        raise TransientDownloadError(f"{desc}: erro de rede em {url}: {e}") from e
 
     if expected is not None and expected.isdigit() and int(expected) != written:
-        raise DownloadError(
+        raise TransientDownloadError(
             f"{desc}: download parcial, Content-Length={expected} mas {written} bytes recebidos"
         )
     return written, digest.hexdigest()
@@ -96,7 +114,17 @@ def download_file(
     logger.info("[BAIXANDO] %s de %s", desc, url)
     start = time.time()
     try:
-        size, sha256 = _stream_to_part(url, part, desc, client)
+        for attempt in range(1, RETRY_ATTEMPTS + 1):
+            try:
+                size, sha256 = _stream_to_part(url, part, desc, client)
+                break
+            except TransientDownloadError as e:
+                _unlink(part)
+                if attempt == RETRY_ATTEMPTS:
+                    raise
+                wait = RETRY_BACKOFF[min(attempt, len(RETRY_BACKOFF)) - 1]
+                logger.warning("%s (tentativa %d/%d); nova tentativa em %.0fs", e, attempt, RETRY_ATTEMPTS, wait)
+                _sleep(wait)
         if expected_sha256 and sha256 != expected_sha256:
             raise DownloadError(f"{desc}: sha256 diverge (esperado {expected_sha256}, obtido {sha256})")
         os.replace(part, dest_path)

@@ -103,7 +103,7 @@ def run_tse_downloads(
 ) -> List[DownloadError]:
     """Baixa e extrai os zips do TSE. Falhas são devolvidas e não interrompem os demais."""
     own_client = client is None
-    client = client or make_client(timeout=120.0)
+    client = client or make_client()
     failures: List[DownloadError] = []
     try:
         for ano in anos:
