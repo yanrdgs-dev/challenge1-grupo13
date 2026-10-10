@@ -94,11 +94,13 @@ def test_dry_run_without_news_says_so(tmp_path):
     assert run(srv, tmp_path, st, dry_run=True).action == "sem_novidade"
 
 
-def test_force_downloads_even_without_news(tmp_path):
+def test_force_downloads_even_without_news_but_identical_bytes_are_not_news(tmp_path):
     srv, st = Server(), new_state(tmp_path)
     run(srv, tmp_path, st)
     srv.gets = 0
-    assert run(srv, tmp_path, st, force=True).action == "baixado" and srv.gets == 1
+    assert run(srv, tmp_path, st, force=True).action == "sem_novidade" and srv.gets == 1
+    srv.body = b"x;y\n" + b"7;7\n" * 500
+    assert run(srv, tmp_path, st, force=True).action == "baixado"
 
 
 def test_existing_file_without_state_is_adopted_when_remote_is_not_newer(tmp_path):

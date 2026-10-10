@@ -38,6 +38,7 @@ class Remote:
     def __init__(self):
         self.etags = {"a": '"a1"', "z": '"z1"'}
         self.requests = []
+        self.zip_content = zip_of("z-2030.csv")  # fixo: o zip embute a hora de criação, que mudaria os bytes
 
     def handler(self, request):
         self.requests.append((request.method, request.url.path))
@@ -46,7 +47,7 @@ class Remote:
         headers = {"Last-Modified": OLD}
         if key in self.etags:
             headers["ETag"] = self.etags[key]
-        content = zip_of("z-2030.csv") if key == "z" else BODY
+        content = self.zip_content if key == "z" else BODY
         return httpx.Response(200, content=content, headers=headers)
 
     def gets(self):
