@@ -173,3 +173,8 @@ A poda automática (`prune_redundant`) só se aplica quando a tabela é reconhec
 - `tse_candidatos`: tem `SQ_CANDIDATO` e `NM_URNA_CANDIDATO` ou `CD_CARGO` **e nenhuma medida de fato** (colunas `QT_*` ou `VR_RECEITA`, `VR_DESPESA_CONTRATADA`, `VR_PAGTO_DESPESA`; `NR_TURNO` e `VR_DESPESA_MAX_CAMPANHA` existem no cadastro e não contam). Tabelas de resultado (votação por zona e por seção), receitas e despesas contratadas também têm `SQ_CANDIDATO`, mas carregam votos e valores que o schema de cadastro descartaria.
 - `tse_despesas`: tem `VR_PAGTO_DESPESA` **e** `SQ_CANDIDATO`. As despesas pagas de 2022 vêm por prestador de contas (`SQ_PRESTADOR_CONTAS`), sem coluna de candidato, e por isso não são podadas.
 - Tabela não reconhecida mantém todas as colunas.
+
+## Normalizações específicas por fonte
+
+- **CEAP da Câmara** (`camara_ceap`): preserva `ideCadastro`, a chave de junção com o cadastro de deputados usada por `build_dim_politicos`.
+- **Cadastro de senadores**: a fonte automática (`senador/lista/atual.csv`) é um XML achatado, com cabeçalhos em forma de caminho e uma linha por suplente/exercício. `src/etl/senado_cadastro.py` a reduz a uma linha por senador com `Codigo Parlamentar`, `Nome Parlamentar`, `Nome Completo`, `Partido`, `UF`, `Email`, `Titular/Suplente` e `Mandato` (ex.: `2023-2031`). Entrada já no formato legível passa sem alteração.

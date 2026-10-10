@@ -89,6 +89,7 @@ CAMARA_VOTACOES_RENAME: Dict[str, str] = {
 
 # 5. Esquema Câmara dos Deputados - Cota Parlamentar (CEAP)
 CAMARA_CEAP_COLUMNS: List[str] = [
+    "ideCadastro",  # chave de junção com o cadastro de deputados (usada por build_dim_politicos)
     "idDeputado",
     "nuDeputadoId",
     "txNomeParlamentar",

@@ -298,3 +298,195 @@ def test_disk_error_while_extracting_is_explicit_error_and_cleans_partial_files(
         with pytest.raises(DownloadError, match="Disk quota"):
             download_zip_csv(URL, tmp_path, "Ano-2024", "CEAP 2024", client=client)
     assert not list(tmp_path.glob("*"))
+
+
+# ------------------------------- checksum e manifesto ------------------------------- #
+
+def test_download_with_matching_sha256_is_accepted(tmp_path):
+    import hashlib
+
+    dest = tmp_path / "a.csv"
+    with client_for(ok_handler) as client:
+        download_file(URL, dest, "teste", client=client, expected_sha256=hashlib.sha256(BODY).hexdigest())
+    assert dest.read_bytes() == BODY
+
+
+def test_download_with_wrong_sha256_is_explicit_error_and_leaves_no_file(tmp_path):
+    dest = tmp_path / "a.csv"
+    with client_for(ok_handler) as client, pytest.raises(DownloadError, match="sha256"):
+        download_file(URL, dest, "teste", client=client, expected_sha256="0" * 64)
+    assert not dest.exists() and not list(tmp_path.glob("*.part"))
+
+
+def test_run_downloads_follows_the_manifest_not_hardcoded_urls(tmp_path):
+    manifest = {
+        "version": 1,
+        "sources": [
+            {"id": "a", "kind": "file", "url": "https://dados.example.gov.br/a.csv", "dest": "x/a.csv", "desc": "A"},
+            {"id": "z", "kind": "zip_csv", "anos": [2030], "url": "https://dados.example.gov.br/z-{ano}.zip",
+             "dest": "x/z", "prefix": "z-{ano}", "desc": "Z {ano}"},
+        ],
+        "tse": {"packages": {}, "rules": [], "pending_ok": {}},
+    }
+    seen = []
+
+    def handler(request):
+        seen.append(str(request.url))
+        if str(request.url).endswith(".zip"):
+            return httpx.Response(200, content=make_zip("z-2030.csv", BODY))
+        return httpx.Response(200, content=BODY)
+
+    with client_for(handler) as client:
+        failures = run_downloads(tmp_path, client=client, manifest=manifest)
+    assert failures == []
+    assert seen == ["https://dados.example.gov.br/a.csv", "https://dados.example.gov.br/z-2030.zip"]
+    assert (tmp_path / "x/a.csv").read_bytes() == BODY and (tmp_path / "x/z/z-2030.csv").exists()
+
+
+def test_run_downloads_verifies_manifest_sha256(tmp_path):
+    manifest = {
+        "version": 1,
+        "sources": [{"id": "a", "kind": "file", "url": "https://dados.example.gov.br/a.csv",
+                     "dest": "x/a.csv", "desc": "A", "sha256": "f" * 64}],
+        "tse": {"packages": {}, "rules": [], "pending_ok": {}},
+    }
+    with client_for(ok_handler) as client:
+        failures = run_downloads(tmp_path, client=client, manifest=manifest)
+    assert len(failures) == 1 and "sha256" in str(failures[0])
+    assert not (tmp_path / "x/a.csv").exists()
+
+
+# ------------------------------- retentativa de erros transitórios ------------------------------- #
+
+def flaky_handler(failures, fail_with):
+    state = {"n": 0}
+
+    def handler(request):
+        state["n"] += 1
+        if state["n"] <= failures:
+            return fail_with()
+        return httpx.Response(200, content=BODY)
+
+    return handler, state
+
+
+def test_transient_timeout_is_retried_until_it_succeeds(tmp_path, _no_download_backoff):
+    def boom():
+        raise httpx.ReadTimeout("lento")
+
+    handler, state = flaky_handler(2, boom)
+    dest = tmp_path / "a.csv"
+    with client_for(handler) as client:
+        download_file(URL, dest, "teste", client=client)
+    assert dest.read_bytes() == BODY and state["n"] == 3
+    assert len(_no_download_backoff) == 2 and _no_download_backoff[0] < _no_download_backoff[1]  # backoff crescente
+
+
+def test_server_error_5xx_is_retried(tmp_path):
+    handler, state = flaky_handler(1, lambda: httpx.Response(503))
+    with client_for(handler) as client:
+        download_file(URL, tmp_path / "a.csv", "teste", client=client)
+    assert state["n"] == 2
+
+
+def test_partial_download_is_retried(tmp_path):
+    handler, state = flaky_handler(
+        1, lambda: httpx.Response(200, content=BODY[:100], headers={"Content-Length": str(len(BODY))}))
+    with client_for(handler) as client:
+        download_file(URL, tmp_path / "a.csv", "teste", client=client)
+    assert state["n"] == 2 and (tmp_path / "a.csv").read_bytes() == BODY
+
+
+def test_persistent_transient_error_gives_up_after_three_attempts(tmp_path):
+    def boom():
+        raise httpx.ConnectTimeout("fora do ar")
+
+    handler, state = flaky_handler(99, boom)
+    with client_for(handler) as client, pytest.raises(DownloadError, match="timeout"):
+        download_file(URL, tmp_path / "a.csv", "teste", client=client)
+    assert state["n"] == 3 and not list(tmp_path.glob("*"))
+
+
+@pytest.mark.parametrize("status", [404, 403])
+def test_definitive_http_errors_are_not_retried(tmp_path, status):
+    handler, state = flaky_handler(99, lambda: httpx.Response(status))
+    with client_for(handler) as client, pytest.raises(DownloadError, match=str(status)):
+        download_file(URL, tmp_path / "a.csv", "teste", client=client)
+    assert state["n"] == 1
+
+
+def test_sha256_mismatch_is_not_retried(tmp_path):
+    handler, state = flaky_handler(0, lambda: None)
+    with client_for(handler) as client, pytest.raises(DownloadError, match="sha256"):
+        download_file(URL, tmp_path / "a.csv", "teste", client=client, expected_sha256="0" * 64)
+    assert state["n"] == 1
+
+
+def test_default_client_has_a_long_read_timeout():
+    with make_client() as client:
+        assert client.timeout.read >= 120
+
+
+# ------------------------------- DownloadInfo, force e extração atômica ------------------------------- #
+
+def test_download_info_reports_size_sha256_and_http_validators(tmp_path):
+    import hashlib
+
+    def handler(request):
+        return httpx.Response(200, content=BODY, headers={"ETag": '"v1"', "Last-Modified": "Sat, 10 Oct 2026 06:00:00 GMT"})
+
+    with client_for(handler) as client:
+        info = download_file(URL, tmp_path / "a.csv", "teste", client=client)
+    assert info.path == tmp_path / "a.csv" and info.size == len(BODY) and not info.skipped
+    assert info.sha256 == hashlib.sha256(BODY).hexdigest()
+    assert info.fingerprint.etag == '"v1"' and info.fingerprint.last_modified.startswith("Sat, 10 Oct 2026")
+
+
+def test_skipped_download_is_reported_as_skipped(tmp_path):
+    dest = tmp_path / "a.csv"
+    dest.write_bytes(BODY)
+    with client_for(ok_handler) as client:
+        assert download_file(URL, dest, "teste", client=client).skipped is True
+
+
+def test_force_redownloads_and_replaces_existing_file(tmp_path):
+    dest = tmp_path / "a.csv"
+    dest.write_bytes(b"velho" * 400)
+    with client_for(ok_handler) as client:
+        info = download_file(URL, dest, "teste", client=client, force=True)
+    assert not info.skipped and dest.read_bytes() == BODY
+
+
+def test_failed_forced_redownload_keeps_the_previous_good_file(tmp_path):
+    dest = tmp_path / "a.csv"
+    dest.write_bytes(b"velho" * 400)
+    with client_for(lambda r: httpx.Response(404)) as client, pytest.raises(DownloadError):
+        download_file(URL, dest, "teste", client=client, force=True)
+    assert dest.read_bytes() == b"velho" * 400 and not list(tmp_path.glob("*.part"))
+
+
+def test_forced_zip_redownload_replaces_extracted_csv(tmp_path):
+    (tmp_path / "Ano-2024.csv").write_bytes(b"velho" * 400)
+    payload = make_zip("Ano-2024.csv", BODY)
+    with client_for(lambda r: httpx.Response(200, content=payload)) as client:
+        info = download_zip_csv(URL, tmp_path, "Ano-2024", "CEAP 2024", client=client, force=True)
+    assert (tmp_path / "Ano-2024.csv").read_bytes() == BODY and not info.skipped
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["Ano-2024.csv"]
+
+
+def test_failed_zip_extraction_keeps_previously_extracted_files(tmp_path):
+    (tmp_path / "Ano-2024.csv").write_bytes(b"velho" * 400)
+    payload = make_zip("Ano-2024.csv", BODY)
+
+    class FullDiskZip(zipfile.ZipFile):
+        def extract(self, member, path=None, pwd=None):
+            Path(path, member.filename).write_bytes(b"parcial")
+            raise OSError(122, "Disk quota exceeded")
+
+    with client_for(lambda r: httpx.Response(200, content=payload)) as client, patch.object(
+        download_datasets.zipfile, "ZipFile", FullDiskZip
+    ):
+        with pytest.raises(DownloadError, match="Disk quota"):
+            download_zip_csv(URL, tmp_path, "Ano-2024", "CEAP 2024", client=client, force=True)
+    assert (tmp_path / "Ano-2024.csv").read_bytes() == b"velho" * 400
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["Ano-2024.csv"]

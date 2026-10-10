@@ -8,12 +8,13 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 import polars as pl
 import pyarrow as pa
 import pyarrow.csv as pacsv
 
+from src.etl.senado_cadastro import normalize_senado_senadores
 from src.schemas.data_schemas import (
     DATA_SCHEMAS,
     SCHEMA_RENAMES,
@@ -394,6 +395,7 @@ def process_csv_to_parquet(
     prune_redundant: bool = True,
     large_file_bytes: int = LARGE_FILE_BYTES,
     stream_block_bytes: int = STREAM_BLOCK_BYTES,
+    transform: Optional[Callable[[pl.DataFrame], pl.DataFrame]] = None,
 ) -> Dict[str, Any]:
     """Executa o pipeline completo de ingestão, tratamento e serialização em Parquet.
 
@@ -413,6 +415,7 @@ def process_csv_to_parquet(
         prune_redundant: Se True, detecta o schema automaticamente e poda colunas.
         large_file_bytes: CSVs maiores que isto (com partição) são lidos em blocos, sem carregar o arquivo inteiro.
         stream_block_bytes: Tamanho do bloco de leitura do caminho de streaming.
+        transform: Função aplicada a cada CSV lido, antes da higienização (só no caminho de leitura integral).
 
     Returns:
         Dicionário com sumário e estatísticas da execução.
@@ -493,6 +496,8 @@ def process_csv_to_parquet(
                 truncate_ragged_lines=True,
             )
 
+        if transform is not None:
+            df_file = transform(df_file)
         df_file = _year_from_filename(df_file, file_path, partition_col)
 
         dfs.append(df_file)
@@ -677,6 +682,7 @@ def process_all_datasets(
             "input": ds_path / "senado/cadastro/senadores.csv",
             "output": out_base / "senado/senadores.parquet",
             "encoding": "utf8", "delimiter": ";", "partition_col": None,
+            "transform": normalize_senado_senadores,
         },
         {
             "name": "Senado - CEAPS (Cota Senadores)",
@@ -686,7 +692,7 @@ def process_all_datasets(
         },
         {
             "name": "Senado - Matérias",
-            "input": ds_path / "senado/materias/materias.csv",
+            "input": ds_path / "senado/materias",
             "output": out_base / "senado/materias.parquet",
             "encoding": "utf8", "delimiter": ",", "partition_col": None,
         },
@@ -821,6 +827,7 @@ def process_all_datasets(
                 prefer_brasil=task.get("prefer_brasil", False),
                 filter_pattern=task.get("filter_pattern"),
                 min_reduction_pct=task.get("min_reduction_pct", 50.0),
+                transform=task.get("transform"),
             )
             summary["dataset_name"] = task["name"]
             summaries.append(summary)

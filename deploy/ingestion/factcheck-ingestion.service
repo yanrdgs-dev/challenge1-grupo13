@@ -1,0 +1,13 @@
+[Unit]
+Description=Ingestão incremental das bases públicas (Câmara, Senado, TSE) do fact-checker
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=deploy
+ExecStart=/srv/factcheck/run-ingestion.sh
+# Primeira carga completa: ~19 GB de CSVs e um build de vários minutos. As seguintes são rápidas.
+TimeoutStartSec=3h
+Nice=10

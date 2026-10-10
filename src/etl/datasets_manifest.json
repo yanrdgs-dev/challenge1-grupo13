@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "descricao": "Fontes das bases públicas. {ano} é expandido por 'anos'; refresh: validators compara ETag/Last-Modified, always rebaixa sempre (fontes dinâmicas e pequenas); sha256 é opcional e só faz sentido em arquivo fixo.",
+  "sources": [
+    {"id": "camara-ceap", "kind": "zip_csv", "anos": [2022, 2023, 2024, 2025, 2026],
+     "url": "https://www.camara.leg.br/cotas/Ano-{ano}.csv.zip", "dest": "camara/ceap", "prefix": "Ano-{ano}",
+     "desc": "Câmara CEAP {ano}"},
+    {"id": "camara-deputados", "kind": "file",
+     "url": "https://dadosabertos.camara.leg.br/arquivos/deputados/csv/deputados.csv",
+     "dest": "camara/cadastro/deputados.csv", "desc": "Câmara - Cadastro Deputados"},
+    {"id": "camara-votacoes", "kind": "file", "anos": [2022, 2023, 2024, 2025, 2026],
+     "url": "https://dadosabertos.camara.leg.br/arquivos/votacoes/csv/votacoes-{ano}.csv",
+     "dest": "camara/votacoes/votacoes-{ano}.csv", "desc": "Câmara - Votações {ano}"},
+    {"id": "camara-votacoes-votos", "kind": "file", "anos": [2022, 2023, 2024, 2025, 2026],
+     "url": "https://dadosabertos.camara.leg.br/arquivos/votacoesVotos/csv/votacoesVotos-{ano}.csv",
+     "dest": "camara/votacoes/votacoesVotos-{ano}.csv", "desc": "Câmara - Votações Votos {ano}"},
+    {"id": "camara-proposicoes", "kind": "file", "anos": [2022, 2023, 2024, 2025, 2026],
+     "url": "https://dadosabertos.camara.leg.br/arquivos/proposicoes/csv/proposicoes-{ano}.csv",
+     "dest": "camara/proposicoes/proposicoes-{ano}.csv", "desc": "Câmara - Proposições {ano}"},
+    {"id": "camara-proposicoes-autores", "kind": "file", "anos": [2022, 2023, 2024, 2025, 2026],
+     "url": "https://dadosabertos.camara.leg.br/arquivos/proposicoesAutores/csv/proposicoesAutores-{ano}.csv",
+     "dest": "camara/proposicoes_autores/proposicoesAutores-{ano}.csv", "desc": "Câmara - Proposições Autores {ano}"},
+    {"id": "senado-senadores", "kind": "file", "refresh": "always",
+     "url": "https://legis.senado.leg.br/dadosabertos/senador/lista/atual.csv",
+     "dest": "senado/cadastro/senadores.csv", "desc": "Senado - Cadastro Senadores"},
+    {"id": "senado-ceaps", "kind": "file", "anos": [2022, 2023, 2024, 2025, 2026],
+     "url": "https://adm.senado.gov.br/adm-dadosabertos/api/v1/senadores/despesas_ceaps/{ano}/csv",
+     "dest": "senado/ceaps/ceaps_{ano}.csv", "desc": "Senado CEAPS {ano}"},
+    {"id": "senado-materias", "kind": "file", "refresh": "always", "anos": [2022, 2023, 2024, 2025, 2026],
+     "url": "https://legis.senado.leg.br/dadosabertos/processo.csv?ano={ano}",
+     "dest": "senado/materias/materias-{ano}.csv", "desc": "Senado - Matérias {ano}"}
+  ],
+  "tse": {
+    "packages": {
+      "2022": {"candidatos": "candidatos-2022",
+               "prestacao": "dadosabertos-tse-jus-br-dataset-prestacao-de-contas-eleitorais-2022",
+               "resultados": "resultados-2022"},
+      "2026": {"candidatos": "candidatos-2026",
+               "prestacao": "prestacao-de-contas-eleitorais-2026",
+               "resultados": "resultados-2026"}
+    },
+    "rules": [
+      {"package": "candidatos", "pattern": "consulta_cand_{a}", "dest": "tse/candidatos"},
+      {"package": "candidatos", "pattern": "consulta_cand_complementar_{a}", "dest": "tse/candidatos"},
+      {"package": "candidatos", "pattern": "bem_candidato_{a}", "dest": "tse/bens"},
+      {"package": "candidatos", "pattern": "consulta_coligacao_{a}", "dest": "tse/coligacoes"},
+      {"package": "candidatos", "pattern": "motivo_cassacao_{a}", "dest": "tse/cassacao"},
+      {"package": "candidatos", "pattern": "rede_social_candidato_{a}(_[A-Z]{2})?", "dest": "tse/redes_sociais"},
+      {"package": "prestacao", "pattern": "prestacao_de_contas_eleitorais_candidatos_{a}", "dest": "tse/prestacao_contas"},
+      {"package": "resultados", "pattern": "Historico_Totalizacao_Presidente_BR_[12]T_{a}", "dest": "tse/votacao/totalizacao"},
+      {"package": "resultados", "pattern": "votacao_candidato_munzona_{a}", "dest": "tse/votacao/munzona/votacao_candidato_munzona_{a}"},
+      {"package": "resultados", "pattern": "detalhe_votacao_secao_{a}", "dest": "tse/votacao/secao/detalhe_votacao_secao_{a}"}
+    ],
+    "pending_ok": {"2026": ["resultados"]}
+  }
+}

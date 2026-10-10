@@ -1,110 +1,254 @@
-"""Pipeline de ingestão: download (Câmara, Senado, TSE) -> build_parquet. Etapas mockadas."""
+"""Pipeline de ingestão: download -> build (em staging) -> publicação atômica. Etapas mockadas."""
 
+import fcntl
+import json
 from pathlib import Path
 
 import pytest
 
 from src.etl import pipeline
 from src.etl.download_datasets import DownloadError
+from src.etl.ingestion_state import IngestionState
 
 
 @pytest.fixture
-def calls(monkeypatch):
-    log = []
+def env(monkeypatch, tmp_path):
+    """Substitui as etapas pesadas por fakes que registram as chamadas."""
+    ds, out = tmp_path / "ds", tmp_path / "data" / "processed"
+    ds.mkdir(parents=True)
+    ctx = {"log": [], "changes": ["camara-ceap-2026"], "ds": ds, "out": out, "build_failures": [], "dim_error": None}
 
-    def fake_downloads(base_dir, client=None):
-        log.append(("download_camara_senado", Path(base_dir)))
+    def fake_downloads(base_dir, client=None, manifest=None, state=None, force=False, dry_run=False, changes=None):
+        ctx["log"].append(("download_camara_senado", dict(force=force, dry_run=dry_run)))
+        if changes is not None:
+            changes.extend(ctx["changes"])
         return []
 
-    def fake_tse(base_dir, anos, client=None):
-        log.append(("download_tse", Path(base_dir), list(anos)))
+    def fake_tse(base_dir, anos, client=None, manifest=None, state=None, force=False, dry_run=False, changes=None):
+        ctx["log"].append(("download_tse", list(anos), dict(force=force, dry_run=dry_run)))
         return []
 
     def fake_build(datasets_dir, output_base, failures=None):
-        log.append(("build_parquet", Path(datasets_dir), Path(output_base)))
+        ctx["log"].append(("build_parquet", Path(output_base)))
+        (Path(output_base) / "camara").mkdir(parents=True)
+        (Path(output_base) / "camara" / "deputados.parquet").write_text("novo")
+        failures.extend(ctx["build_failures"])
         return [{"dataset_name": "x"}]
+
+    def fake_dim(output_path, **kwargs):
+        ctx["log"].append(("dim_politicos", Path(output_path)))
+        if ctx["dim_error"]:
+            raise ctx["dim_error"]
+        Path(output_path).write_text("dim")
+        return Path(output_path)
 
     monkeypatch.setattr(pipeline, "run_downloads", fake_downloads)
     monkeypatch.setattr(pipeline, "run_tse_downloads", fake_tse)
     monkeypatch.setattr(pipeline, "process_all_datasets", fake_build)
-    return log
+    monkeypatch.setattr(pipeline, "build_and_save_dim_politicos", fake_dim)
+    ctx["names"] = lambda: [c[0] for c in ctx["log"]]
+    ctx["state"] = lambda: IngestionState.load(ds / ".ingestion_state.json")
+    return ctx
 
 
-def names(calls):
-    return [c[0] for c in calls]
+def run(env, **kw):
+    kw.setdefault("anos_tse", [2022])
+    return pipeline.run_pipeline(env["ds"], env["out"], **kw)
 
 
-def test_runs_downloads_then_build_in_order(calls, tmp_path):
-    code = pipeline.run_pipeline(tmp_path / "ds", tmp_path / "out", anos_tse=[2022])
-    assert code == 0
-    assert names(calls) == ["download_camara_senado", "download_tse", "build_parquet"]
-    assert calls[1][2] == [2022]
-    assert calls[2][1:] == (tmp_path / "ds", tmp_path / "out")
+def mark_as_built(env):
+    env["out"].mkdir(parents=True, exist_ok=True)
+    (env["out"] / "ingestion_info.json").write_text("{}")
+    (env["out"] / "camara").mkdir(exist_ok=True)
+    (env["out"] / "camara" / "deputados.parquet").write_text("antigo")
 
 
-def test_aborts_before_build_when_any_download_fails(calls, monkeypatch, tmp_path):
+# ------------------------------- fluxo ------------------------------- #
+
+def test_runs_downloads_then_build_then_dim_and_publishes(env):
+    assert run(env) == 0
+    assert env["names"]() == ["download_camara_senado", "download_tse", "build_parquet", "dim_politicos"]
+    staging = Path(str(env["out"]) + ".staging")
+    assert env["log"][2][1] == staging and env["log"][3][1] == staging / "dim_politicos.parquet"
+    assert (env["out"] / "camara" / "deputados.parquet").read_text() == "novo"
+    assert (env["out"] / "dim_politicos.parquet").read_text() == "dim"
+    assert not staging.exists()
+
+
+def test_no_news_and_already_built_skips_the_build(env):
+    env["changes"] = []
+    mark_as_built(env)
+    assert run(env) == 0
+    assert "build_parquet" not in env["names"]()
+    assert (env["out"] / "camara" / "deputados.parquet").read_text() == "antigo"
+    assert env["state"]().last_run["built"] is False
+
+
+def test_first_run_builds_even_without_news(env):
+    env["changes"] = []
+    assert run(env) == 0 and "build_parquet" in env["names"]()
+
+
+def test_news_trigger_build_and_clear_pending_flag(env):
+    mark_as_built(env)
+    assert run(env) == 0
+    assert "build_parquet" in env["names"]()
+    st = env["state"]()
+    assert st.pending_build is False and st.last_run["built"] is True and st.last_run["downloaded"] == 1
+
+
+def test_pending_build_from_a_previous_run_forces_a_build(env):
+    env["changes"] = []
+    mark_as_built(env)
+    st = env["state"]()
+    st.pending_build = True
+    st.save()
+    assert run(env) == 0 and "build_parquet" in env["names"]()
+
+
+def test_force_build_builds_without_news(env):
+    env["changes"] = []
+    mark_as_built(env)
+    assert run(env, force_build=True) == 0 and "build_parquet" in env["names"]()
+
+
+def test_force_is_passed_to_the_downloads(env):
+    run(env, force=True)
+    assert env["log"][0][1]["force"] is True and env["log"][1][2]["force"] is True
+
+
+def test_skip_download_only_builds(env):
+    mark_as_built(env)
+    assert run(env, skip_download=True) == 0
+    assert env["names"]() == ["build_parquet", "dim_politicos"]
+
+
+def test_skip_tse_with_empty_years(env):
+    run(env, anos_tse=[])
+    assert "download_tse" not in env["names"]()
+
+
+# ------------------------------- falhas ------------------------------- #
+
+def test_download_failure_aborts_before_build_but_remembers_pending_build(env, monkeypatch):
     monkeypatch.setattr(pipeline, "run_tse_downloads", lambda *a, **k: [DownloadError("TSE fora do ar")])
-    code = pipeline.run_pipeline(tmp_path / "ds", tmp_path / "out", anos_tse=[2022])
-    assert code == 1
-    assert "build_parquet" not in names(calls)
+    mark_as_built(env)
+    assert run(env) == 1
+    assert "build_parquet" not in env["names"]()
+    assert env["state"]().pending_build is True and env["state"]().last_run["exit_code"] == 1
 
 
-def test_camara_senado_failure_also_aborts_but_tse_still_runs(calls, monkeypatch, tmp_path):
+def test_allow_partial_builds_even_with_download_failures(env, monkeypatch):
+    monkeypatch.setattr(pipeline, "run_tse_downloads", lambda *a, **k: [DownloadError("x")])
+    assert run(env, allow_partial=True) == 0 and "build_parquet" in env["names"]()
+
+
+def test_camara_senado_failure_aborts_but_tse_still_runs(env, monkeypatch):
     monkeypatch.setattr(pipeline, "run_downloads", lambda *a, **k: [DownloadError("Câmara 500")])
     ran = []
     monkeypatch.setattr(pipeline, "run_tse_downloads", lambda *a, **k: ran.append(1) or [])
-    code = pipeline.run_pipeline(tmp_path / "ds", tmp_path / "out", anos_tse=[2022])
-    assert code == 1 and ran == [1]
-    assert "build_parquet" not in names(calls)
+    assert run(env) == 1 and ran == [1]
 
 
-def test_allow_partial_builds_even_with_download_failures(calls, monkeypatch, tmp_path):
-    monkeypatch.setattr(pipeline, "run_tse_downloads", lambda *a, **k: [DownloadError("x")])
-    code = pipeline.run_pipeline(tmp_path / "ds", tmp_path / "out", anos_tse=[2022], allow_partial=True)
-    assert code == 0
-    assert "build_parquet" in names(calls)
+def test_build_task_failure_returns_nonzero_and_does_not_publish(env):
+    mark_as_built(env)
+    env["build_failures"] = [("TSE - Prestação de Contas", RuntimeError("parse error"))]
+    assert run(env) == 1
+    assert (env["out"] / "camara" / "deputados.parquet").read_text() == "antigo"
+    assert not Path(str(env["out"]) + ".staging").exists()
+    assert env["state"]().pending_build is True
 
 
-def test_skip_download_only_builds(calls, tmp_path):
-    code = pipeline.run_pipeline(tmp_path / "ds", tmp_path / "out", anos_tse=[2022], skip_download=True)
-    assert code == 0
-    assert names(calls) == ["build_parquet"]
+def test_build_exception_returns_nonzero_and_keeps_published_data(env, monkeypatch):
+    mark_as_built(env)
 
-
-def test_returns_nonzero_when_build_produces_nothing(calls, monkeypatch, tmp_path):
-    monkeypatch.setattr(pipeline, "process_all_datasets", lambda **k: [])
-    assert pipeline.run_pipeline(tmp_path / "ds", tmp_path / "out", anos_tse=[2022]) == 1
-
-
-def test_build_exception_returns_nonzero(calls, monkeypatch, tmp_path):
     def boom(**k):
         raise RuntimeError("disco cheio")
 
     monkeypatch.setattr(pipeline, "process_all_datasets", boom)
-    assert pipeline.run_pipeline(tmp_path / "ds", tmp_path / "out", anos_tse=[2022]) == 1
+    assert run(env) == 1
+    assert (env["out"] / "camara" / "deputados.parquet").read_text() == "antigo"
 
 
-def test_skip_tse_with_empty_years(calls, tmp_path):
-    pipeline.run_pipeline(tmp_path / "ds", tmp_path / "out", anos_tse=[])
-    assert "download_tse" not in names(calls)
+def test_dim_politicos_failure_does_not_publish(env):
+    mark_as_built(env)
+    env["dim_error"] = RuntimeError("sem deputados")
+    assert run(env) == 1
+    assert (env["out"] / "camara" / "deputados.parquet").read_text() == "antigo"
+    assert not (env["out"] / "dim_politicos.parquet").exists()
 
 
-def test_main_parses_arguments(calls, tmp_path):
-    code = pipeline.main(["--datasets-dir", str(tmp_path / "d"), "--processed-dir", str(tmp_path / "p"),
+def test_build_that_produces_nothing_is_an_error(env, monkeypatch):
+    monkeypatch.setattr(pipeline, "process_all_datasets", lambda **k: [])
+    assert run(env) == 1
+
+
+# ------------------------------- publicação ------------------------------- #
+
+def test_publish_replaces_top_level_dirs_and_drops_stale_datasets(env):
+    mark_as_built(env)
+    stale = env["out"] / "camara" / "dataset_antigo.parquet"
+    stale.write_text("sobra")
+    assert run(env) == 0
+    assert not stale.exists()
+    assert not [p for p in env["out"].parent.iterdir() if ".old" in p.name or p.name.startswith(".old")]
+    assert not [p for p in env["out"].iterdir() if p.name.startswith(".old")]
+
+
+def test_ingestion_info_lists_sources_and_data_date(env):
+    st = env["state"]()
+    st.record_file("camara-ceap-2026", url="https://x/a", dest="camara/ceap", fingerprint=None, size=1,
+                   sha256="a" * 64, downloaded_at="2026-10-10T05:00:00+00:00")
+    st.record_file("senado-materias-2026", url="https://x/b", dest="senado/materias", fingerprint=None, size=1,
+                   sha256=None, downloaded_at="2026-10-10T06:30:00+00:00")
+    st.save()
+    assert run(env) == 0
+    info = json.loads((env["out"] / "ingestion_info.json").read_text(encoding="utf-8"))
+    assert info["dados_atualizados_em"] == "2026-10-10T06:30:00+00:00"
+    assert info["fontes"]["camara-ceap-2026"]["baixado_em"] == "2026-10-10T05:00:00+00:00"
+    assert info["gerado_em"]
+
+
+# ------------------------------- verificação sem baixar, e lock ------------------------------- #
+
+def test_check_only_reports_news_without_downloading_building_or_publishing(env):
+    assert run(env, check_only=True) == 0
+    assert env["log"][0][1]["dry_run"] is True and env["log"][1][2]["dry_run"] is True
+    assert "build_parquet" not in env["names"]() and not env["out"].exists()
+    assert env["state"]().last_run is None
+
+
+def test_concurrent_run_is_skipped_while_the_lock_is_held(env):
+    lock_path = env["ds"] / ".ingestion.lock"
+    with open(lock_path, "w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        assert run(env) == 0
+    assert env["log"] == []
+
+
+def test_lock_is_released_after_the_run(env):
+    run(env)
+    run(env)
+    assert env["names"]().count("build_parquet") >= 1 and len(env["log"]) > 4
+
+
+# ------------------------------- CLI ------------------------------- #
+
+def test_main_parses_arguments(env, tmp_path):
+    code = pipeline.main(["--datasets-dir", str(env["ds"]), "--processed-dir", str(env["out"]),
                           "--tse-anos", "2022", "--skip-download"])
-    assert code == 0
-    assert calls[-1][1:] == (tmp_path / "d", tmp_path / "p")
+    assert code == 0 and "build_parquet" in env["names"]()
 
 
-def test_main_default_years_are_2022_and_2026(calls, tmp_path):
-    pipeline.main(["--datasets-dir", str(tmp_path / "d"), "--processed-dir", str(tmp_path / "p")])
-    assert [c for c in calls if c[0] == "download_tse"][0][2] == [2022, 2026]
+def test_main_default_years_are_2022_and_2026(env):
+    pipeline.main(["--datasets-dir", str(env["ds"]), "--processed-dir", str(env["out"])])
+    assert [c for c in env["log"] if c[0] == "download_tse"][0][1] == [2022, 2026]
 
 
-def test_returns_nonzero_when_a_build_task_failed_even_with_other_summaries(calls, monkeypatch, tmp_path):
-    def build_with_failure(datasets_dir, output_base, failures=None):
-        failures.append(("TSE - Prestação de Contas", RuntimeError("parse error")))
-        return [{"dataset_name": "x"}]
-
-    monkeypatch.setattr(pipeline, "process_all_datasets", build_with_failure)
-    assert pipeline.run_pipeline(tmp_path / "ds", tmp_path / "out", anos_tse=[2022]) == 1
+def test_main_flags_force_check_and_force_build(env):
+    mark_as_built(env)
+    pipeline.main(["--datasets-dir", str(env["ds"]), "--processed-dir", str(env["out"]), "--check"])
+    assert env["log"][0][1]["dry_run"] is True
+    env["log"].clear()
+    pipeline.main(["--datasets-dir", str(env["ds"]), "--processed-dir", str(env["out"]), "--force", "--force-build"])
+    assert env["log"][0][1]["force"] is True and "build_parquet" in env["names"]()
