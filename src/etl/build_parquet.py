@@ -686,7 +686,7 @@ def process_all_datasets(
         },
         {
             "name": "Senado - Matérias",
-            "input": ds_path / "senado/materias/materias.csv",
+            "input": ds_path / "senado/materias",
             "output": out_base / "senado/materias.parquet",
             "encoding": "utf8", "delimiter": ",", "partition_col": None,
         },
