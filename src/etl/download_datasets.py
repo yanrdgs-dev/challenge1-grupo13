@@ -6,6 +6,7 @@ renomeado para o destino. Qualquer falha (timeout, rede, HTTP de erro, download 
 """
 
 import argparse
+import hashlib
 import logging
 import os
 import sys
@@ -16,11 +17,12 @@ from typing import List, Optional
 
 import httpx
 
+from src.etl.manifest import Source, expand_sources, load_manifest
+
 logger = logging.getLogger("ETL.Download")
 
 USER_AGENT = "factcheck-agent/0.1 (+dados abertos; ingestao automatica)"
 MIN_VALID_SIZE = 1000
-ANOS = [2022, 2023, 2024, 2025, 2026]
 
 
 class DownloadError(Exception):
@@ -43,9 +45,10 @@ def _unlink(path: Path) -> None:
         pass
 
 
-def _stream_to_part(url: str, part: Path, desc: str, client: httpx.Client) -> int:
-    """Baixa `url` para `part` e devolve os bytes gravados; confere o Content-Length se informado."""
+def _stream_to_part(url: str, part: Path, desc: str, client: httpx.Client) -> tuple:
+    """Baixa `url` para `part` e devolve (bytes gravados, sha256); confere o Content-Length se informado."""
     written = 0
+    digest = hashlib.sha256()
     try:
         with client.stream("GET", url) as resp:
             if resp.status_code >= 400:
@@ -56,6 +59,7 @@ def _stream_to_part(url: str, part: Path, desc: str, client: httpx.Client) -> in
             with open(part, "wb") as f:
                 for chunk in resp.iter_bytes():
                     f.write(chunk)
+                    digest.update(chunk)
                     written += len(chunk)
     except httpx.TimeoutException as e:
         raise DownloadError(f"{desc}: timeout em {url}: {e}") from e
@@ -66,7 +70,7 @@ def _stream_to_part(url: str, part: Path, desc: str, client: httpx.Client) -> in
         raise DownloadError(
             f"{desc}: download parcial, Content-Length={expected} mas {written} bytes recebidos"
         )
-    return written
+    return written, digest.hexdigest()
 
 
 def download_file(
@@ -74,8 +78,12 @@ def download_file(
     dest_path: Path,
     desc: str,
     client: Optional[httpx.Client] = None,
+    expected_sha256: Optional[str] = None,
 ) -> Path:
-    """Baixa `url` para `dest_path` de forma atômica. Pula se já existe um arquivo válido."""
+    """Baixa `url` para `dest_path` de forma atômica. Pula se já existe um arquivo válido.
+
+    Com `expected_sha256`, um conteúdo diferente é `DownloadError` e nada é gravado.
+    """
     dest_path = Path(dest_path)
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     if dest_path.exists() and dest_path.stat().st_size > MIN_VALID_SIZE:
@@ -88,7 +96,9 @@ def download_file(
     logger.info("[BAIXANDO] %s de %s", desc, url)
     start = time.time()
     try:
-        size = _stream_to_part(url, part, desc, client)
+        size, sha256 = _stream_to_part(url, part, desc, client)
+        if expected_sha256 and sha256 != expected_sha256:
+            raise DownloadError(f"{desc}: sha256 diverge (esperado {expected_sha256}, obtido {sha256})")
         os.replace(part, dest_path)
     except OSError as e:
         _unlink(part)
@@ -138,6 +148,7 @@ def download_zip_csv(
     expected_file_prefix: str,
     desc: str,
     client: Optional[httpx.Client] = None,
+    expected_sha256: Optional[str] = None,
 ) -> None:
     """Baixa um zip e extrai o CSV em `extract_dir`. Pula se o CSV esperado já está lá."""
     extract_dir = Path(extract_dir)
@@ -149,57 +160,37 @@ def download_zip_csv(
 
     zip_path = extract_dir / f"{expected_file_prefix}.zip.tmp"
     try:
-        download_file(url, zip_path, desc, client=client)
+        download_file(url, zip_path, desc, client=client, expected_sha256=expected_sha256)
         _safe_extract(zip_path, extract_dir, desc)
     finally:
         _unlink(zip_path)
 
 
-def run_downloads(base_dir: Path, client: Optional[httpx.Client] = None) -> List[DownloadError]:
-    """Baixa todas as bases. Falhas não interrompem as demais e são devolvidas ao chamador."""
+def _download_source(source: Source, base_dir: Path, client: httpx.Client) -> None:
+    dest = base_dir / source.dest
+    if source.kind == "zip_csv":
+        download_zip_csv(source.url, dest, source.prefix, source.desc, client=client,
+                         expected_sha256=source.sha256)
+    else:
+        download_file(source.url, dest, source.desc, client=client, expected_sha256=source.sha256)
+
+
+def run_downloads(
+    base_dir: Path, client: Optional[httpx.Client] = None, manifest: Optional[dict] = None
+) -> List[DownloadError]:
+    """Baixa as fontes do manifesto. Falhas não interrompem as demais e são devolvidas ao chamador."""
     base_dir = Path(base_dir)
+    sources = expand_sources(manifest if manifest is not None else load_manifest())
     own_client = client is None
     client = client or make_client()
     failures: List[DownloadError] = []
-
-    def attempt(fn, *args) -> None:
-        try:
-            fn(*args, client=client)
-        except DownloadError as e:
-            logger.error("%s", e)
-            failures.append(e)
-
     try:
-        for ano in ANOS:
-            attempt(
-                download_zip_csv,
-                f"https://www.camara.leg.br/cotas/Ano-{ano}.csv.zip",
-                base_dir / "camara" / "ceap", f"Ano-{ano}", f"Câmara CEAP {ano}",
-            )
-
-        camara = "https://dadosabertos.camara.leg.br/arquivos"
-        arquivos = [
-            (f"{camara}/deputados/csv/deputados.csv",
-             base_dir / "camara" / "cadastro" / "deputados.csv", "Câmara - Cadastro Deputados"),
-            (f"{camara}/votacoes/csv/votacoes-2024.csv",
-             base_dir / "camara" / "votacoes" / "votacoes-2024.csv", "Câmara - Votações 2024"),
-            (f"{camara}/votacoesVotos/csv/votacoesVotos-2024.csv",
-             base_dir / "camara" / "votacoes" / "votacoesVotos-2024.csv", "Câmara - Votações Votos 2024"),
-            (f"{camara}/proposicoes/csv/proposicoes-2024.csv",
-             base_dir / "camara" / "proposicoes" / "proposicoes-2024.csv", "Câmara - Proposições 2024"),
-            (f"{camara}/proposicoesAutores/csv/proposicoesAutores-2024.csv",
-             base_dir / "camara" / "proposicoes_autores" / "proposicoesAutores-2024.csv",
-             "Câmara - Proposições Autores 2024"),
-            ("https://legis.senado.leg.br/dadosabertos/senador/lista/atual.csv",
-             base_dir / "senado" / "cadastro" / "senadores.csv", "Senado - Cadastro Senadores"),
-        ]
-        for ano in ANOS:
-            arquivos.append((
-                f"https://adm.senado.gov.br/adm-dadosabertos/api/v1/senadores/despesas_ceaps/{ano}/csv",
-                base_dir / "senado" / "ceaps" / f"ceaps_{ano}.csv", f"Senado CEAPS {ano}",
-            ))
-        for url, dest, desc in arquivos:
-            attempt(download_file, url, dest, desc)
+        for source in sources:
+            try:
+                _download_source(source, base_dir, client)
+            except DownloadError as e:
+                logger.error("%s", e)
+                failures.append(e)
     finally:
         if own_client:
             client.close()
