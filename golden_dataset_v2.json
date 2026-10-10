@@ -253,13 +253,12 @@
   },
   {
     "id": 35,
-    "claim": "Em 2022, a campanha de Lula à Presidência declarou mais despesas contratadas do que a de Jair Bolsonaro.",
+    "claim": "Em 2022, entre os candidatos à Presidência da República, Lula foi o que declarou mais despesas contratadas.",
     "expected_verdict": "VERDADEIRO",
     "category": "ELEICOES",
     "target_entity": "Tribunal Superior Eleitoral (TSE)",
     "expected_tools": [
-      "get_top_campaign_finances",
-      "get_campaign_finances"
+      "get_top_campaign_finances"
     ]
   },
   {
@@ -327,13 +326,12 @@
   },
   {
     "id": 42,
-    "claim": "Em 2022, a campanha de Jair Bolsonaro à Presidência declarou mais despesas contratadas do que a de Lula.",
+    "claim": "Em 2022, Jair Bolsonaro foi o candidato à Presidência da República que declarou mais despesas contratadas.",
     "expected_verdict": "FALSO",
     "category": "ELEICOES",
     "target_entity": "Tribunal Superior Eleitoral (TSE)",
     "expected_tools": [
-      "get_top_campaign_finances",
-      "get_campaign_finances"
+      "get_top_campaign_finances"
     ]
   },
   {
