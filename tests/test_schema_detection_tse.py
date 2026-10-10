@@ -38,7 +38,8 @@ def test_real_candidate_registry_with_turn_and_spending_cap_is_still_detected():
 
 def test_real_candidate_registry_is_pruned_to_the_formal_schema():
     cleaned = clean_dataframe(frame(CANDIDATOS + ["NR_TURNO", "VR_DESPESA_MAX_CAMPANHA"]), partition_col=None)
-    assert "NR_TURNO" not in cleaned.columns and "VR_DESPESA_MAX_CAMPANHA" not in cleaned.columns
+    # NR_TURNO agora é mantido (o cadastro tem uma linha por turno); o teto de gastos continua podado
+    assert "NR_TURNO" in cleaned.columns and "VR_DESPESA_MAX_CAMPANHA" not in cleaned.columns
     assert "SQ_CANDIDATO" in cleaned.columns
 
 
