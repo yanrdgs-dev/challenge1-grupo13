@@ -89,7 +89,7 @@ def test_weak_etag_prefix_is_compared_as_is():
 
 
 def test_without_prior_state_remote_newer_than_local_file_downloads():
-        r = d(prior=None, remote=fp('"v1"', NEW, 10), local_mtime=1_790_900_000.0)  # 02/10
+    r = d(prior=None, remote=fp('"v1"', NEW, 10), local_mtime=1_790_900_000.0)  # 02/10
     assert r.download and "mais novo" in r.reason
 
 
