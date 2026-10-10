@@ -345,3 +345,26 @@ def test_run_2022_and_2026_side_by_side_without_name_collisions(tmp_path):
         assert (tmp_path / "tse/candidatos" / f"{name}.csv").exists()
     assert (tmp_path / "tse/redes_sociais/rede_social_candidato_2026.csv").exists()
     assert (tmp_path / "tse/redes_sociais/rede_social_candidato_2022_SP.csv").exists()
+
+
+# ------------------------------- configuração vinda do manifesto ------------------------------- #
+
+def test_plan_uses_package_ids_and_rules_from_the_given_manifest(tmp_path):
+    manifest = {
+        "version": 1, "sources": [],
+        "tse": {
+            "packages": {"2030": {"candidatos": "candidatos-2030"}},
+            "rules": [{"package": "candidatos", "pattern": "consulta_cand_{a}", "dest": "tse/outro"}],
+            "pending_ok": {},
+        },
+    }
+    packages = {"candidatos-2030": [res("Candidatos", f"{CDN}/consulta_cand/consulta_cand_2030.zip")]}
+    with client_for(make_handler(packages)) as client:
+        plan = plan_tse_downloads(2030, tmp_path, client=client, manifest=manifest)
+    assert [(p.stem, p.dest_dir) for p in plan] == [("consulta_cand_2030", tmp_path / "tse" / "outro")]
+
+
+def test_plan_year_missing_in_manifest_is_rejected(tmp_path):
+    manifest = {"version": 1, "sources": [], "tse": {"packages": {}, "rules": [], "pending_ok": {}}}
+    with client_for(make_handler()) as client, pytest.raises(ValueError, match="2022"):
+        plan_tse_downloads(2022, tmp_path, client=client, manifest=manifest)

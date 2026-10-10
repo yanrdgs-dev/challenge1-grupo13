@@ -298,3 +298,59 @@ def test_disk_error_while_extracting_is_explicit_error_and_cleans_partial_files(
         with pytest.raises(DownloadError, match="Disk quota"):
             download_zip_csv(URL, tmp_path, "Ano-2024", "CEAP 2024", client=client)
     assert not list(tmp_path.glob("*"))
+
+
+# ------------------------------- checksum e manifesto ------------------------------- #
+
+def test_download_with_matching_sha256_is_accepted(tmp_path):
+    import hashlib
+
+    dest = tmp_path / "a.csv"
+    with client_for(ok_handler) as client:
+        download_file(URL, dest, "teste", client=client, expected_sha256=hashlib.sha256(BODY).hexdigest())
+    assert dest.read_bytes() == BODY
+
+
+def test_download_with_wrong_sha256_is_explicit_error_and_leaves_no_file(tmp_path):
+    dest = tmp_path / "a.csv"
+    with client_for(ok_handler) as client, pytest.raises(DownloadError, match="sha256"):
+        download_file(URL, dest, "teste", client=client, expected_sha256="0" * 64)
+    assert not dest.exists() and not list(tmp_path.glob("*.part"))
+
+
+def test_run_downloads_follows_the_manifest_not_hardcoded_urls(tmp_path):
+    manifest = {
+        "version": 1,
+        "sources": [
+            {"id": "a", "kind": "file", "url": "https://dados.example.gov.br/a.csv", "dest": "x/a.csv", "desc": "A"},
+            {"id": "z", "kind": "zip_csv", "anos": [2030], "url": "https://dados.example.gov.br/z-{ano}.zip",
+             "dest": "x/z", "prefix": "z-{ano}", "desc": "Z {ano}"},
+        ],
+        "tse": {"packages": {}, "rules": [], "pending_ok": {}},
+    }
+    seen = []
+
+    def handler(request):
+        seen.append(str(request.url))
+        if str(request.url).endswith(".zip"):
+            return httpx.Response(200, content=make_zip("z-2030.csv", BODY))
+        return httpx.Response(200, content=BODY)
+
+    with client_for(handler) as client:
+        failures = run_downloads(tmp_path, client=client, manifest=manifest)
+    assert failures == []
+    assert seen == ["https://dados.example.gov.br/a.csv", "https://dados.example.gov.br/z-2030.zip"]
+    assert (tmp_path / "x/a.csv").read_bytes() == BODY and (tmp_path / "x/z/z-2030.csv").exists()
+
+
+def test_run_downloads_verifies_manifest_sha256(tmp_path):
+    manifest = {
+        "version": 1,
+        "sources": [{"id": "a", "kind": "file", "url": "https://dados.example.gov.br/a.csv",
+                     "dest": "x/a.csv", "desc": "A", "sha256": "f" * 64}],
+        "tse": {"packages": {}, "rules": [], "pending_ok": {}},
+    }
+    with client_for(ok_handler) as client:
+        failures = run_downloads(tmp_path, client=client, manifest=manifest)
+    assert len(failures) == 1 and "sha256" in str(failures[0])
+    assert not (tmp_path / "x/a.csv").exists()
