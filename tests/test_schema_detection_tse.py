@@ -38,7 +38,8 @@ def test_real_candidate_registry_with_turn_and_spending_cap_is_still_detected():
 
 def test_real_candidate_registry_is_pruned_to_the_formal_schema():
     cleaned = clean_dataframe(frame(CANDIDATOS + ["NR_TURNO", "VR_DESPESA_MAX_CAMPANHA"]), partition_col=None)
-    assert "NR_TURNO" not in cleaned.columns and "VR_DESPESA_MAX_CAMPANHA" not in cleaned.columns
+    # NR_TURNO agora é mantido (o cadastro tem uma linha por turno); o teto de gastos continua podado
+    assert "NR_TURNO" in cleaned.columns and "VR_DESPESA_MAX_CAMPANHA" not in cleaned.columns
     assert "SQ_CANDIDATO" in cleaned.columns
 
 
@@ -110,3 +111,15 @@ def test_process_all_datasets_keeps_columns_of_tse_result_and_finance_tables(tmp
     assert {"SQ_PRESTADOR_CONTAS", "VR_PAGTO_DESPESA"} <= cols("tse/prestacao_contas/despesas_pagas")
     # o cadastro de candidatos continua podado pelo schema formal
     assert "DT_GERACAO" not in cols("tse/candidatos") and "SQ_CANDIDATO" in cols("tse/candidatos")
+
+
+def test_runoff_rows_of_the_same_candidate_stay_distinguishable_after_pruning():
+    raw = pl.DataFrame({
+        "ANO_ELEICAO": [2022, 2022], "NR_TURNO": [1, 2], "SG_UF": ["BR", "BR"], "SQ_CANDIDATO": [280001, 280001],
+        "NM_CANDIDATO": ["A", "A"], "NM_URNA_CANDIDATO": ["A", "A"], "SG_PARTIDO": ["X", "X"],
+        "DS_CARGO": ["PRESIDENTE", "PRESIDENTE"], "CD_CARGO": [1, 1], "DS_SIT_TOT_TURNO": ["2º TURNO", "ELEITO"],
+        "NR_CPF_CANDIDATO": ["1", "1"], "DS_EMAIL": ["a@b", "a@b"],
+    })
+    cleaned = clean_dataframe(raw, partition_col=None)
+    assert sorted(cleaned["NR_TURNO"].to_list()) == [1, 2]
+    assert "NR_CPF_CANDIDATO" not in cleaned.columns and "DS_EMAIL" not in cleaned.columns

@@ -36,6 +36,18 @@ TSE_CANDIDATOS_COLUMNS: List[str] = [
     "NR_CANDIDATO",
     "NM_SOCIAL_CANDIDATO",
     "DS_SITUACAO_CANDIDATURA",
+    # Turno: o cadastro tem uma linha por candidatura e por turno (o mesmo SQ_CANDIDATO aparece nos dois
+    # turnos); sem esta coluna as linhas do 2º turno ficam duplicadas e indistinguíveis.
+    "NR_TURNO",
+    "DS_SIT_TOT_TURNO",
+    # Perfil público do candidato (check_candidate_profile). CPF, título de eleitor, e-mail e data de
+    # nascimento continuam de fora de propósito.
+    "DS_GENERO",
+    "DS_GRAU_INSTRUCAO",
+    "DS_ESTADO_CIVIL",
+    "DS_COR_RACA",
+    "DS_OCUPACAO",
+    "SG_UF_NASCIMENTO",
 ]
 
 # 3. Esquema TSE - Declaração de Bens dos Candidatos

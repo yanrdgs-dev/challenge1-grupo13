@@ -157,3 +157,22 @@ def test_camara_proposition_tramitation_and_apensamento(built):
 def test_senado_materia_tramitation(built):
     res = get_proposition_tramitation_history("senado", "8632122", data_dir=built["out"])
     assert res["encontrado"] is True and res["situacao_atual"]
+
+
+# ------------------------------- candidatos: turno e perfil preservados (Fase 1) ------------------------------- #
+
+def test_candidatos_keep_the_round_so_runoff_rows_are_distinguishable(built):
+    cand = pl.read_parquet(next((built["out"] / "tse" / "candidatos").rglob("*.parquet")))
+    assert "NR_TURNO" in cand.columns and "DS_SIT_TOT_TURNO" in cand.columns
+
+
+def test_candidatos_keep_the_profile_fields_the_profile_tool_needs(built):
+    cand = pl.read_parquet(next((built["out"] / "tse" / "candidatos").rglob("*.parquet")))
+    for col in ("DS_GENERO", "DS_GRAU_INSTRUCAO", "DS_ESTADO_CIVIL", "DS_COR_RACA", "DS_OCUPACAO", "SG_UF_NASCIMENTO"):
+        assert col in cand.columns, col
+
+
+def test_candidatos_still_drop_personal_identifiers(built):
+    cand = pl.read_parquet(next((built["out"] / "tse" / "candidatos").rglob("*.parquet")))
+    for col in ("NR_CPF_CANDIDATO", "DS_EMAIL", "NR_TITULO_ELEITORAL_CANDIDATO", "DT_NASCIMENTO"):
+        assert col not in cand.columns, col
