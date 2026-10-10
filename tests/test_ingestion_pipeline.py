@@ -96,6 +96,6 @@ def test_main_parses_arguments(calls, tmp_path):
     assert calls[-1][1:] == (tmp_path / "d", tmp_path / "p")
 
 
-def test_main_default_years_is_2022(calls, tmp_path):
+def test_main_default_years_are_2022_and_2026(calls, tmp_path):
     pipeline.main(["--datasets-dir", str(tmp_path / "d"), "--processed-dir", str(tmp_path / "p")])
-    assert [c for c in calls if c[0] == "download_tse"][0][2] == [2022]
+    assert [c for c in calls if c[0] == "download_tse"][0][2] == [2022, 2026]

@@ -62,6 +62,33 @@ PACKAGES = {
     ],
 }
 
+PRESTACAO_PKG_2026 = "prestacao-de-contas-eleitorais-2026"
+PACKAGES.update({
+    "candidatos-2026": [
+        res("Candidatos", f"{CDN}/consulta_cand/consulta_cand_2026.zip"),
+        res("Candidatos - Informações complementares",
+            f"{CDN}/consulta_cand_complementar/consulta_cand_complementar_2026.zip"),
+        res("Bens de candidatos", f"{CDN}/bem_candidato/bem_candidato_2026.zip"),
+        res("Coligações", f"{CDN}/consulta_coligacao/consulta_coligacao_2026.zip"),
+        res("Vagas", f"{CDN}/consulta_vagas/consulta_vagas_2026.zip"),
+        res("Motivo da Cassação", f"{CDN}/motivo_cassacao/motivo_cassacao_2026.zip"),
+        res("Redes sociais de candidatos", f"{CDN}/consulta_cand/rede_social_candidato_2026.zip"),
+        res("Histórico de candidaturas", f"{CDN}/historico_candidatura/historico_candidatura_2026.zip"),
+        res("AC - Proposta de governo", f"{CDN}/proposta_governo/proposta_governo_2026_AC.zip"),
+    ],
+    PRESTACAO_PKG_2026: [
+        res("Prestação de contas de órgãos partidários",
+            f"{CDN}/prestacao_contas/prestacao_de_contas_eleitorais_orgaos_partidarios_2026.zip"),
+        res("Prestação de contas de candidatos",
+            f"{CDN}/prestacao_contas/prestacao_de_contas_eleitorais_candidatos_2026.zip"),
+    ],
+    # logo após o 1º turno o TSE só publicou relatórios em PDF; os CSVs de votos ainda não existem
+    "resultados-2026": [
+        {"name": "BR - Relatório de Totalização - 2026", "format": "PDF",
+         "url": f"{CDN}/relatorio_resultado_totalizacao/Relatorio_Resultado_Totalizacao_2026_BR.zip"},
+    ],
+})
+
 CSV = b"a;b\n" + b"1;2\n" * 400
 
 
@@ -246,3 +273,75 @@ def test_run_reports_plan_failure_instead_of_raising(tmp_path):
     with client_for(make_handler(packages)) as client:
         failures = run_tse_downloads(tmp_path, [2022], client=client)
     assert failures and all(isinstance(f, DownloadError) for f in failures)
+
+
+# ------------------------------- 2026 ------------------------------- #
+
+def test_plan_2026_maps_candidates_and_finance_to_the_same_directories(tmp_path):
+    with client_for(make_handler()) as client:
+        plan = plan_tse_downloads(2026, tmp_path, client=client)
+    got = dests(plan)
+    t = tmp_path.as_posix()
+    assert ("consulta_cand_2026.zip", f"{t}/tse/candidatos") in got
+    assert ("consulta_cand_complementar_2026.zip", f"{t}/tse/candidatos") in got
+    assert ("bem_candidato_2026.zip", f"{t}/tse/bens") in got
+    assert ("consulta_coligacao_2026.zip", f"{t}/tse/coligacoes") in got
+    assert ("motivo_cassacao_2026.zip", f"{t}/tse/cassacao") in got
+    assert ("prestacao_de_contas_eleitorais_candidatos_2026.zip", f"{t}/tse/prestacao_contas") in got
+
+
+def test_plan_2026_social_networks_is_a_single_zip_without_uf(tmp_path):
+    with client_for(make_handler()) as client:
+        plan = plan_tse_downloads(2026, tmp_path, client=client)
+    redes = [p.url for p in plan if p.dest_dir == tmp_path / "tse" / "redes_sociais"]
+    assert redes == [f"{CDN}/consulta_cand/rede_social_candidato_2026.zip"]
+
+
+def test_plan_2026_results_not_published_yet_is_a_warning_not_a_failure(tmp_path, caplog):
+    with caplog.at_level("WARNING", logger="ETL.TSE"), client_for(make_handler()) as client:
+        plan = plan_tse_downloads(2026, tmp_path, client=client)
+    assert not [p for p in plan if "/votacao/" in p.dest_dir.as_posix()]
+    text = caplog.text
+    assert "ainda não publicado" in text and "votacao_candidato_munzona_2026" in text
+
+
+def test_plan_2026_downloads_results_as_soon_as_they_are_published(tmp_path):
+    packages = {k: list(v) for k, v in PACKAGES.items()}
+    packages["resultados-2026"] += [
+        res("Votação nominal por município e zona",
+            f"{CDN}/votacao_candidato_munzona/votacao_candidato_munzona_2026.zip"),
+        res("Detalhe da apuração por seção eleitoral",
+            f"{CDN}/detalhe_votacao_secao/detalhe_votacao_secao_2026.zip"),
+    ]
+    with client_for(make_handler(packages)) as client:
+        plan = plan_tse_downloads(2026, tmp_path, client=client)
+    got = dests(plan)
+    t = tmp_path.as_posix()
+    assert ("votacao_candidato_munzona_2026.zip",
+            f"{t}/tse/votacao/munzona/votacao_candidato_munzona_2026") in got
+    assert ("detalhe_votacao_secao_2026.zip", f"{t}/tse/votacao/secao/detalhe_votacao_secao_2026") in got
+
+
+def test_plan_2026_missing_required_resource_is_still_an_error(tmp_path):
+    packages = {k: list(v) for k, v in PACKAGES.items()}
+    packages["candidatos-2026"] = [r for r in packages["candidatos-2026"] if "bem_candidato" not in r["url"]]
+    with client_for(make_handler(packages)) as client, pytest.raises(DownloadError, match="bem_candidato"):
+        plan_tse_downloads(2026, tmp_path, client=client)
+
+
+def test_plan_2022_missing_results_is_still_an_error(tmp_path):
+    packages = {k: list(v) for k, v in PACKAGES.items()}
+    packages["resultados-2022"] = [r for r in packages["resultados-2022"] if "munzona" not in r["url"]]
+    with client_for(make_handler(packages)) as client, pytest.raises(DownloadError, match="munzona"):
+        plan_tse_downloads(2022, tmp_path, client=client)
+
+
+def test_run_2022_and_2026_side_by_side_without_name_collisions(tmp_path):
+    with client_for(make_handler()) as client:
+        failures = run_tse_downloads(tmp_path, [2022, 2026], client=client)
+    assert failures == []
+    for name in ("consulta_cand_2022", "consulta_cand_2026", "consulta_cand_complementar_2022",
+                 "consulta_cand_complementar_2026"):
+        assert (tmp_path / "tse/candidatos" / f"{name}.csv").exists()
+    assert (tmp_path / "tse/redes_sociais/rede_social_candidato_2026.csv").exists()
+    assert (tmp_path / "tse/redes_sociais/rede_social_candidato_2022_SP.csv").exists()
