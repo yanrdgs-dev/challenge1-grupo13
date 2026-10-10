@@ -239,6 +239,8 @@ def test_get_proposition_vote_breakdown_camara_happy_path():
             "abstencao": 1,
             "obstrucao": 1,
             "ausente": 1,
+            "outros": 0,
+            "outros_detalhe": {},
             "total": 8,
         }
         # Refuta a claim de que a votação foi "sem nenhum voto contra" (nao > 0)
@@ -279,6 +281,8 @@ def test_get_proposition_vote_breakdown_senado_happy_path():
             "abstencao": 1,
             "obstrucao": 0,
             "ausente": 1,
+            "outros": 0,
+            "outros_detalhe": {},
             "total": 5,
         }
 
@@ -293,6 +297,8 @@ def test_get_proposition_vote_breakdown_empty_votes():
             "abstencao": 0,
             "obstrucao": 0,
             "ausente": 0,
+            "outros": 0,
+            "outros_detalhe": {},
             "total": 0,
         }
 
@@ -484,3 +490,124 @@ def test_get_plenary_attendance_senado_limitation():
     assert res["presentes"] == []
     assert res["ausentes_inferidos"] == []
     assert "limitação" in res.get("observacao", "").lower() or "senado" in res.get("observacao", "").lower()
+
+
+# ============================================================================
+# FASE 0: CORREÇÕES DE VEREDITO (aprovado tri-estado, placar completo, ausência inferida)
+# ============================================================================
+
+
+def _camara_votacoes(*itens):
+    return {"dados": [{"id": f"1-{i}", "data": "2024-01-01", "descricao": d, "aprovacao": a} for i, (d, a) in enumerate(itens)]}
+
+
+@pytest.mark.parametrize(
+    "descricao, aprovacao, esperado",
+    [
+        ("Aprovado o Requerimento.", 1, True),
+        ("Rejeitado o Requerimento.", 0, False),
+        # A API devolve aprovacao nulo em votações de destaque ("Mantido o texto"): indeterminado, não "rejeitado".
+        ("Mantido o texto. Sim: 290; não: 142; total: 432.", None, None),
+        # O texto da descrição não decide: só o campo oficial.
+        ("Aprovado o texto-base.", None, None),
+        ("Não aprovado o requerimento.", 0, False),
+    ],
+)
+def test_camara_aprovado_follows_only_the_official_aprovacao_field(descricao, aprovacao, esperado):
+    with patch("src.tools.votacoes_api.http_client.get_json", return_value=_camara_votacoes((descricao, aprovacao))):
+        results = get_proposition_vote_result(id_proposicao="1", casa="camara")
+    assert results[0]["aprovado"] is esperado
+
+
+def test_camara_missing_aprovacao_key_is_indeterminate():
+    payload = {"dados": [{"id": "1-0", "data": "2024-01-01", "descricao": "Aprovado."}]}
+    with patch("src.tools.votacoes_api.http_client.get_json", return_value=payload):
+        assert get_proposition_vote_result(id_proposicao="1", casa="camara")[0]["aprovado"] is None
+
+
+def _senado_votacao(resultado):
+    item = {
+        "CodigoSessaoVotacao": "1",
+        "SessaoPlenaria": {"DataSessao": "2024-01-01"},
+        "DescricaoVotacao": "Votação.",
+    }
+    if resultado is not None:
+        item["DescricaoResultado"] = resultado
+    return {"VotacaoMateria": {"Materia": {"Votacoes": {"Votacao": [item]}}}}
+
+
+@pytest.mark.parametrize(
+    "resultado, esperado",
+    [
+        ("Aprovado", True),
+        ("Aprovada", True),
+        ("Rejeitado", False),
+        ("Rejeitada", False),
+        # "Não aprovado" contém "aprovad": a heurística antiga lia isso como aprovação.
+        ("Não aprovado", False),
+        ("Não Aprovada", False),
+        ("Prejudicado", None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_senado_aprovado_reads_the_result_without_substring_traps(resultado, esperado):
+    with patch("src.tools.votacoes_api.http_client.get_json", return_value=_senado_votacao(resultado)):
+        results = get_proposition_vote_result(id_proposicao="1", casa="senado")
+    assert results[0]["aprovado"] is esperado
+
+
+def test_breakdown_camara_counts_unrecognised_vote_types_as_outros():
+    """A Câmara registra o voto do presidente como 'Artigo 17': não pode sumir da contagem."""
+    payload = {"dados": [{"tipoVoto": "Sim"}, {"tipoVoto": "Não"}, {"tipoVoto": "Artigo 17"}]}
+    with patch("src.tools.votacoes_api.http_client.get_json", return_value=payload):
+        placar = get_proposition_vote_breakdown(id_votacao="1-1", casa="camara")
+    assert placar["outros"] == 1
+    assert placar["outros_detalhe"] == {"Artigo 17": 1}
+    assert placar["total"] == 3
+
+
+def test_breakdown_senado_keeps_ap_pnrv_and_presidente_instead_of_dropping_them():
+    """Votação 6773 real: Sim 53, Não 24, AP 3, Presidente 1 = 81. Antes, 4 votos sumiam."""
+    votos = (
+        [{"SiglaVoto": "Sim"}] * 53
+        + [{"SiglaVoto": "Não"}] * 24
+        + [{"SiglaVoto": "AP"}] * 3
+        + [{"SiglaVoto": "P-NRV"}] * 2
+        + [{"SiglaVoto": "Presidente (art. 51 RISF)"}]
+    )
+    payload = {"VotacaoMateria": {"Materia": {"Votacoes": {"Votacao": [{"CodigoSessaoVotacao": "6773", "Votos": {"VotoParlamentar": votos}}]}}}}
+    with patch("src.tools.votacoes_api.http_client.get_json", return_value=payload):
+        placar = get_proposition_vote_breakdown(id_votacao="158930_6773", casa="senado")
+    assert (placar["sim"], placar["nao"]) == (53, 24)
+    assert placar["outros"] == 6
+    assert placar["outros_detalhe"] == {"AP": 3, "P-NRV": 2, "Presidente (art. 51 RISF)": 1}
+    assert placar["total"] == 83
+
+
+@pytest.mark.parametrize("casa", ["camara", "senado"])
+def test_breakdown_options_always_add_up_to_total(casa):
+    if casa == "camara":
+        payload = {"dados": [{"tipoVoto": t} for t in ("Sim", "Não", "Abstenção", "Obstrução", "Ausente", "Artigo 17", "Sim")]}
+    else:
+        votos = [{"SiglaVoto": t} for t in ("Sim", "Não", "Abstenção", "Obstrução", "Não Votou", "AP", "NCom")]
+        payload = {"VotacaoMateria": {"Materia": {"Votacoes": {"Votacao": [{"CodigoSessaoVotacao": "9", "Votos": {"VotoParlamentar": votos}}]}}}}
+    with patch("src.tools.votacoes_api.http_client.get_json", return_value=payload):
+        placar = get_proposition_vote_breakdown(id_votacao="1_9" if casa == "senado" else "1-9", casa=casa)
+    soma = sum(placar[k] for k in ("sim", "nao", "abstencao", "obstrucao", "ausente", "outros"))
+    assert soma == placar["total"]
+
+
+def test_attendance_camara_states_that_absences_are_inferred():
+    """Ausência é diferença contra o quadro atual de deputados, não um registro oficial de falta."""
+    presentes = {"dados": [{"id": 101, "nome": "A", "siglaUf": "SP", "siglaPartido": "X"}]}
+    todos = {"dados": [{"id": 101, "nome": "A", "siglaUf": "SP", "siglaPartido": "X"}, {"id": 102, "nome": "B", "siglaUf": "RJ", "siglaPartido": "Y"}]}
+
+    def fake_get_json(url, params=None):
+        return presentes if "eventos/73216/deputados" in url else todos
+
+    with patch("src.tools.votacoes_api.http_client.get_json", side_effect=fake_get_json):
+        res = get_plenary_attendance(casa="camara", periodo="2024-06-05", id_evento="73216")
+    obs = res["observacao"].lower()
+    assert "inferid" in obs and "suplente" in obs and "licenci" in obs
+    assert "data da consulta" in obs, "o quadro é o de hoje, não o da data da sessão"

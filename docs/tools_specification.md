@@ -187,7 +187,7 @@ As tools estão organizadas em 5 grupos, conforme a natureza da fonte de dado:
 
 **O que faz:** consulta os eventos de votação da proposição na API da casa informada e retorna a lista de votações, com data, tipo e resultado (aprovado/rejeitado). Lista vazia significa que a proposição ainda não foi votada — esse é justamente o sinal usado para o id 28 (claim sobre votação futura/"em breve"), que resulta em `INCONCLUSIVO` por ausência de evento, não por erro.
 
-**Retorno:** `[{id_votacao, data, tipo_votacao, aprovado: bool}]`
+**Retorno:** `[{id_votacao, data, tipo_votacao, aprovado: bool | null}]`. `aprovado` vem só do campo oficial `aprovacao` da Câmara (1/0) ou do resultado textual do Senado ("Aprovado"/"Rejeitado"/"Não aprovado"); `null` significa indeterminado (ex.: destaque "Mantido o texto", "Prejudicado") e nunca deve ser lido como rejeição. O texto da descrição não decide.
 
 **Modo de implementação:** HTTP GET (Câmara: `/proposicoes/{id}/votacoes`; Senado: endpoint equivalente de matérias/votações). Timeout curto e retry com backoff; resultado cacheado por `id_proposicao` durante a sessão da claim para evitar refetch entre sub-claims.
 
@@ -206,7 +206,7 @@ As tools estão organizadas em 5 grupos, conforme a natureza da fonte de dado:
 
 **O que faz:** retorna a contagem de votos por opção (Sim / Não / Abstenção / Obstrução / Ausente) para a votação informada.
 
-**Retorno:** `{sim, nao, abstencao, obstrucao, ausente, total}`
+**Retorno:** `{sim, nao, abstencao, obstrucao, ausente, outros, outros_detalhe, total}`. As opções somam sempre o `total`. `outros` reúne o que a API registra fora dessas opções, sem reinterpretar: "Artigo 17" (voto do presidente) na Câmara; "AP", "P-NRV" e "Presidente (art. 51 RISF)" no Senado. `outros_detalhe` traz a contagem por rótulo original.
 
 **Modo de implementação:** HTTP GET (Câmara: `/votacoes/{id}/votos`, agregado no cliente; Senado: endpoint equivalente), reaproveitando o mesmo client HTTP (timeout/retry/cache) de 5.1.
 
@@ -250,7 +250,7 @@ As tools estão organizadas em 5 grupos, conforme a natureza da fonte de dado:
 
 **O que faz:** para a Câmara, retorna a lista de deputados que registraram presença numa sessão deliberativa específica; a ausência é inferida por diferença contra o quadro completo de deputados em exercício (`/deputados`) na mesma legislatura.
 
-**Retorno:** `{id_evento, data, presentes: [{id_deputado, nome, uf, partido}], ausentes_inferidos: [...]}`
+**Retorno:** `{id_evento, data, presentes: [{id_deputado, nome, uf, partido}], ausentes_inferidos: [...]}, observacao}`. `ausentes_inferidos` é diferença contra o quadro de deputados em exercício na data da consulta, não um registro oficial de falta; `observacao` avisa que suplentes, licenciados e quem tomou posse ou saiu depois da sessão podem distorcer o resultado.
 
 **Modo de implementação — validado via chamada real à API da Câmara:**
 - `GET /api/v2/referencias/eventos/codTipoEvento` → confirma código `110` = "Sessão Deliberativa".
