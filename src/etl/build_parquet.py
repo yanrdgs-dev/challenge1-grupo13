@@ -2,6 +2,7 @@
 
 import argparse
 import glob
+import io
 import logging
 import os
 import re
@@ -10,6 +11,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import polars as pl
+import pyarrow as pa
+import pyarrow.csv as pacsv
 
 from src.schemas.data_schemas import (
     DATA_SCHEMAS,
@@ -225,6 +228,90 @@ def clean_dataframe(
     return df
 
 
+# Acima deste tamanho o CSV é lido em blocos (a leitura eager decodifica o arquivo inteiro em memória:
+# um CSV latin1 de 4 GB estoura uma máquina de 8 GB).
+LARGE_FILE_BYTES = 500 * 1024 * 1024
+STREAM_BLOCK_BYTES = 64 * 1024 * 1024
+
+
+def _py_encoding(encoding: str) -> str:
+    return "utf-8" if encoding.lower().replace("-", "") in ("utf8", "utf8lossy") else encoding
+
+
+def _year_from_filename(df: pl.DataFrame, file_path: Path, partition_col: Optional[str]) -> pl.DataFrame:
+    """Se a partição é 'ano' e não há coluna de ano, extrai o ano do nome do arquivo."""
+    if partition_col == "ano" and "ano" not in df.columns:
+        has_candidate = any(c in df.columns for c in ("ANO_ELEICAO", "ano_eleicao", "numAno", "ANO", "Ano"))
+        if not has_candidate:
+            match = re.search(r"(?:19|20)\d{2}", file_path.stem)
+            if match:
+                df = df.with_columns(pl.lit(int(match.group(0))).cast(pl.Int32).alias("ano"))
+    return df
+
+
+def _stream_csv_to_partitioned_parquet(
+    file_path: Path,
+    out_path: Path,
+    file_idx: int,
+    encoding: str,
+    delimiter: str,
+    partition_col: str,
+    block_bytes: int,
+    compression: str,
+    compression_level: int,
+    clean_kwargs: Dict[str, Any],
+) -> Dict[str, int]:
+    """Converte um CSV grande em parquet particionado lendo em blocos (memória limitada pelo bloco).
+
+    O esquema é inferido por uma amostra do início do arquivo e aplicado a todos os blocos, para que
+    os parquets de uma mesma partição tenham tipos idênticos. Valores fora do tipo inferido viram nulos,
+    como no `ignore_errors=True` do caminho eager.
+    """
+    py_enc = _py_encoding(encoding)
+    with open(file_path, "rb") as f:
+        raw = f.read(block_bytes)
+    sample_bytes = raw[: raw.rfind(b"\n") + 1] if len(raw) == block_bytes else raw
+    sample_utf8 = sample_bytes.decode(py_enc, errors="replace").encode("utf-8")
+    sample = pl.read_csv(
+        io.BytesIO(sample_utf8), separator=delimiter, infer_schema_length=10000,
+        ignore_errors=True, truncate_ragged_lines=True,
+    )
+    schema = sample.schema
+
+    reader = pacsv.open_csv(
+        file_path,
+        read_options=pacsv.ReadOptions(block_size=block_bytes, encoding=py_enc),
+        parse_options=pacsv.ParseOptions(delimiter=delimiter, newlines_in_values=True),
+        convert_options=pacsv.ConvertOptions(
+            column_types={c: pa.string() for c in schema}, strings_can_be_null=True,
+        ),
+    )
+    rows = cols_before = cols_after = 0
+    for n, batch in enumerate(reader):
+        df = pl.from_arrow(pa.Table.from_batches([batch]))
+        df = df.with_columns([pl.col(c).cast(t, strict=False) for c, t in schema.items() if c in df.columns])
+        df = _year_from_filename(df, file_path, partition_col)
+        cols_before = df.width
+        cleaned = clean_dataframe(df, partition_col=partition_col, **clean_kwargs)
+        cols_after = cleaned.width
+        if partition_col not in cleaned.columns:
+            raise ValueError(
+                f"Coluna de partição '{partition_col}' não encontrada no DataFrame tratado. "
+                f"Colunas disponíveis: {cleaned.columns}"
+            )
+        for key, part in cleaned.partition_by(partition_col, as_dict=True, include_key=True).items():
+            value = key[0] if isinstance(key, tuple) else key
+            part_dir = out_path / f"{partition_col}={'__HIVE_DEFAULT_PARTITION__' if value is None else value}"
+            part_dir.mkdir(parents=True, exist_ok=True)
+            part.write_parquet(
+                part_dir / f"part-{file_idx:03d}-{n:05d}.parquet",
+                compression=compression, compression_level=compression_level,
+            )
+        rows += cleaned.height
+    logger.info("Streaming de '%s' concluído: %d linhas", file_path.name, rows)
+    return {"rows": rows, "cols_before": cols_before, "cols_after": cols_after}
+
+
 def find_csv_files(
     input_path: Union[str, Path],
     prefer_brasil: bool = False,
@@ -271,6 +358,8 @@ def process_csv_to_parquet(
     selected_columns: Optional[List[str]] = None,
     schema_name: Optional[str] = None,
     prune_redundant: bool = True,
+    large_file_bytes: int = LARGE_FILE_BYTES,
+    stream_block_bytes: int = STREAM_BLOCK_BYTES,
 ) -> Dict[str, Any]:
     """Executa o pipeline completo de ingestão, tratamento e serialização em Parquet.
 
@@ -288,6 +377,8 @@ def process_csv_to_parquet(
         selected_columns: Lista explícita de colunas a manter no Parquet final.
         schema_name: Schema predefinido usado para poda de colunas.
         prune_redundant: Se True, detecta o schema automaticamente e poda colunas.
+        large_file_bytes: CSVs maiores que isto (com partição) são lidos em blocos, sem carregar o arquivo inteiro.
+        stream_block_bytes: Tamanho do bloco de leitura do caminho de streaming.
 
     Returns:
         Dicionário com sumário e estatísticas da execução.
@@ -309,10 +400,29 @@ def process_csv_to_parquet(
 
     total_csv_bytes = 0
     dfs: List[pl.DataFrame] = []
+    streamed_rows = streamed_cols_before = streamed_cols_after = 0
+    clean_kwargs = {
+        "selected_columns": selected_columns,
+        "schema_name": schema_name,
+        "prune_redundant": prune_redundant,
+    }
 
-    for file_path in input_files:
+    for file_idx, file_path in enumerate(input_files):
         file_size = file_path.stat().st_size
         total_csv_bytes += file_size
+        if partition_col and file_size > large_file_bytes:
+            logger.info(
+                "Lendo '%s' em blocos de %d MB (tamanho: %.2f MB > limite de leitura integral)",
+                file_path.name, stream_block_bytes // (1024 * 1024), file_size / 1024 / 1024,
+            )
+            res = _stream_csv_to_partitioned_parquet(
+                file_path, out_path, file_idx, encoding, delimiter, partition_col,
+                stream_block_bytes, compression, compression_level, clean_kwargs,
+            )
+            streamed_rows += res["rows"]
+            streamed_cols_before = max(streamed_cols_before, res["cols_before"])
+            streamed_cols_after = max(streamed_cols_after, res["cols_after"])
+            continue
         logger.info(
             "Lendo '%s' (tamanho: %.2f KB, encoding: %s, sep: '%s')",
             file_path.name,
@@ -341,91 +451,86 @@ def process_csv_to_parquet(
                 truncate_ragged_lines=True,
             )
 
-        # Se partition_col == "ano" e ainda não tem ano na tabela nem nas colunas mapeadas, tenta extrair do nome do arquivo
-        if partition_col == "ano" and "ano" not in df_file.columns:
-            has_candidate = any(
-                c in df_file.columns for c in ("ANO_ELEICAO", "ano_eleicao", "numAno", "ANO", "Ano")
-            )
-            if not has_candidate:
-                match = re.search(r"(?:19|20)\d{2}", file_path.stem)
-                if match:
-                    df_file = df_file.with_columns(
-                        pl.lit(int(match.group(0))).cast(pl.Int32).alias("ano")
-                    )
+        df_file = _year_from_filename(df_file, file_path, partition_col)
 
         dfs.append(df_file)
 
-    # Concatena todos os dataframes ingeridos
-    if len(dfs) == 1:
-        full_df = dfs[0]
-    else:
-        full_df = pl.concat(dfs, how="diagonal_relaxed")
+    total_rows = streamed_rows
+    total_cols_before = streamed_cols_before
+    total_cols_after = streamed_cols_after
 
-    total_rows = full_df.height
-    total_cols_before = full_df.width
-    logger.info("Total de registros ingeridos: %d", total_rows)
-
-    # Aplica sanitização e cast de tipos
-    logger.info("Aplicando sanitização e tipagem...")
-    cleaned_df = clean_dataframe(
-        full_df,
-        partition_col=partition_col,
-        selected_columns=selected_columns,
-        schema_name=schema_name,
-        prune_redundant=prune_redundant,
-    )
-    total_cols_after = cleaned_df.width
-
-    if "VR_PAGTO_DESPESA" in cleaned_df.columns:
-        actual_dtype = cleaned_df.schema["VR_PAGTO_DESPESA"]
-        if actual_dtype != pl.Float64:
-            raise TypeError(
-                f"Erro no critério de aceite: VR_PAGTO_DESPESA possui tipo {actual_dtype}, "
-                f"esperava Float64."
-            )
-        logger.info("✓ VR_PAGTO_DESPESA convertido com sucesso para Float64.")
-
-    # Gravação do Parquet
-    if partition_col:
-        if partition_col not in cleaned_df.columns:
-            raise ValueError(
-                f"Coluna de partição '{partition_col}' não encontrada no DataFrame tratado. "
-                f"Colunas disponíveis: {cleaned_df.columns}"
-            )
-        logger.info(
-            "Gravando Parquet particionado por '%s' em '%s' (compressão: %s, nível: %d)...",
-            partition_col,
-            out_path,
-            compression,
-            compression_level,
-        )
-        cleaned_df.write_parquet(
-            out_path,
-            partition_by=partition_col,
-            compression=compression,
-            compression_level=compression_level,
-            mkdir=True,
-        )
-    else:
-        logger.info(
-            "Gravando Parquet direto em '%s' (compressão: %s, nível: %d)...",
-            out_path,
-            compression,
-            compression_level,
-        )
-        if str(output_dir).endswith(".parquet"):
-            target_file = out_path
-            target_file.parent.mkdir(parents=True, exist_ok=True)
+    if dfs:
+        # Concatena todos os dataframes ingeridos
+        if len(dfs) == 1:
+            full_df = dfs[0]
         else:
-            out_path.mkdir(parents=True, exist_ok=True)
-            stem_name = Path(input_path).stem if Path(input_path).is_file() else "data"
-            target_file = out_path / f"{stem_name}.parquet"
+            full_df = pl.concat(dfs, how="diagonal_relaxed")
 
-        cleaned_df.write_parquet(
-            target_file,
-            compression=compression,
-            compression_level=compression_level,
+        total_rows += full_df.height
+        total_cols_before = max(total_cols_before, full_df.width)
+        logger.info("Total de registros ingeridos: %d", total_rows)
+
+        # Aplica sanitização e cast de tipos
+        logger.info("Aplicando sanitização e tipagem...")
+        cleaned_df = clean_dataframe(
+            full_df,
+            partition_col=partition_col,
+            selected_columns=selected_columns,
+            schema_name=schema_name,
+            prune_redundant=prune_redundant,
         )
+        total_cols_after = max(total_cols_after, cleaned_df.width)
+
+        if "VR_PAGTO_DESPESA" in cleaned_df.columns:
+            actual_dtype = cleaned_df.schema["VR_PAGTO_DESPESA"]
+            if actual_dtype != pl.Float64:
+                raise TypeError(
+                    f"Erro no critério de aceite: VR_PAGTO_DESPESA possui tipo {actual_dtype}, "
+                    f"esperava Float64."
+                )
+            logger.info("✓ VR_PAGTO_DESPESA convertido com sucesso para Float64.")
+
+        # Gravação do Parquet
+        if partition_col:
+            if partition_col not in cleaned_df.columns:
+                raise ValueError(
+                    f"Coluna de partição '{partition_col}' não encontrada no DataFrame tratado. "
+                    f"Colunas disponíveis: {cleaned_df.columns}"
+                )
+            logger.info(
+                "Gravando Parquet particionado por '%s' em '%s' (compressão: %s, nível: %d)...",
+                partition_col,
+                out_path,
+                compression,
+                compression_level,
+            )
+            cleaned_df.write_parquet(
+                out_path,
+                partition_by=partition_col,
+                compression=compression,
+                compression_level=compression_level,
+                mkdir=True,
+            )
+        else:
+            logger.info(
+                "Gravando Parquet direto em '%s' (compressão: %s, nível: %d)...",
+                out_path,
+                compression,
+                compression_level,
+            )
+            if str(output_dir).endswith(".parquet"):
+                target_file = out_path
+                target_file.parent.mkdir(parents=True, exist_ok=True)
+            else:
+                out_path.mkdir(parents=True, exist_ok=True)
+                stem_name = Path(input_path).stem if Path(input_path).is_file() else "data"
+                target_file = out_path / f"{stem_name}.parquet"
+
+            cleaned_df.write_parquet(
+                target_file,
+                compression=compression,
+                compression_level=compression_level,
+            )
 
     # Calcula o tamanho total dos arquivos Parquet gerados
     if str(output_dir).endswith(".parquet"):
