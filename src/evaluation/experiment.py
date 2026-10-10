@@ -57,7 +57,11 @@ class RouterClient:
 
 def make_evaluator() -> Callable[..., List[Evaluation]]:
     def evaluator(*, input: Any, output: Any, expected_output: Any, metadata: Any, **kwargs: Any) -> List[Evaluation]:
-        expected = {**(expected_output or {}), "category": (metadata or {}).get("category")}
+        expected = {
+            **(expected_output or {}),
+            "category": (metadata or {}).get("category"),
+            "inconclusive_reason": (metadata or {}).get("inconclusive_reason"),
+        }
         return [
             Evaluation(name=s.name, value=s.value, comment=s.comment or None)
             for s in run_all_scorers(output or {}, expected)
@@ -172,22 +176,28 @@ def run_golden_experiment(
     run_name: str,
     thresholds: Dict[str, float],
     use_langfuse_dataset: bool = False,
+    dataset_name: str = DATASET_NAME,
 ) -> Tuple[Dict[str, Any], List[str]]:
     """Roda o experimento (um item por vez: o Ollama atende uma request por vez) e aplica o gate."""
     if use_langfuse_dataset:
-        data = client.get_dataset(DATASET_NAME).items
+        data = client.get_dataset(dataset_name).items
     else:
         data = [
             {
                 "input": {"claim": c["claim"]},
                 "expected_output": {"expected_verdict": c["expected_verdict"]},
-                "metadata": {"golden_id": c["id"], "category": c["category"], "target_entity": c.get("target_entity")},
+                "metadata": {
+                    "golden_id": c["id"],
+                    "category": c["category"],
+                    "target_entity": c.get("target_entity"),
+                    "inconclusive_reason": c.get("inconclusive_reason"),
+                },
             }
             for c in claims or []
         ]
 
     result = client.run_experiment(
-        name=DATASET_NAME,
+        name=dataset_name,
         run_name=run_name,
         data=data,
         task=make_task(check_fn),

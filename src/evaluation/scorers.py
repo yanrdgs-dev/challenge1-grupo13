@@ -30,6 +30,14 @@ ALLOWED_TOOLS: Dict[str, FrozenSet[str]] = {
 }
 
 
+ALLOWED_TOOLS["ELEICOES"] = frozenset(
+    {"resolve_candidate", "get_election_result", "get_candidate_votes", "check_candidate_status",
+     "check_disqualification_motive", "check_candidate_profile", "get_candidate_assets",
+     "check_cash_and_special_assets", "verify_official_social_media", "get_campaign_finances",
+     "get_top_campaign_finances"} | _INSTITUTIONAL
+)
+
+
 @dataclass(frozen=True)
 class Score:
     name: str
@@ -82,7 +90,11 @@ def inconclusive_without_tool(output: Dict[str, Any], expected: Dict[str, Any]) 
     problems = []
     if _verdict(output) != INCONCLUSIVE:
         problems.append(f"veredito {_verdict(output) or '-'} em vez de INCONCLUSIVO")
-    if output.get("tool_usada"):
+    # "evidencia_vazia": a tool pode rodar (candidato ambíguo, dado não publicado), desde que não traga evidência.
+    tool_allowed = expected.get("inconclusive_reason") == "evidencia_vazia" and evidence_failed(
+        output.get("evidencia_coletada")
+    )
+    if output.get("tool_usada") and not tool_allowed:
         problems.append(f"tool chamada: {output['tool_usada']}")
     return Score("inconclusive_without_tool", 0.0 if problems else 1.0, "; ".join(problems))
 

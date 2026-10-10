@@ -79,3 +79,15 @@ def test_input_rail_latency_is_under_15ms():
     duration_ms = (time.perf_counter() - start) * 1000.0
 
     assert duration_ms < 15.0, f"Latência de {duration_ms:.2f}ms ultrapassou o teto de 15ms"
+
+
+def test_rumour_guard_blocks_social_media_as_a_source_but_not_as_the_subject():
+    """Claim sobre as redes sociais que o candidato registrou no TSE não é boato; "nas redes sociais" como fonte é."""
+    subject = "O perfil de Instagram fulano está entre as redes sociais que o candidato registrou no TSE em 2022."
+    assert check_input_specificity(subject)["is_valid"] is True
+    for source in (
+        "Nas redes sociais dizem que o deputado Fulano votou contra o PL 2630.",
+        "Segundo as redes sociais, o senador gastou a cota inteira.",
+        "Uma postagem pelas redes sociais afirma que o deputado viajou.",
+    ):
+        assert check_input_specificity(source)["is_valid"] is False, source

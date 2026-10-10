@@ -5,6 +5,7 @@ O LLM de roteamento omite parâmetros obrigatórios, escreve ``"Câmara"`` em ve
 antes de a tool rodar.
 """
 
+import re
 import unicodedata
 from typing import Any, Dict, Optional, Tuple
 
@@ -92,3 +93,69 @@ def validate_tool_args(tool_name: str, args: Any) -> Tuple[Any, Optional[str]]:
             return args, problem
         normalized[name] = coerced
     return normalized, None
+
+
+# --------------------------- ancoragem dos filtros de candidato --------------------------- #
+
+CANDIDATE_TOOLS = frozenset({
+    "resolve_candidate", "get_candidate_votes", "check_candidate_status", "check_disqualification_motive",
+    "check_candidate_profile", "get_candidate_assets", "check_cash_and_special_assets",
+    "verify_official_social_media", "get_campaign_finances",
+})
+
+_CARGO_PATTERNS = {
+    "Presidente": r"presiden",
+    "Governador": r"governador|governadora",
+    "Senador": r"senador|senadora",
+    "Deputado Federal": r"deputad[oa]s?\s+federa",
+    "Deputado Estadual": r"deputad[oa]s?\s+estadua",
+    "Deputado Distrital": r"deputad[oa]s?\s+distrita",
+}
+_STATES = {
+    "AC": "acre", "AL": "alagoas", "AP": "amapa", "AM": "amazonas", "BA": "bahia", "CE": "ceara",
+    "DF": "distrito federal", "ES": "espirito santo", "GO": "goias", "MA": "maranhao", "MT": "mato grosso",
+    "MS": "mato grosso do sul", "MG": "minas gerais", "PA": "para", "PB": "paraiba", "PR": "parana",
+    "PE": "pernambuco", "PI": "piaui", "RJ": "rio de janeiro", "RN": "rio grande do norte",
+    "RS": "rio grande do sul", "RO": "rondonia", "RR": "roraima", "SC": "santa catarina", "SP": "sao paulo",
+    "SE": "sergipe", "TO": "tocantins",
+}
+_STATE_NAMES_LONGEST_FIRST = sorted(_STATES.items(), key=lambda item: -len(item[1]))
+
+
+def _states_mentioned(claim: str) -> set:
+    """UFs que a claim escreve: pela sigla em maiúsculas ("PL-SP") ou pelo nome ("São Paulo")."""
+    found = {m.group(0) for m in re.finditer(r"(?<![A-Za-z])[A-Z]{2}(?![A-Za-z])", claim) if m.group(0) in _STATES}
+    folded = _fold(claim)
+    for uf, name in _STATE_NAMES_LONGEST_FIRST:
+        if uf == "PA" and "pará" not in claim.lower():
+            continue  # "para" é preposição: só vale o estado escrito com acento
+        pattern = rf"(?<![a-z]){re.escape(name)}(?![a-z])"
+        if re.search(pattern, folded):
+            found.add(uf)
+            folded = re.sub(pattern, " ", folded)  # "Mato Grosso do Sul" não conta também como "Mato Grosso"
+    return found
+
+
+def ground_candidate_args(tool_name: str, args: Any, claim_text: str) -> Any:
+    """Descarta ``cargo``, ``uf`` e ``numero`` de candidato que o LLM preencheu e que a claim não diz.
+
+    Com o filtro errado a tool resolve outra candidatura (ex.: o "Pablo Marçal" de Deputado Federal no lugar do
+    de Presidente) e o veredito sai sobre a pessoa errada. Sem o filtro, o homônimo volta a ser ambíguo.
+    Não altera a entrada e só atua nas tools que resolvem candidato.
+    """
+    if tool_name not in CANDIDATE_TOOLS or not isinstance(args, dict):
+        return args
+    grounded = dict(args)
+    text = claim_text or ""
+    folded = _fold(text)
+
+    cargo = grounded.get("cargo")
+    if cargo and not re.search(_CARGO_PATTERNS.get(str(cargo), r"(?!)"), folded):
+        grounded.pop("cargo")
+    uf = grounded.get("uf")
+    if uf and str(uf).strip().upper() not in _states_mentioned(text):
+        grounded.pop("uf")
+    numero = grounded.get("numero")
+    if numero is not None and not re.search(rf"(?<!\d){re.escape(str(numero))}(?!\d)", text):
+        grounded.pop("numero")
+    return grounded

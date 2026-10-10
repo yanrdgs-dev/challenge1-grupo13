@@ -27,7 +27,7 @@ from src.api.routes.ingestion import router as ingestion_router
 from src.services import frontend_api
 from src.observability.prompts import get_prompt
 from src.prompts.defaults import PROMPT_ROUTER_SYSTEM
-from src.services.tool_args import validate_tool_args
+from src.services.tool_args import ground_candidate_args, validate_tool_args
 from src.services.data_freshness import data_date, ensure_data_date_cited, load_ingestion_info
 from src.services.sources import TSE as TSE_SOURCE, derive_sources, ensure_source_cited, evidence_failed, merge_sources
 from src.tools.gastos_tools import (
@@ -477,6 +477,12 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
             return RoutingOutcome("get_proposition_vote_result", {}, evidence, [],
                                   (time.perf_counter() - start) * 1000)
         tool_name, tool_args = "resolve_proposition", resolver_call["arguments"]
+
+    grounded_args = ground_candidate_args(tool_name, tool_args, claim_text)
+    if grounded_args != tool_args:
+        dropped = sorted(set(tool_args) - set(grounded_args))
+        logger.warning("Filtros %s de '%s' não estão na claim; descartados (regra 3).", dropped, tool_name)
+        tool_args = grounded_args
 
     routing_ms = (time.perf_counter() - start) * 1000
     if on_step:

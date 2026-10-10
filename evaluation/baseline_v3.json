@@ -1,0 +1,84 @@
+{
+  "descricao": "Baseline do golden_dataset_v2 (30 claims do v1 + 20 do TSE), roteador com as 17 tools do TSE e prompt staging v-final. Duas rodadas seguidas (golden-v2-tse-c e -d) deram o mesmo resultado.",
+  "data": "2026-10-10",
+  "modelos": {
+    "router": "openai/gpt-oss-20b (Groq)",
+    "judge": "openai/gpt-oss-120b (Groq)"
+  },
+  "observacao": "Rodadas anteriores reprovaram e acharam defeitos reais, corrigidos: claims de comparação entre dois candidatos (limite de uma tool por claim), cargo/UF errados do LLM resolvendo outra candidatura (Pablo Marçal), resolve_candidate escolhida sozinha, resolve_politician para candidato de eleição.",
+  "erros_conhecidos": [
+    {
+      "id": 5,
+      "obtido": "INCONCLUSIVO",
+      "origem": "v1, PEC da Reforma Tributária no Senado"
+    },
+    {
+      "id": 15,
+      "obtido": "INCONCLUSIVO",
+      "origem": "v1, Marco Temporal na Câmara"
+    }
+  ],
+  "summary": {
+    "run_name": "golden-v2-tse-d",
+    "dataset_run_url": "https://us.cloud.langfuse.com/project/cmuzl8l7g001oad0jlo3svylo/datasets/cmv2nlagi064cad0ehzisdff9/runs/881a806a-9eec-43ec-8e87-ab427b714772",
+    "total": 50,
+    "scores": {
+      "verdict_match": {
+        "mean": 0.96,
+        "n": 50
+      },
+      "no_wrong_definitive": {
+        "mean": 1.0,
+        "n": 50
+      },
+      "has_traceable_evidence": {
+        "mean": 1.0,
+        "n": 50
+      },
+      "inconclusive_without_tool": {
+        "mean": 1.0,
+        "n": 12
+      },
+      "tool_category_match": {
+        "mean": 1.0,
+        "n": 38
+      }
+    },
+    "matrix": {
+      "VERDADEIRO": {
+        "VERDADEIRO": 19,
+        "FALSO": 0,
+        "INCONCLUSIVO": 1,
+        "ERRO": 0
+      },
+      "FALSO": {
+        "VERDADEIRO": 0,
+        "FALSO": 17,
+        "INCONCLUSIVO": 1,
+        "ERRO": 0
+      },
+      "INCONCLUSIVO": {
+        "VERDADEIRO": 0,
+        "FALSO": 0,
+        "INCONCLUSIVO": 12,
+        "ERRO": 0
+      }
+    },
+    "failures": [
+      {
+        "golden_id": 15,
+        "expected": "FALSO",
+        "got": "INCONCLUSIVO",
+        "trace_id": "b14dab052b207e4a4d1dc1546efdf31a",
+        "erro": null
+      },
+      {
+        "golden_id": 5,
+        "expected": "VERDADEIRO",
+        "got": "INCONCLUSIVO",
+        "trace_id": "c148faeb725e5f1dc1389496cdf94006",
+        "erro": null
+      }
+    ]
+  }
+}

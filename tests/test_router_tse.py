@@ -345,3 +345,20 @@ def test_finance_sources_base_dates_and_prompt():
     info = {"fontes": {"tse-prestacao_de_contas_eleitorais_candidatos_2022": {"baixado_em": "2026-10-10T07:00:00+00:00"}}}
     for tool in ("get_campaign_finances", "get_top_campaign_finances"):
         assert data_date(tool, {"ano": 2022}, {"encontrado": True}, info) == "2026-10-10T07:00:00+00:00"
+
+
+def test_prompt_keeps_election_candidates_away_from_resolve_politician():
+    """`resolve_politician` casou "José Silva" com "José Silva Soares" para um candidato de eleição."""
+    assert "resolve_politician" in ROUTER_SYSTEM_PROMPT
+    assert "em mandato" in ROUTER_SYSTEM_PROMPT
+    assert "NUNCA use 'resolve_politician' para candidato de eleição" in ROUTER_SYSTEM_PROMPT
+
+
+def test_prompt_says_one_tool_per_claim_and_ranking_for_who_spent_most():
+    assert "get_top_campaign_finances" in ROUTER_SYSTEM_PROMPT and "mais gastou" in ROUTER_SYSTEM_PROMPT
+
+
+def test_resolve_candidate_is_described_as_identity_only():
+    """Escolhida sozinha ela não responde nada: as outras tools de candidato já resolvem o nome."""
+    desc = _tool("resolve_candidate")["description"]
+    assert "SOMENTE" in desc and "NÃO use" in desc

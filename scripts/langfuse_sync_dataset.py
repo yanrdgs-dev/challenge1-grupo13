@@ -1,4 +1,4 @@
-"""Envia o golden_dataset_v1.json ao Langfuse de forma idempotente (upsert por id).
+"""Envia o golden_dataset_v2.json ao Langfuse de forma idempotente (upsert por id).
 
 Uso:
     uv run python scripts/langfuse_sync_dataset.py            # envia
@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.evaluation.dataset import DatasetSyncError, load_golden_dataset, sync_golden_dataset  # noqa: E402
 
-DEFAULT_PATH = Path(__file__).resolve().parents[1] / "golden_dataset_v1.json"
+DEFAULT_PATH = Path(__file__).resolve().parents[1] / "golden_dataset_v2.json"
 
 
 def _langfuse_client():
@@ -34,7 +34,7 @@ def main(argv: Optional[List[str]] = None, client_factory: Callable = _langfuse_
     try:
         items = load_golden_dataset(args.path)
         client = None if args.dry_run else client_factory()
-        summary = sync_golden_dataset(client, items, dry_run=args.dry_run)
+        summary = sync_golden_dataset(client, items, dry_run=args.dry_run, dataset_name=Path(args.path).stem)
     except (ValueError, DatasetSyncError) as exc:
         print(f"ERRO: {exc}", file=sys.stderr)
         return 1
