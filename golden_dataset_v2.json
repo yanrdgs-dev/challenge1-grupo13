@@ -416,5 +416,117 @@
       "resolve_candidate"
     ],
     "inconclusive_reason": "evidencia_vazia"
+  },
+  {
+    "id": 51,
+    "claim": "Em 2022, Lula declarou ao TSE mais patrimônio do que Jair Bolsonaro.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "compare_candidates"
+    ]
+  },
+  {
+    "id": 52,
+    "claim": "Em 2022, Jair Bolsonaro declarou ao TSE mais patrimônio do que Lula.",
+    "expected_verdict": "FALSO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "compare_candidates"
+    ]
+  },
+  {
+    "id": 53,
+    "claim": "No primeiro turno da eleição presidencial de 2022, Lula teve mais votos válidos do que Jair Bolsonaro.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "compare_candidates"
+    ]
+  },
+  {
+    "id": 54,
+    "claim": "No segundo turno da eleição presidencial de 2022, Jair Bolsonaro teve mais votos válidos do que Lula.",
+    "expected_verdict": "FALSO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "compare_candidates"
+    ]
+  },
+  {
+    "id": 55,
+    "claim": "Em 2022, a campanha de Lula à Presidência arrecadou mais do que a de Simone Tebet.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "compare_candidates"
+    ]
+  },
+  {
+    "id": 56,
+    "claim": "Em 2022, a campanha de Simone Tebet à Presidência arrecadou mais do que a de Lula.",
+    "expected_verdict": "FALSO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "compare_candidates"
+    ]
+  },
+  {
+    "id": 57,
+    "claim": "Em 2022, a campanha de Jair Bolsonaro à Presidência declarou mais despesas contratadas do que a de Simone Tebet.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "compare_candidates"
+    ]
+  },
+  {
+    "id": 58,
+    "claim": "Em 2022, a campanha de Simone Tebet à Presidência declarou mais despesas contratadas do que a de Jair Bolsonaro.",
+    "expected_verdict": "FALSO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "compare_candidates"
+    ]
+  },
+  {
+    "id": 59,
+    "claim": "Em 2022, José Silva declarou ao TSE mais patrimônio do que Lula.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "compare_candidates",
+      "resolve_candidate"
+    ],
+    "inconclusive_reason": "evidencia_vazia"
+  },
+  {
+    "id": 60,
+    "claim": "Em 2026, Lula teve mais votos válidos do que Flávio Bolsonaro no primeiro turno da eleição presidencial.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "compare_candidates"
+    ],
+    "inconclusive_reason": "evidencia_vazia"
+  },
+  {
+    "id": 61,
+    "claim": "Lula teve mais votos do que Jair Bolsonaro no primeiro turno.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [],
+    "inconclusive_reason": "subespecificada"
   }
 ]

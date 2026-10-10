@@ -43,6 +43,7 @@ def test_every_catalog_tool_is_dispatched_and_none_is_simulated():
          patch.object(router_service, "get_proposition_vote_result", return_value=[]), \
          patch.object(router_service, "resolve_candidate", return_value={"encontrado": True, "sq_candidato": 1, "ambiguous": False}), \
          patch.object(router_service, "get_election_result", return_value={"encontrado": True}), \
+         patch.object(router_service, "compare_candidates", return_value={"encontrado": True}), \
          patch.object(router_service, "get_candidate_votes", return_value={"encontrado": True}):
         args = {
             "turno": 1, "nome_candidato": "Fulano",
@@ -52,6 +53,8 @@ def test_every_catalog_tool_is_dispatched_and_none_is_simulated():
         }
         for name in names:
             tool_args = {**args, "cargo": "Presidente"} if name in ("get_election_result", "get_top_campaign_finances") else args
+            if name == "compare_candidates":
+                tool_args = {**args, "candidatos": ["A", "B"], "metrica": "patrimonio"}
             result = execute_tool(name, tool_args)
             assert "erro" not in result, name
 

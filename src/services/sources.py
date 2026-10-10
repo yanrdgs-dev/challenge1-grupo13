@@ -17,7 +17,7 @@ _EXPENSE_TOOLS = {"get_top_ceap_spender", "list_expense_categories", "check_parl
 _TSE_TOOLS = {"resolve_candidate", "get_election_result", "get_candidate_votes",
               "check_candidate_status", "check_disqualification_motive", "check_candidate_profile",
               "get_candidate_assets", "check_cash_and_special_assets", "verify_official_social_media",
-              "get_campaign_finances", "get_top_campaign_finances"}
+              "get_campaign_finances", "get_top_campaign_finances", "compare_candidates"}
 _TOOL_NAME_RE = re.compile(r"^(?:get|resolve|check|list)_[a-z_]+$")
 
 

@@ -54,6 +54,18 @@ def _coerce(name: str, value: Any, spec: Dict[str, Any]) -> Tuple[Any, Optional[
             return int(value.strip()), None
         return value, f"'{name}' deve ser um número inteiro, recebido {value!r}."
 
+    if kind == "array":
+        items = spec.get("items", {})
+        if isinstance(value, str):
+            value = [part for part in re.split(r"\s*(?:,|;|\se\s)\s*", value.strip())]
+        if not isinstance(value, list) or not all(isinstance(v, str) and v.strip() for v in value):
+            return value, f"'{name}' deve ser uma lista de textos não vazios, recebido {value!r}."
+        value = [v.strip() for v in value]
+        low, high = spec.get("minItems"), spec.get("maxItems")
+        if (low is not None and len(value) < low) or (high is not None and len(value) > high):
+            return value, f"'{name}' deve ter de {low} a {high} itens, recebido {len(value)}."
+        return value, None
+
     if kind == "boolean":
         if isinstance(value, bool):
             return value, None
@@ -100,7 +112,7 @@ def validate_tool_args(tool_name: str, args: Any) -> Tuple[Any, Optional[str]]:
 CANDIDATE_TOOLS = frozenset({
     "resolve_candidate", "get_candidate_votes", "check_candidate_status", "check_disqualification_motive",
     "check_candidate_profile", "get_candidate_assets", "check_cash_and_special_assets",
-    "verify_official_social_media", "get_campaign_finances",
+    "verify_official_social_media", "get_campaign_finances", "compare_candidates",
 })
 
 _CARGO_PATTERNS = {

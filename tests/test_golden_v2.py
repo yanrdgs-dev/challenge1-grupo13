@@ -168,3 +168,11 @@ def test_experiment_uses_the_dataset_name_and_forwards_the_reason():
     kwargs = client.run_experiment.call_args.kwargs
     assert kwargs["name"] == "golden_dataset_v2"
     assert kwargs["data"][0]["metadata"]["inconclusive_reason"] == "evidencia_vazia"
+
+
+def test_v2_has_balanced_comparison_claims(v2):
+    """Regra 6: comparações com o mesmo número de VERDADEIRO e FALSO, e as espelhadas trocam só a ordem."""
+    compare = [c for c in v2 if "compare_candidates" in c.get("expected_tools", [])]
+    verdicts = [c["expected_verdict"] for c in compare]
+    assert verdicts.count("VERDADEIRO") == verdicts.count("FALSO") >= 4
+    assert verdicts.count("INCONCLUSIVO") >= 2  # ambíguo e 2026; a de turno sem ano é barrada antes de qualquer tool

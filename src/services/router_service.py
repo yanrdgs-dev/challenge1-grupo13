@@ -38,6 +38,7 @@ from src.tools.gastos_tools import (
 from src.tools.knowledge_tools import check_data_source_coverage, check_institutional_rule
 from src.tools.resolve_politician import resolve_politician
 from src.tools.resolve_proposition import resolve_proposition
+from src.tools.tse_comparison_tools import compare_candidates, comparison_spec_problem
 from src.tools.tse_financas_tools import get_campaign_finances, get_top_campaign_finances
 from src.tools.tse_perfil_tools import (
     check_cash_and_special_assets,
@@ -204,6 +205,33 @@ def _with_resolved_candidate(args: Dict[str, Any], run: Callable[[int], Dict[str
     return {**evidence, "entidade_resolvida": resolution}
 
 
+def _compare_candidates(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve cada nome (regra 2) e só então compara; um nome ambíguo ou desconhecido impede a comparação."""
+    ano, metrica, turno = args["ano"], args["metrica"], args.get("turno")
+    problem = comparison_spec_problem(metrica, turno, ano)
+    if problem:
+        return problem
+    if metrica == "votos_validos" and not election_results_available(ano):
+        return results_unavailable(ano)  # ex.: 2026, sem votação publicada: nem resolve os nomes
+
+    resolved, unresolved = [], []
+    for nome in args["candidatos"]:
+        with tracing.observation("resolve_candidate", input={"nome_busca": nome, "ano": ano, "cargo": args.get("cargo")}) as span:
+            res = resolve_candidate(nome_busca=nome, ano=ano, cargo=args.get("cargo"), uf=args.get("uf"))
+            span.update(output=res)
+        if res.get("ambiguous") or res.get("sq_candidato") is None:
+            unresolved.append({"candidato_informado": nome, "resolucao": res, "ambiguous": bool(res.get("ambiguous"))})
+        else:
+            resolved.append({k: res.get(k) for k in ("sq_candidato", "nome_urna", "nome_civil", "partido", "cargo", "uf", "ano")})
+    if unresolved:
+        return _unresolved(
+            ambiguous=any(u["ambiguous"] for u in unresolved), candidatos_nao_resolvidos=unresolved,
+            motivo="Nem todos os candidatos da comparação foram resolvidos de forma única.",
+        )
+    evidence = compare_candidates(sq_candidatos=[r["sq_candidato"] for r in resolved], ano=ano, metrica=metrica, turno=turno)
+    return {**evidence, "entidades_resolvidas": resolved}
+
+
 def _candidate_votes(args: Dict[str, Any]) -> Dict[str, Any]:
     if not election_results_available(args["ano"]):
         return results_unavailable(args["ano"])  # sem votação publicada (ex.: 2026): nem resolve o nome
@@ -280,6 +308,8 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
         )
     if tool_name == "get_election_result":
         return get_election_result(cargo=args["cargo"], ano=args["ano"], turno=args["turno"], uf=args.get("uf"))
+    if tool_name == "compare_candidates":
+        return _compare_candidates(args)
     if tool_name == "get_candidate_votes":
         return _candidate_votes(args)
     if tool_name == "check_candidate_status":

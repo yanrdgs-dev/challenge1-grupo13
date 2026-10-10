@@ -450,6 +450,25 @@ TOOLS_CATALOG.extend([
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "compare_candidates",
+            "description": "Compara DOIS A QUATRO candidatos do TSE numa mesma métrica: votos válidos (exige turno), patrimônio declarado, receitas ou despesas contratadas de campanha. Usar para 'fulano teve mais votos/gastou mais/declarou mais que sicrano'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "candidatos": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 4, "description": "Nomes de urna ou civis dos candidatos citados na claim (os nomes são resolvidos pelo sistema antes da consulta)."},
+                    "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
+                    "metrica": {"type": "string", "enum": ["votos_validos", "patrimonio", "receitas", "despesas_contratadas"], "description": "O que comparar. 'despesas_contratadas' é o gasto de campanha."},
+                    "turno": {"type": "integer", "description": "1 ou 2; obrigatório só para votos_validos. NÃO invente."},
+                    "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado, se a claim disser."},
+                    "uf": {"type": "string", "description": "UF da disputa, para desambiguar homônimos."},
+                },
+                "required": ["candidatos", "ano", "metrica"],
+            },
+        },
+    },
 ])
 
 ROUTER_SYSTEM_PROMPT = (
@@ -477,6 +496,8 @@ ROUTER_SYSTEM_PROMPT = (
     "Gastos da cota parlamentar (CEAP) são outra coisa: usam as tools de cota.\n"
     "Candidatos de ELEIÇÃO (resultado, votos, situação, patrimônio, campanha) usam as tools de candidato do TSE: NUNCA use 'resolve_politician' para candidato de eleição, "
     "ela vale só para parlamentar em mandato (Câmara/Senado). Para 'quem mais gastou/arrecadou' num cargo use 'get_top_campaign_finances' (uma única tool por alegação).\n"
+    "Para COMPARAR candidatos nomeados (quem teve mais votos, gastou, arrecadou ou declarou mais patrimônio) utilize 'compare_candidates' com todos os nomes da alegação; "
+    "ela faz a comparação inteira numa só chamada.\n"
     "NÃO invente ano nem turno: se a alegação não diz o ano ('na última eleição') ou o turno, deixe o parâmetro vazio, para que a evidência seja INCONCLUSIVO. "
     "Se a alegação é sobre o resultado da eleição de 2026, chame mesmo assim a tool de resultado com ano 2026: o sistema informa que os dados abertos do TSE ainda não foram atualizados. Votos de eleição são do TSE; votos em plenário do Congresso são das tools de votação.\n"
     "Extraia todos os parâmetros possíveis (casa, número, ano, sigla, estado/UF) diretamente da frase."
