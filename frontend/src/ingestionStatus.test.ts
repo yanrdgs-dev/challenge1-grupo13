@@ -28,6 +28,7 @@ function status(over: Partial<IngestionStatus> = {}): IngestionStatus {
       fontes_com_novidade: [],
       total_novidades: 0,
       novidades_por_origem: {},
+      novidades_adiadas: 0,
       build: "ignorado",
       falhas: [],
     },
@@ -36,6 +37,7 @@ function status(over: Partial<IngestionStatus> = {}): IngestionStatus {
     carga_pendente: false,
     dados_atualizados_em: "2026-10-10T14:19:06+00:00",
     fontes_registradas: 82,
+    aguardando_build: 0,
     falhas_seguidas: 0,
     historico: [],
     ultimo_sucesso_ha_horas: 0.6,
@@ -133,6 +135,17 @@ describe("origens", () => {
       ["zeta", 1],
     ])
     assert.deepEqual(sortedOrigins({}), [])
+  })
+})
+
+describe("describeBuild com novidades adiadas", () => {
+  it("explica que as novidades do Senado esperam o próximo build", () => {
+    assert.match(describeBuild("ignorado", 2), /senado/i)
+    assert.match(describeBuild("ignorado", 2), /próximo build/i)
+  })
+  it("sem adiadas mantém o texto de sem novidades", () => {
+    assert.match(describeBuild("ignorado", 0), /sem novidades/i)
+    assert.match(describeBuild("ignorado"), /sem novidades/i)
   })
 })
 

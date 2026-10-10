@@ -232,3 +232,17 @@ def test_news_message_breaks_down_by_origin():
     run["changes_by_origin"] = {"camara": 26, "senado": 11, "tse": 45}
     _, text = format_message(run, recovered=False)
     assert "camara 26" in text and "senado 11" in text and "tse 45" in text
+
+
+def test_senado_only_news_do_not_announce_a_news_webhook_in_default_mode(tmp_path):
+    run = run_ok(["senado-materias-2023"], built=False)
+    run["deferred"] = 1
+    sent, rec, _ = go(tmp_path, run, ENV)
+    assert DISCORD not in [c[1] for c in rec.calls] and HB in [c[1] for c in rec.calls]
+
+
+def test_news_beyond_senado_still_announce(tmp_path):
+    run = run_ok(["camara-ceap-2026", "senado-materias-2023"], built=True)
+    run["deferred"] = 1
+    sent, rec, _ = go(tmp_path, run, ENV)
+    assert DISCORD in [c[1] for c in rec.calls]

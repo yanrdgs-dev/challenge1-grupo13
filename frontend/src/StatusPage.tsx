@@ -107,7 +107,7 @@ export function StatusBody({ status }: { status: IngestionStatus }) {
               </span>
             </p>
             <p>Duração: {formatDuration(run.duracao_segundos)}</p>
-            <p>Build: {describeBuild(run.build)}</p>
+            <p>Build: {describeBuild(run.build, run.novidades_adiadas)}</p>
             {status.falhas_seguidas > 1 && (
               <p className="font-medium text-rose-700">{status.falhas_seguidas} execuções seguidas com falha.</p>
             )}
@@ -152,6 +152,12 @@ export function StatusBody({ status }: { status: IngestionStatus }) {
 
           <Card title="Bases">
             <p>Fontes acompanhadas: {status.fontes_registradas}</p>
+            {status.aguardando_build > 0 && (
+              <p>
+                Aguardando o próximo build: {status.aguardando_build} novidade(s) do Senado (baixadas, mas não
+                disparam sozinhas o rebuild).
+              </p>
+            )}
             <p>
               Último sucesso: {timeAgo(status.ultimo_sucesso_em)} ({formatDateTime(status.ultimo_sucesso_em)})
             </p>

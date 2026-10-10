@@ -289,12 +289,14 @@ def run_downloads(
     force: bool = False,
     dry_run: bool = False,
     changes: Optional[List[str]] = None,
+    deferred: Optional[List[str]] = None,
 ) -> List[DownloadError]:
     """Baixa as fontes do manifesto. Falhas não interrompem as demais e são devolvidas ao chamador.
 
     Sem `state`, pula o que já existe em disco. Com `state`, baixa só o que tem novidade (ver
     `freshness.decide`), registra o estado e acrescenta a `changes` o id de cada fonte atualizada
-    (ou que seria atualizada, em `dry_run`).
+    (ou que seria atualizada, em `dry_run`). Novidades de fontes com `triggers_build: false` também entram
+    em `deferred`: foram baixadas, mas não disparam sozinhas o rebuild dos parquets.
     """
     base_dir = Path(base_dir)
     sources = expand_sources(manifest if manifest is not None else load_manifest())
@@ -309,8 +311,11 @@ def run_downloads(
                     _download_source(source, base_dir, client)
                 else:
                     outcome = _sync_source(source, base_dir, client, state, force, dry_run, breaker)
-                    if changes is not None and outcome.action != "sem_novidade":
-                        changes.append(source.id)
+                    if outcome.action != "sem_novidade":
+                        if changes is not None:
+                            changes.append(source.id)
+                        if deferred is not None and not source.triggers_build:
+                            deferred.append(source.id)
             except DownloadError as e:
                 logger.error("%s", e)
                 failures.append(e)
