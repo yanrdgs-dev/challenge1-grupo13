@@ -58,10 +58,44 @@ def test_pending_build_flag_survives_reload(tmp_path):
     assert IngestionState.load(p).pending_build is True
 
 
-def test_last_run_is_recorded(tmp_path):
+def test_last_run_is_recorded_with_news_and_failures(tmp_path):
     p = tmp_path / "s.json"
     st = IngestionState.load(p)
-    st.record_run(started_at="a", finished_at="b", exit_code=0, downloaded=3, built=True)
+    st.record_run(started_at="a", finished_at="b", exit_code=0, downloaded=3, built=True,
+                  changes=["camara-ceap-2026", "tse-bem_candidato_2026"], failures=[])
     st.save()
     assert IngestionState.load(p).last_run == {
-        "started_at": "a", "finished_at": "b", "exit_code": 0, "downloaded": 3, "built": True}
+        "started_at": "a", "finished_at": "b", "exit_code": 0, "downloaded": 3, "built": True,
+        "changes": ["camara-ceap-2026", "tse-bem_candidato_2026"], "failures": []}
+
+
+def test_record_run_without_details_defaults_to_empty_lists(tmp_path):
+    st = IngestionState.load(tmp_path / "s.json")
+    st.record_run("a", "b", 0, 0, False)
+    assert st.last_run["changes"] == [] and st.last_run["failures"] == []
+
+
+def test_history_keeps_the_runs_in_order_and_is_capped(tmp_path):
+    p = tmp_path / "s.json"
+    st = IngestionState.load(p)
+    for i in range(60):
+        st.record_run(f"s{i}", f"f{i}", 0, 0, False)
+    st.save()
+    h = IngestionState.load(p).history
+    assert len(h) == 50 and h[0]["started_at"] == "s10" and h[-1]["started_at"] == "s59"
+
+
+def test_long_change_and_failure_lists_are_truncated_but_counted(tmp_path):
+    st = IngestionState.load(tmp_path / "s.json")
+    st.record_run("a", "b", 1, 100, False, changes=[f"fonte-{i}" for i in range(100)],
+                  failures=[f"erro {i}" for i in range(20)])
+    assert len(st.last_run["changes"]) == 30 and st.last_run["downloaded"] == 100
+    assert len(st.last_run["failures"]) == 5
+
+
+def test_notification_memory_survives_reload(tmp_path):
+    p = tmp_path / "s.json"
+    st = IngestionState.load(p)
+    st.notify = {"last_failure_signature": "x", "last_failure_notified_at": "2026-10-10T10:00:00+00:00"}
+    st.save()
+    assert IngestionState.load(p).notify["last_failure_signature"] == "x"

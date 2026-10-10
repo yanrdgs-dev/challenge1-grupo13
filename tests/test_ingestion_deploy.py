@@ -37,9 +37,22 @@ def test_script_limits_container_memory_so_the_build_cannot_take_the_vm_down():
     assert "--memory" in s and "--memory-swap" in s
 
 
-def test_script_does_not_leak_secrets_or_use_the_env_file():
+def test_script_never_loads_the_production_env_only_the_dedicated_ingestion_env():
     s = text(SCRIPT)
-    assert "env-file" not in s and ".env" not in s.replace(".current_tag", "")
+    assert "/srv/factcheck/.env" not in s
+    assert "--env-file" in s and "/srv/factcheck/ingestion.env" in s
+    assert "[ -f " in s or "[[ -f " in s  # o arquivo é opcional: sem ele a ingestão roda sem avisos
+
+
+def test_script_reports_a_crash_the_pipeline_could_not_report():
+    s = text(SCRIPT)
+    assert "notify_crash" in s and "/fail" in s and "curl" in s
+    assert "--status" in s  # consultas de status não disparam alerta de falha
+
+
+def test_script_forwards_the_pipeline_exit_code():
+    s = text(SCRIPT)
+    assert "exit $rc" in s or 'exit "$rc"' in s
 
 
 def test_service_is_a_oneshot_run_by_the_deploy_user_with_a_generous_timeout():
@@ -63,6 +76,9 @@ def test_timer_is_persistent_and_targets_the_service():
 def test_doc_explains_install_check_force_logs_and_rollback():
     d = text(DOC)
     for expected in (
+        "--status", "--json", "--max-age-hours", "ingestion_status.json", "/api/ingestion/status",
+        "INGESTION_WEBHOOK_URL", "INGESTION_HEARTBEAT_URL", "INGESTION_NOTIFY", "/srv/factcheck/ingestion.env",
+        "healthchecks.io", "chmod 600",
         "systemctl enable --now factcheck-ingestion.timer",
         "--check", "--force", "--force-build", "--allow-partial",
         "journalctl -u factcheck-ingestion",

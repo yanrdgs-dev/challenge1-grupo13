@@ -17,6 +17,7 @@ def env(monkeypatch, tmp_path):
     ds, out = tmp_path / "ds", tmp_path / "data" / "processed"
     ds.mkdir(parents=True)
     ctx = {"log": [], "changes": ["camara-ceap-2026"], "ds": ds, "out": out, "build_failures": [], "dim_error": None}
+    ctx["download_failures"] = []
 
     def fake_downloads(base_dir, client=None, manifest=None, state=None, force=False, dry_run=False, changes=None):
         ctx["log"].append(("download_camara_senado", dict(force=force, dry_run=dry_run)))
@@ -42,6 +43,8 @@ def env(monkeypatch, tmp_path):
         Path(output_path).write_text("dim")
         return Path(output_path)
 
+    ctx["notified"] = []
+    monkeypatch.setattr(pipeline, "notify_run", lambda run, state, env=None, **kw: ctx["notified"].append(run) or [])
     monkeypatch.setattr(pipeline, "run_downloads", fake_downloads)
     monkeypatch.setattr(pipeline, "run_tse_downloads", fake_tse)
     monkeypatch.setattr(pipeline, "process_all_datasets", fake_build)
@@ -252,3 +255,105 @@ def test_main_flags_force_check_and_force_build(env):
     env["log"].clear()
     pipeline.main(["--datasets-dir", str(env["ds"]), "--processed-dir", str(env["out"]), "--force", "--force-build"])
     assert env["log"][0][1]["force"] is True and "build_parquet" in env["names"]()
+
+
+# ------------------------------- estado, status publicado e avisos ------------------------------- #
+
+def test_run_records_news_and_failures_in_the_state(env, monkeypatch):
+    monkeypatch.setattr(pipeline, "run_tse_downloads", lambda *a, **k: [DownloadError("TSE fora do ar")])
+    assert run(env) == 1
+    last = env["state"]().last_run
+    assert last["changes"] == ["camara-ceap-2026"] and last["failures"] == ["TSE fora do ar"] and last["exit_code"] == 1
+
+
+def test_status_file_is_published_next_to_the_parquets_after_a_build(env):
+    assert run(env) == 0
+    status = json.loads((env["out"] / "ingestion_status.json").read_text(encoding="utf-8"))
+    assert status["ultima_execucao"]["resultado"] == "ok" and status["ultima_execucao"]["build"] == "publicado"
+    assert status["ultima_novidade"]["fontes"] == ["camara-ceap-2026"]
+
+
+def test_status_file_is_refreshed_even_when_nothing_changed_and_the_build_is_skipped(env):
+    mark_as_built(env)
+    env["changes"] = []
+    assert run(env) == 0
+    status = json.loads((env["out"] / "ingestion_status.json").read_text(encoding="utf-8"))
+    assert status["ultima_execucao"]["build"] == "ignorado" and status["ultima_execucao"]["total_novidades"] == 0
+
+
+def test_status_file_also_reports_a_failed_run_without_touching_published_parquets(env):
+    mark_as_built(env)
+    env["build_failures"] = [("TSE", RuntimeError("parse"))]
+    assert run(env) == 1
+    status = json.loads((env["out"] / "ingestion_status.json").read_text(encoding="utf-8"))
+    assert status["ultima_execucao"]["resultado"] == "falhou"
+    assert (env["out"] / "camara" / "deputados.parquet").read_text() == "antigo"
+
+
+def test_notify_is_called_once_per_real_run_with_the_run_record(env):
+    run(env)
+    assert len(env["notified"]) == 1 and env["notified"][0]["changes"] == ["camara-ceap-2026"]
+
+
+def test_notify_is_called_on_failure_too(env, monkeypatch):
+    monkeypatch.setattr(pipeline, "run_tse_downloads", lambda *a, **k: [DownloadError("x")])
+    run(env)
+    assert env["notified"][0]["exit_code"] == 1
+
+
+def test_notify_is_not_called_for_check_or_when_the_lock_is_held(env):
+    run(env, check_only=True)
+    with open(env["ds"] / ".ingestion.lock", "w") as held:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        run(env)
+    assert env["notified"] == []
+
+
+def test_a_notification_error_never_changes_the_exit_code(env, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("webhook explodiu")
+
+    monkeypatch.setattr(pipeline, "notify_run", boom)
+    assert run(env) == 0
+
+
+# ------------------------------- --status ------------------------------- #
+
+def test_status_flag_prints_without_downloading_building_or_taking_the_lock(env, capsys):
+    run(env)
+    env["log"].clear()
+    assert pipeline.main(["--datasets-dir", str(env["ds"]), "--processed-dir", str(env["out"]), "--status"]) == 0
+    out = capsys.readouterr().out
+    assert "Última execução" in out and "camara-ceap-2026" in out
+    assert env["log"] == []
+
+
+def test_status_flag_json(env, capsys):
+    run(env)
+    pipeline.main(["--datasets-dir", str(env["ds"]), "--processed-dir", str(env["out"]), "--status", "--json"])
+    data = json.loads(capsys.readouterr().out)
+    assert data["ultima_execucao"]["resultado"] == "ok"
+
+
+def test_status_flag_max_age_exits_2_when_stale(env, capsys):
+    run(env)
+    st = env["state"]()
+    st.last_run["finished_at"] = "2020-01-01T00:00:00+00:00"
+    st.history[-1]["finished_at"] = "2020-01-01T00:00:00+00:00"
+    st.save()
+    code = pipeline.main(["--datasets-dir", str(env["ds"]), "--processed-dir", str(env["out"]),
+                          "--status", "--max-age-hours", "6"])
+    assert code == 2 and "desatualizada" in capsys.readouterr().out.lower()
+
+
+def test_status_flag_max_age_ok_when_recent(env):
+    run(env)
+    assert pipeline.main(["--datasets-dir", str(env["ds"]), "--processed-dir", str(env["out"]),
+                          "--status", "--max-age-hours", "6"]) == 0
+
+
+def test_status_flag_on_empty_state_says_never_ran_and_is_stale_with_max_age(env, capsys):
+    assert pipeline.main(["--datasets-dir", str(env["ds"]), "--processed-dir", str(env["out"]), "--status"]) == 0
+    assert "nunca rodou" in capsys.readouterr().out.lower()
+    assert pipeline.main(["--datasets-dir", str(env["ds"]), "--processed-dir", str(env["out"]),
+                          "--status", "--max-age-hours", "6"]) == 2
