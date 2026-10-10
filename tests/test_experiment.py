@@ -298,3 +298,11 @@ def test_verdict_threshold_follows_the_latest_baseline_with_margin():
     threshold = load_thresholds(ROOT / "evaluation" / "thresholds.json")["verdict_match"]
     accuracy = v2["scores"]["verdict_match"]["mean"]
     assert accuracy - 1 / 30 - 1e-3 <= threshold <= accuracy   # tolera arredondamento do limiar
+
+
+def test_committed_baseline_v3_covers_golden_v2_and_passes_the_gate():
+    v3 = json.loads((ROOT / "evaluation" / "baseline_v3.json").read_text(encoding="utf-8"))["summary"]
+    assert v3["total"] == 50
+    assert v3["scores"]["no_wrong_definitive"]["mean"] == 1.0
+    assert v3["scores"]["verdict_match"]["mean"] >= 0.9
+    assert check_gate(v3, load_thresholds(ROOT / "evaluation" / "thresholds.json")) == []
