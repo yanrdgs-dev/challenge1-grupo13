@@ -178,3 +178,96 @@ A poda automática (`prune_redundant`) só se aplica quando a tabela é reconhec
 
 - **CEAP da Câmara** (`camara_ceap`): preserva `ideCadastro`, a chave de junção com o cadastro de deputados usada por `build_dim_politicos`.
 - **Cadastro de senadores**: a fonte automática (`senador/lista/atual.csv`) é um XML achatado, com cabeçalhos em forma de caminho e uma linha por suplente/exercício. `src/etl/senado_cadastro.py` a reduz a uma linha por senador com `Codigo Parlamentar`, `Nome Parlamentar`, `Nome Completo`, `Partido`, `UF`, `Email`, `Titular/Suplente` e `Mandato` (ex.: `2023-2031`). Entrada já no formato legível passa sem alteração.
+
+---
+
+## 8. Esquema real dos parquets do TSE (descoberta da Fase 1)
+
+Medido em 2026-10-10 sobre os parquets gerados pela ingestão (`data/processed/tse/`), 2022 e 2026. Os números de 2026 mudam a cada carga: o TSE ainda publica dados dessa eleição. Para reproduzir:
+
+```python
+import duckdb
+rel = "read_parquet('data/processed/tse/votacao_munzona/**/*.parquet', hive_partitioning=true, union_by_name=true)"
+duckdb.sql(f"select NR_TURNO, NM_URNA_CANDIDATO, sum(QT_VOTOS_NOMINAIS_VALIDOS) from {rel} where DS_CARGO='Presidente' group by 1,2 order by 1,3 desc").show()
+```
+
+### 8.1 Inventário
+
+| Parquet | Uma linha é | Linhas | Anos | Chave |
+|---|---|---:|---|---|
+| `candidatos` | candidatura **por turno** | 50.331 | 2022, 2026 | `SQ_CANDIDATO` (+ turno, ver 8.5) |
+| `candidatos_complementar` | idem (detalhes da candidatura) | 50.331 | 2022, 2026 | `SQ_CANDIDATO` |
+| `bens` | bem declarado | 170.002 (32.166 candidatos) | 2022, 2026 | `SQ_CANDIDATO` |
+| `cassacao` | motivo de cassação/indeferimento | 3.747 | 2022, 2026 | `SQ_CANDIDATO` |
+| `coligacoes` | coligação ou federação | 9.002 | 2022, 2026 | `SQ_COLIGACAO` |
+| `redes_sociais` | link de rede social | 171.650 (34.251 candidatos) | 2022, 2026 | `SQ_CANDIDATO` |
+| `votacao_munzona` | candidato × município × zona × turno × cargo | 9.377.845 | **só 2022** | `SQ_CANDIDATO` |
+| `detalhe_votacao_secao` | seção × turno × cargo | 3.078.727 | **só 2022** | `NR_ZONA`, `NR_SECAO` |
+| `totalizacao_presidente_2022` | instante de totalização (histórico) | 13.723 | só 2022 | — |
+| `prestacao_contas/receitas` | receita | 849.638 | 2022, 2026 | `SQ_CANDIDATO`, `SQ_PRESTADOR_CONTAS` |
+| `prestacao_contas/despesas_contratadas` | despesa contratada | 3.205.773 | 2022, 2026 | `SQ_CANDIDATO`, `SQ_PRESTADOR_CONTAS` |
+| `prestacao_contas/despesas_pagas` | despesa paga | 3.127.248 | 2022, 2026 | `SQ_PRESTADOR_CONTAS` apenas |
+
+Os parquets são particionados por `ano=`. Em 2026 o TSE já publica candidatos, bens, prestação de contas e redes sociais, mas **não** votação nem totalização (`resultados-2026` só tem relatórios em PDF).
+
+### 8.2 Domínios de valores
+
+- **Turno (`NR_TURNO`, `ST_TURNO`):** 1 e 2. Em 2022 o 2º turno existiu só para Presidente (2 candidatos) e Governador (12 UFs, 24 candidatos). Em 2026 já há candidaturas de 2º turno em `candidatos` (Presidente: LULA e FLAVIO BOLSONARO; Governador: 8 linhas), mas esse turno ainda não aconteceu e não há resultado algum.
+- **Cargo (`DS_CARGO`):** a caixa muda entre tabelas, então toda tool deve normalizar.
+  - `candidatos`, `candidatos_complementar`: `PRESIDENTE`, `VICE-PRESIDENTE`, `GOVERNADOR`, `VICE-GOVERNADOR`, `SENADOR`, `1º SUPLENTE`, `2º SUPLENTE`, `DEPUTADO FEDERAL`, `DEPUTADO ESTADUAL`, `DEPUTADO DISTRITAL`.
+  - `votacao_munzona`, `detalhe_votacao_secao`, `prestacao_contas`: `Presidente`, `Governador`, `Senador`, `Deputado Federal`, `Deputado Estadual`, `Deputado Distrital` (o detalhe por seção acrescenta `Conselheiro Distrital`; a prestação acrescenta `Vice-governador`).
+- **UF (`SG_UF`):** as 27 UFs. Em `candidatos`, `BR` identifica Presidente e Vice. Na votação, o voto no exterior vem como `ZZ` (294.525 votos para Presidente no 1º turno de 2022) e não existe `BR`: o total nacional soma as 27 UFs **mais `ZZ`**.
+- **Situação da candidatura (`DS_SITUACAO_CANDIDATURA`):** 2022 tem `APTO` (26.409) e `INAPTO` (2.913); em **2026 todas as linhas são `#NE`**. O detalhe (`DS_DETALHE_SITUACAO_CAND` na votação): `DEFERIDO`, `INDEFERIDO`, `INDEFERIDO COM RECURSO`, `DEFERIDO COM RECURSO`, `RENÚNCIA`, `PEDIDO NÃO CONHECIDO`, `PENDENTE DE JULGAMENTO`.
+- **Resultado (`DS_SIT_TOT_TURNO`, na votação):** `ELEITO`, `ELEITO POR QP`, `ELEITO POR MÉDIA`, `2º TURNO`, `SUPLENTE`, `NÃO ELEITO`.
+- **Destino do voto (`NM_TIPO_DESTINACAO_VOTOS`):** `Válido`, `Válido (legenda)`, `Anulado`, `Anulado sub judice`.
+
+### 8.3 Semântica dos campos críticos
+
+- **`QT_VOTOS_NOMINAIS` inclui votos anulados; `QT_VOTOS_NOMINAIS_VALIDOS` não.** O resultado oficial é o segundo. A diferença em 2022: Deputado Federal 1.021.815, Deputado Estadual 1.580.492, Senador 534.610, Governador (1º turno) 194.850; para Presidente é zero. Somar `QT_VOTOS_NOMINAIS` superestima quem teve candidatura indeferida (PABLO MARÇAL: 243.037 votos anulados, 0 válidos).
+- **Conferência com o resultado oficial de 2022** (soma de `QT_VOTOS_NOMINAIS_VALIDOS`): Presidente 1º turno LULA 57.259.504 e JAIR BOLSONARO 51.072.345; 2º turno 60.345.999 e 58.206.354. Eleitos: 513 Deputados Federais, 27 Senadores, 1 Presidente (no 2º turno), 15 Governadores no 1º turno e 12 no 2º, 1.035 Deputados Estaduais e 24 Distritais.
+- **Comparecimento (`detalhe_votacao_secao`), Presidente, 1º turno de 2022:** aptos 156.454.011; comparecimento 123.682.372; abstenções 32.770.982; brancos 1.964.779; nulos 3.487.874; válidos 118.229.719.
+- **`totalizacao_presidente_2022` não deve ser usada para resultado:** é um histórico largo (uma coluna por candidato), todo em texto, com espaços no fim dos nomes de coluna (`DT_TOTALIZACAO     `). O resultado vem de `votacao_munzona`.
+- **Prestação de contas:** valores em reais (`Float64`). `despesas_pagas` **não tem candidato nem cargo**, só `SQ_PRESTADOR_CONTAS`; o candidato se obtém por `receitas` ou `despesas_contratadas`, onde `SQ_PRESTADOR_CONTAS` ↔ `SQ_CANDIDATO` é 1:1 (nenhum prestador com dois candidatos) e cobre 100% dos 36.431 prestadores de `despesas_pagas`.
+- **Bens:** 676 linhas com valor zero e 5 negativas; 11.021 candidatos de 2022 não declararam bens. Ausência de linha não é patrimônio zero declarado.
+
+### 8.4 Valores sentinela
+
+O TSE preenche campos sem valor com marcadores. Toda tool deve tratá-los como "sem dado" (`None`), nunca como valor.
+
+| Marcador | Onde aparece (exemplos) |
+|---|---|
+| `#NULO` | `NM_SOCIAL_CANDIDATO` (9,4 mi de linhas), `NM_FEDERACAO`, `SG_FEDERACAO` |
+| `#NE` | `DS_SITUACAO_JULGAMENTO`, `DS_SITUACAO_CASSACAO`, `DS_SITUACAO_CANDIDATURA` (todo o 2026) |
+| `#NULO#` | `DS_MODELO_URNA`, `NM_LOCAL_VOTACAO` |
+| `-1`, `-3`, `-4` | colunas `CD_*` e `NR_*` (`CD_SITUACAO_JULGAMENTO`, `NR_FEDERACAO`, `NR_PROTOCOLO_CANDIDATURA`...) |
+
+Cuidado: existem dados reais que começam com `#` (`#TO COM LORA` em `NM_URNA_CANDIDATO`; URLs como `#MARINA_MARI_LOPES`), então a comparação precisa ser com os marcadores exatos, não com "começa com #".
+
+### 8.5 Chaves, junções e homônimos (regra 2)
+
+- `SQ_CANDIDATO` é único por candidatura e **não colide entre anos** (nenhum aparece em 2022 e 2026). Mas ele **se repete por turno**: há 72 `SQ_CANDIDATO` com duas linhas em `candidatos` (os candidatos de 2º turno de 2022 e de 2026). Sem a coluna `NR_TURNO` essas linhas são indistinguíveis (problema 1 em 8.6).
+- Toda `SQ_CANDIDATO` da votação de 2022 existe em `candidatos` (26.237 de 26.237), e todo candidato das receitas existe no cadastro (47.181 de 47.181).
+- **Homônimos:** 173 grupos com o mesmo nome de urna, UF, cargo e ano e `SQ_CANDIDATO` diferentes (96 em Deputado Federal, 65 em Deputado Estadual); em 161 deles o partido também é o mesmo, então partido não desempata. O que desempata é `NR_CANDIDATO` (número na urna) ou o nome civil. A resolução de candidato deve devolver "ambíguo" (regra 2) e a tool, INCONCLUSIVO, em vez de escolher.
+
+### 8.6 Problemas encontrados no ETL
+
+1. **`candidatos` perdeu `NR_TURNO`** na poda: as 72 linhas de 2º turno ficaram duplicadas e sem como saber de qual turno é cada uma. Também perdeu `DS_SIT_TOT_TURNO`.
+2. **Sem dados de perfil:** `DS_GENERO`, `DS_GRAU_INSTRUCAO`, `DS_ESTADO_CIVIL`, `DS_COR_RACA`, `DS_OCUPACAO` e `SG_UF_NASCIMENTO` foram podados, e o `candidatos_complementar` não os tem (traz idade na posse, reeleição, situação detalhada, nacionalidade). Sem eles não há `check_candidate_profile`. CPF, título de eleitor, e-mail e data de nascimento continuam fora, de propósito.
+3. **Votação, detalhe por seção e totalização só existem para 2022**, e o TSE 2026 ainda não publicou resultados.
+4. **Caixa de `DS_CARGO` diferente** entre as tabelas (8.2).
+
+### 8.7 Mapeamento proposto das tools para os parquets
+
+| Tool (passos 2 a 4 da Fase 1) | Parquet | Observação |
+|---|---|---|
+| `resolve_candidate` (nova, regra 2) | `candidatos` | nome + UF + cargo + ano (+ número); devolve `SQ_CANDIDATO`, ou ambíguo |
+| `get_election_result`, `get_candidate_votes` | `votacao_munzona` | somar `QT_VOTOS_NOMINAIS_VALIDOS`; nacional inclui `ZZ`; exigir ano e turno |
+| `check_candidate_status` | `candidatos`, `candidatos_complementar`, `votacao_munzona` | situação, detalhe e `DS_SIT_TOT_TURNO` |
+| `check_disqualification_motive` | `cassacao`, `candidatos_complementar` | |
+| `check_candidate_profile` | `candidatos` (após corrigir 8.6) | |
+| `get_candidate_assets`, `check_cash_and_special_assets` | `bens` | zero/negativo e ausência não são patrimônio |
+| `verify_official_social_media` | `redes_sociais` | só os links que o candidato registrou no TSE |
+| Finanças de campanha | `receitas`, `despesas_contratadas`, `despesas_pagas` | `despesas_pagas` por `SQ_PRESTADOR_CONTAS` |
+| Participação (comparecimento, abstenção, brancos e nulos) | `detalhe_votacao_secao` | não estava no plano; as claims de participação precisam dele |
+
+Guardas de especificidade (regra 3): ano ausente, turno ambíguo ("o primeiro turno", "a última eleição") e qualquer resultado de 2026 devem dar INCONCLUSIVO sem chamar tool de dado.
