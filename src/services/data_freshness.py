@@ -80,6 +80,11 @@ def data_date(
         prefix = {"camara": "camara-proposicoes-", "senado": "senado-materias-"}.get(casa)
         return _latest(fontes, _family(fontes, prefix)) if prefix else None
 
+    if tool_name in ("get_election_result", "get_candidate_votes", "resolve_candidate"):
+        ano = args.get("ano")
+        table = "tse-consulta_cand_" if tool_name == "resolve_candidate" else "tse-votacao_candidato_munzona_"
+        return _latest(fontes, [f"{table}{ano}"]) if ano is not None else None
+
     if tool_name == "resolve_politician":
         ids = ["camara-deputados", "senado-senadores"] + _family(fontes, "tse-consulta_cand_")
         return _latest(fontes, ids)

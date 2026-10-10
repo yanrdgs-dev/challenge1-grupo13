@@ -40,14 +40,19 @@ def test_every_catalog_tool_is_dispatched_and_none_is_simulated():
          patch.object(router_service, "get_top_ceap_spender", return_value=_dataclass_like({"ok": 1})), \
          patch.object(router_service, "list_expense_categories", return_value=_dataclass_like({"ok": 2})), \
          patch.object(router_service, "check_parliamentary_expenses", return_value=_dataclass_like({"ok": 3})), \
-         patch.object(router_service, "get_proposition_vote_result", return_value=[]):
+         patch.object(router_service, "get_proposition_vote_result", return_value=[]), \
+         patch.object(router_service, "resolve_candidate", return_value={"encontrado": True, "sq_candidato": 1, "ambiguous": False}), \
+         patch.object(router_service, "get_election_result", return_value={"encontrado": True}), \
+         patch.object(router_service, "get_candidate_votes", return_value={"encontrado": True}):
         args = {
+            "turno": 1, "nome_candidato": "Fulano",
             "casa": "camara", "ano": 2023, "nome_busca": "Fulano", "id_proposicao": 10,
             "topico": "sabatina_stf",
             "fonte": "portal_transparencia", "tipo_dado": "licitacoes_dados_abertos",
         }
         for name in names:
-            result = execute_tool(name, args)
+            tool_args = {**args, "cargo": "Presidente"} if name == "get_election_result" else args
+            result = execute_tool(name, tool_args)
             assert "erro" not in result, name
 
 

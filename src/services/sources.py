@@ -14,6 +14,7 @@ CAMARA_CEAP = "Câmara dos Deputados - Dados Abertos (CEAP)"
 SENADO_CEAPS = "Senado Federal - Dados Abertos (CEAPS)"
 
 _EXPENSE_TOOLS = {"get_top_ceap_spender", "list_expense_categories", "check_parliamentary_expenses"}
+_TSE_TOOLS = {"resolve_candidate", "get_election_result", "get_candidate_votes"}
 _TOOL_NAME_RE = re.compile(r"^(?:get|resolve|check|list)_[a-z_]+$")
 
 
@@ -58,6 +59,8 @@ def derive_sources(
         return [evidence["fonte_normativa"]] if evidence.get("fonte_normativa") else []
     if tool_name == "check_data_source_coverage":
         return [ref for ref in (evidence.get("base_legal"), evidence.get("url_referencia")) if ref]
+    if tool_name in _TSE_TOOLS:
+        return [TSE]
     if tool_name == "resolve_politician":
         sources = []
         if evidence.get("ideCadastro"):

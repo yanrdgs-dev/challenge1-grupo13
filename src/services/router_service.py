@@ -29,7 +29,7 @@ from src.observability.prompts import get_prompt
 from src.prompts.defaults import PROMPT_ROUTER_SYSTEM
 from src.services.tool_args import validate_tool_args
 from src.services.data_freshness import data_date, ensure_data_date_cited, load_ingestion_info
-from src.services.sources import derive_sources, ensure_source_cited, evidence_failed, merge_sources
+from src.services.sources import TSE as TSE_SOURCE, derive_sources, ensure_source_cited, evidence_failed, merge_sources
 from src.tools.gastos_tools import (
     check_parliamentary_expenses,
     get_top_ceap_spender,
@@ -38,6 +38,13 @@ from src.tools.gastos_tools import (
 from src.tools.knowledge_tools import check_data_source_coverage, check_institutional_rule
 from src.tools.resolve_politician import resolve_politician
 from src.tools.resolve_proposition import resolve_proposition
+from src.tools.tse_tools import (
+    election_results_available,
+    get_candidate_votes,
+    get_election_result,
+    resolve_candidate,
+    results_unavailable,
+)
 from src.tools.votacoes_api import get_proposition_vote_breakdown, get_proposition_vote_result
 from src.services.tool_catalog import ROUTER_SYSTEM_PROMPT, TOOLS_CATALOG
 
@@ -168,6 +175,28 @@ def _resolve_parlamentar_id(casa: str, valor: str) -> Dict[str, Any]:
     return {"id": str(canonical)}
 
 
+def _candidate_votes(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve o candidato (regra 2) e só então consulta os votos com o SQ_CANDIDATO canônico."""
+    nome = str(args["nome_candidato"]).strip()
+    if not election_results_available(args["ano"]):
+        return results_unavailable(args["ano"])  # sem votação publicada (ex.: 2026): nem resolve o nome
+    with tracing.observation(
+        "resolve_candidate", input={"nome_busca": nome, "ano": args["ano"], "cargo": args.get("cargo")}
+    ) as span:
+        res = resolve_candidate(
+            nome_busca=nome, ano=args["ano"], cargo=args.get("cargo"), uf=args.get("uf"), numero=args.get("numero")
+        )
+        span.update(output=res)
+    if res.get("ambiguous") or res.get("sq_candidato") is None:
+        return _unresolved(
+            ambiguous=bool(res.get("ambiguous")), candidato_informado=nome, resolucao=res,
+            motivo=res.get("motivo"),
+        )
+    votes = get_candidate_votes(sq_candidato=res["sq_candidato"], ano=args["ano"], turno=args["turno"])
+    resolution = {k: res.get(k) for k in ("sq_candidato", "nome_urna", "nome_civil", "partido", "cargo", "uf", "ano")}
+    return {**votes, "entidade_resolvida": resolution}
+
+
 def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Executa a tool Python real mapeada pelo Roteador.
 
@@ -229,6 +258,15 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
             )
         votacoes = get_proposition_vote_result(id_proposicao=prop_id, casa=casa)
         return {"casa": casa, "id_proposicao": prop_id, "votacoes": votacoes}
+    if tool_name == "resolve_candidate":
+        return resolve_candidate(
+            nome_busca=args["nome_busca"], ano=args["ano"], cargo=args.get("cargo"),
+            uf=args.get("uf"), numero=args.get("numero"),
+        )
+    if tool_name == "get_election_result":
+        return get_election_result(cargo=args["cargo"], ano=args["ano"], turno=args["turno"], uf=args.get("uf"))
+    if tool_name == "get_candidate_votes":
+        return _candidate_votes(args)
     if tool_name == "check_institutional_rule":
         # Regra 4: base normativa curada; não consulta dado transacional nem resolve entidade.
         try:
@@ -504,6 +542,23 @@ def _run_check(
     outcome = _route_and_execute(claim_text, on_step)
     tool_name, tool_args, evidence = outcome.tool_name, outcome.tool_args, outcome.evidence
     tempo_roteamento_ms = outcome.routing_ms
+
+    # 2b. Votação do ano ainda não publicada pelo TSE: resposta determinística, sem juiz (regra 3).
+    if (evidence or {}).get("status") == "resultado_indisponivel":
+        return CheckClaimResponse(
+            claim=claim_text,
+            tool_usada=tool_name,
+            parametros_tool=tool_args,
+            evidencia_coletada=evidence,
+            veredito="INCONCLUSIVO",
+            confianca="ALTA",
+            justificativa=evidence.get("motivo") or "Os dados abertos do TSE ainda não foram atualizados.",
+            fontes_primarias=[TSE_SOURCE],
+            tempo_total_ms=round((time.perf_counter() - start_total) * 1000, 2),
+            tempo_roteamento_ms=round(tempo_roteamento_ms, 2),
+            ferramentas_usadas=outcome.tools_used,
+            regra_acionada="dados_tse_nao_atualizados",
+        )
 
     # 3. Comunicação com o Agente Julgador no Kubernetes
     judge_endpoint = f"{JUDGE_SERVICE_URL}/judge"

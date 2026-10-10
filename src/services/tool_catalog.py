@@ -247,6 +247,66 @@ TOOLS_CATALOG.extend([
     },
 ])
 
+_CARGOS_ELEITORAIS = ["Presidente", "Governador", "Senador", "Deputado Federal", "Deputado Estadual", "Deputado Distrital"]
+
+TOOLS_CATALOG.extend([
+    {
+        "type": "function",
+        "function": {
+            "name": "resolve_candidate",
+            "description": "Resolve o nome de um CANDIDATO de uma eleição (TSE) para o identificador oficial (SQ_CANDIDATO). Usar quando a claim cita um candidato de um ano de eleição específico.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nome_busca": {"type": "string", "description": "Nome de urna ou civil do candidato (ex: 'Lula', 'Jair Bolsonaro')."},
+                    "ano": {"type": "integer", "description": "Ano da eleição citado na claim (ex: 2022). NÃO invente: só se a claim disser."},
+                    "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado, se a claim disser."},
+                    "uf": {"type": "string", "description": "UF da disputa (2 letras), para desambiguar homônimos."},
+                    "numero": {"type": "integer", "description": "Número do candidato na urna, se citado."},
+                },
+                "required": ["nome_busca", "ano"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_election_result",
+            "description": "Resultado oficial de uma eleição (TSE): ranking de votos válidos de um cargo em um ano e turno, e quem foi eleito. Usar para 'quem ganhou', 'quem ficou em segundo', 'total de votos do cargo'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado."},
+                    "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
+                    "turno": {"type": "integer", "description": "1 ou 2. NÃO invente: se a claim não diz o turno, deixe vazio."},
+                    "uf": {"type": "string", "description": "UF da disputa (obrigatória para Governador, Senador e Deputados)."},
+                    "top_n": {"type": "integer", "description": "Quantos candidatos listar (padrão 10)."},
+                },
+                "required": ["cargo", "ano", "turno"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_candidate_votes",
+            "description": "Votos de um CANDIDATO específico (TSE) em um ano e turno: votos válidos, percentual, posição e situação (eleito ou não). Usar para 'fulano teve X votos', 'fulano foi eleito'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nome_candidato": {"type": "string", "description": "Nome de urna ou civil do candidato (resolvido pelo sistema antes da consulta)."},
+                    "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
+                    "turno": {"type": "integer", "description": "1 ou 2. NÃO invente."},
+                    "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado, se a claim disser."},
+                    "uf": {"type": "string", "description": "UF da disputa, para desambiguar homônimos."},
+                    "numero": {"type": "integer", "description": "Número do candidato na urna, se citado."},
+                },
+                "required": ["nome_candidato", "ano", "turno"],
+            },
+        },
+    },
+])
+
 ROUTER_SYSTEM_PROMPT = (
     "Você é o Agente Roteador do sistema de fact-checking político brasileiro.\n"
     "Seu papel é analisar a alegação (claim) fornecida e escolher a ferramenta (tool) "
@@ -263,5 +323,9 @@ ROUTER_SYSTEM_PROMPT = (
     "- Se a alegação trata do que é PERMITIDO ou de COMO FUNCIONA um procedimento (regra, regimento, lei), utilize 'check_institutional_rule' com o tópico mais próximo. "
     "Regras e normas NÃO são resolvidas com tools de dados.\n"
     "- Se a alegação afirma que um dado público pode (ou não) ser consultado numa fonte oficial (Portal da Transparência, TSE, Câmara), utilize 'check_data_source_coverage'.\n"
+    "- Se a alegação trata do RESULTADO de uma eleição (quem ganhou, total de votos de um cargo, ranking), utilize 'get_election_result'; "
+    "se trata dos votos ou da eleição de um CANDIDATO específico, utilize 'get_candidate_votes' (o nome é resolvido pelo sistema; use 'resolve_candidate' só para identificar o candidato). "
+    "NÃO invente ano nem turno: se a alegação não diz o ano ('na última eleição') ou o turno, deixe o parâmetro vazio, para que a evidência seja INCONCLUSIVO. "
+    "Se a alegação é sobre o resultado da eleição de 2026, chame mesmo assim a tool de resultado com ano 2026: o sistema informa que os dados abertos do TSE ainda não foram atualizados. Votos de eleição são do TSE; votos em plenário do Congresso são das tools de votação.\n"
     "Extraia todos os parâmetros possíveis (casa, número, ano, sigla, estado/UF) diretamente da frase."
 )
