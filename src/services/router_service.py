@@ -38,6 +38,7 @@ from src.tools.gastos_tools import (
 from src.tools.knowledge_tools import check_data_source_coverage, check_institutional_rule
 from src.tools.resolve_politician import resolve_politician
 from src.tools.resolve_proposition import resolve_proposition
+from src.tools.tse_tools import get_candidate_votes, get_election_result, resolve_candidate
 from src.tools.votacoes_api import get_proposition_vote_breakdown, get_proposition_vote_result
 from src.services.tool_catalog import ROUTER_SYSTEM_PROMPT, TOOLS_CATALOG
 
@@ -168,6 +169,26 @@ def _resolve_parlamentar_id(casa: str, valor: str) -> Dict[str, Any]:
     return {"id": str(canonical)}
 
 
+def _candidate_votes(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve o candidato (regra 2) e só então consulta os votos com o SQ_CANDIDATO canônico."""
+    nome = str(args["nome_candidato"]).strip()
+    with tracing.observation(
+        "resolve_candidate", input={"nome_busca": nome, "ano": args["ano"], "cargo": args.get("cargo")}
+    ) as span:
+        res = resolve_candidate(
+            nome_busca=nome, ano=args["ano"], cargo=args.get("cargo"), uf=args.get("uf"), numero=args.get("numero")
+        )
+        span.update(output=res)
+    if res.get("ambiguous") or res.get("sq_candidato") is None:
+        return _unresolved(
+            ambiguous=bool(res.get("ambiguous")), candidato_informado=nome, resolucao=res,
+            motivo=res.get("motivo"),
+        )
+    votes = get_candidate_votes(sq_candidato=res["sq_candidato"], ano=args["ano"], turno=args["turno"])
+    resolution = {k: res.get(k) for k in ("sq_candidato", "nome_urna", "nome_civil", "partido", "cargo", "uf", "ano")}
+    return {**votes, "entidade_resolvida": resolution}
+
+
 def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Executa a tool Python real mapeada pelo Roteador.
 
@@ -229,6 +250,15 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
             )
         votacoes = get_proposition_vote_result(id_proposicao=prop_id, casa=casa)
         return {"casa": casa, "id_proposicao": prop_id, "votacoes": votacoes}
+    if tool_name == "resolve_candidate":
+        return resolve_candidate(
+            nome_busca=args["nome_busca"], ano=args["ano"], cargo=args.get("cargo"),
+            uf=args.get("uf"), numero=args.get("numero"),
+        )
+    if tool_name == "get_election_result":
+        return get_election_result(cargo=args["cargo"], ano=args["ano"], turno=args["turno"], uf=args.get("uf"))
+    if tool_name == "get_candidate_votes":
+        return _candidate_votes(args)
     if tool_name == "check_institutional_rule":
         # Regra 4: base normativa curada; não consulta dado transacional nem resolve entidade.
         try:
