@@ -11,7 +11,11 @@ from typing import Any, Dict, List, Optional
 
 # Termos que denunciam boatos ou fontes de baixa credibilidade
 RUMOUR_TERMS = [
-    "redes sociais",
+    "nas redes sociais",
+    "pelas redes sociais",
+    "das redes sociais",
+    "em redes sociais",
+    "segundo as redes sociais",
     "estão dizendo",
     "estao dizendo",
     "segundo comentários",
