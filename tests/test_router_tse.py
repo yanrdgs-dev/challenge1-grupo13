@@ -296,3 +296,52 @@ def test_step3_sources_and_base_dates():
 def test_prompt_mentions_step3_tools():
     for name in _STEP3:
         assert name in ROUTER_SYSTEM_PROMPT, name
+
+
+# ------------------- finanças de campanha (passo 4) ------------------- #
+
+def test_finance_tools_are_in_the_catalog():
+    params = _tool("get_campaign_finances")["parameters"]
+    assert {"nome_candidato", "ano"} <= set(params["required"]) and "turno" not in params["properties"]
+    top = _tool("get_top_campaign_finances")["parameters"]
+    assert {"cargo", "ano"} <= set(top["required"])
+    assert set(top["properties"]["metrica"]["enum"]) == {"receitas", "despesas_contratadas"}
+
+
+def test_campaign_finances_resolves_the_name_first_and_uses_the_canonical_id():
+    with patch.object(router_service, "resolve_candidate", return_value=RESOLVED) as resolver, \
+         patch.object(router_service, "get_campaign_finances", return_value={"encontrado": True}) as tool:
+        res = execute_tool("get_campaign_finances", {"nome_candidato": "Lula", "ano": 2022})
+    resolver.assert_called_once()
+    tool.assert_called_once_with(sq_candidato=77, ano=2022)
+    assert res["entidade_resolvida"]["sq_candidato"] == 77
+
+
+@pytest.mark.parametrize("resolution", [AMBIGUOUS, NOT_FOUND])
+def test_campaign_finances_never_reach_the_data_tool_with_unresolved_name(resolution):
+    with patch.object(router_service, "resolve_candidate", return_value=resolution), \
+         patch.object(router_service, "get_campaign_finances") as tool:
+        res = execute_tool("get_campaign_finances", {"nome_candidato": "João Silva", "ano": 2022})
+    tool.assert_not_called()
+    assert res["status"] == "entidade_nao_resolvida" and evidence_failed(res)
+
+
+def test_top_campaign_finances_is_dispatched_with_normalized_args():
+    with patch.object(router_service, "get_top_campaign_finances", return_value={"encontrado": True}) as tool:
+        execute_tool("get_top_campaign_finances", {"cargo": "presidente", "ano": "2022", "metrica": "receitas"})
+    tool.assert_called_once_with(cargo="Presidente", ano=2022, metrica="receitas", uf=None, top_n=5)
+
+
+def test_top_campaign_finances_defaults_to_contracted_expenses():
+    with patch.object(router_service, "get_top_campaign_finances", return_value={"encontrado": True}) as tool:
+        execute_tool("get_top_campaign_finances", {"cargo": "Presidente", "ano": 2022})
+    assert tool.call_args.kwargs["metrica"] == "despesas_contratadas"
+
+
+def test_finance_sources_base_dates_and_prompt():
+    for tool in ("get_campaign_finances", "get_top_campaign_finances"):
+        assert derive_sources(tool, {}, {"encontrado": True, "status": "ok"}) == [TSE], tool
+        assert tool in ROUTER_SYSTEM_PROMPT
+    info = {"fontes": {"tse-prestacao_de_contas_eleitorais_candidatos_2022": {"baixado_em": "2026-10-10T07:00:00+00:00"}}}
+    for tool in ("get_campaign_finances", "get_top_campaign_finances"):
+        assert data_date(tool, {"ano": 2022}, {"encontrado": True}, info) == "2026-10-10T07:00:00+00:00"
