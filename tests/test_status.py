@@ -136,3 +136,10 @@ def test_read_status_file_missing_or_corrupt_is_none(tmp_path):
     assert read_status_file(tmp_path) is None
     (tmp_path / "ingestion_status.json").write_text("{nao", encoding="utf-8")
     assert read_status_file(tmp_path) is None
+
+
+def test_format_status_history_heading_agrees_in_number(tmp_path):
+    one = format_status(build_status(state_with(tmp_path, [run(1)]), NOW), NOW)
+    assert "Últimas 1 execuções" not in one and "Execução registrada" in one
+    many = format_status(build_status(state_with(tmp_path, [run(2), run(1)]), NOW), NOW)
+    assert "Últimas 2 execuções" in many
