@@ -37,7 +37,10 @@ def make_client(timeout: float = 60.0) -> httpx.Client:
 
 
 def _unlink(path: Path) -> None:
-    path.unlink(missing_ok=True)
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:  # diretório de zip ou arquivo já removido: limpeza é best-effort
+        pass
 
 
 def _stream_to_part(url: str, part: Path, desc: str, client: httpx.Client) -> int:
@@ -87,6 +90,9 @@ def download_file(
     try:
         size = _stream_to_part(url, part, desc, client)
         os.replace(part, dest_path)
+    except OSError as e:
+        _unlink(part)
+        raise DownloadError(f"{desc}: erro de disco ao gravar {dest_path}: {e}") from e
     except BaseException:
         _unlink(part)
         raise
@@ -111,10 +117,14 @@ def _safe_extract(zip_path: Path, extract_dir: Path, desc: str) -> List[Path]:
             if bad is not None:
                 raise DownloadError(f"{desc}: zip corrompido em {bad}")
             for member in zf.infolist():
+                extracted.append(root / member.filename)  # antes de extrair: cobre arquivo parcial
                 zf.extract(member, root)
-                extracted.append(root / member.filename)
     except zipfile.BadZipFile as e:
         raise DownloadError(f"{desc}: arquivo zip inválido: {e}") from e
+    except OSError as e:
+        for path in extracted:
+            _unlink(path)
+        raise DownloadError(f"{desc}: erro de disco ao extrair: {e}") from e
     except BaseException:
         for path in extracted:
             _unlink(path)
