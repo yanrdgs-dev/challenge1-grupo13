@@ -99,3 +99,19 @@ def test_notification_memory_survives_reload(tmp_path):
     st.notify = {"last_failure_signature": "x", "last_failure_notified_at": "2026-10-10T10:00:00+00:00"}
     st.save()
     assert IngestionState.load(p).notify["last_failure_signature"] == "x"
+
+
+def test_run_counts_news_by_origin_before_truncating_the_id_list(tmp_path):
+    st = IngestionState.load(tmp_path / "s.json")
+    changes = [f"camara-ceap-{i}" for i in range(26)] + [f"senado-ceaps-{i}" for i in range(11)] + [
+        f"tse-consulta_cand_{i}" for i in range(45)]
+    st.record_run("a", "b", 0, len(changes), True, changes=changes)
+    run = st.last_run
+    assert len(run["changes"]) == 30 and run["downloaded"] == 82
+    assert run["changes_by_origin"] == {"camara": 26, "senado": 11, "tse": 45}
+
+
+def test_run_without_news_has_empty_origin_counts(tmp_path):
+    st = IngestionState.load(tmp_path / "s.json")
+    st.record_run("a", "b", 0, 0, False)
+    assert st.last_run["changes_by_origin"] == {}
