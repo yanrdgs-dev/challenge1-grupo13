@@ -31,6 +31,8 @@ class Source:
     sha256: Optional[str]
     refresh: str
     ano: Optional[int]
+    # False = a novidade desta fonte é baixada, mas não dispara sozinha o rebuild dos parquets
+    triggers_build: bool = True
 
 
 @dataclass(frozen=True)
@@ -90,6 +92,8 @@ def _validate_source(src: Dict[str, Any]) -> None:
         _fail(sid, "usa {ano} mas não define anos")
     if src.get("sha256") is not None and not re.fullmatch(r"[0-9a-f]{64}", str(src["sha256"])):
         _fail(sid, "sha256 precisa ter 64 caracteres hexadecimais minúsculos")
+    if not isinstance(src.get("triggers_build", True), bool):
+        _fail(sid, "triggers_build precisa ser true ou false")
     if src.get("refresh", "validators") not in REFRESH_MODES:
         _fail(sid, f"refresh inválido {src.get('refresh')!r} (esperado: {', '.join(REFRESH_MODES)})")
 
@@ -143,6 +147,7 @@ def expand_sources(manifest: Dict[str, Any]) -> List[Source]:
                 sha256=src.get("sha256"),
                 refresh=src.get("refresh", "validators"),
                 ano=ano,
+                triggers_build=src.get("triggers_build", True),
             ))
     return out
 

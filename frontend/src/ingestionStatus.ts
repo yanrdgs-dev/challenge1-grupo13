@@ -11,6 +11,7 @@ export interface RunSummary {
   fontes_com_novidade: string[]
   total_novidades: number
   novidades_por_origem: Record<string, number>
+  novidades_adiadas: number
   build: "publicado" | "ignorado" | "falhou"
   falhas: string[]
 }
@@ -37,6 +38,7 @@ export interface IngestionStatus {
   carga_pendente: boolean
   dados_atualizados_em: string | null
   fontes_registradas: number
+  aguardando_build: number
   falhas_seguidas: number
   historico: HistoryEntry[]
   ultimo_sucesso_ha_horas: number | null
@@ -120,12 +122,14 @@ export function sortedOrigins(byOrigin: Record<string, number> | null | undefine
   return Object.entries(byOrigin ?? {}).sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
 }
 
-export function describeBuild(build: "publicado" | "ignorado" | "falhou"): string {
+export function describeBuild(build: "publicado" | "ignorado" | "falhou", adiadas: number = 0): string {
   switch (build) {
     case "publicado":
       return "Parquets reconstruídos e publicados"
     case "ignorado":
-      return "Ignorado: sem novidades e parquets já publicados"
+      return adiadas > 0
+        ? "Ignorado: as novidades do Senado esperam o próximo build"
+        : "Ignorado: sem novidades e parquets já publicados"
     case "falhou":
       return "Build não concluído; os dados em produção continuam os da carga anterior"
   }

@@ -116,7 +116,8 @@ def notify_run(
         return []
     now = now or datetime.now(timezone.utc).isoformat(timespec="seconds")
     failed = run.get("exit_code", 0) != 0
-    news = bool(run.get("downloaded") or run.get("built"))
+    # novidade só do Senado (adiada) não vale aviso: só o que dispara ou reflete um build
+    news = bool(run.get("built") or (run.get("downloaded", 0) - run.get("deferred", 0)) > 0)
 
     send_text, recovered = False, False
     if failed:

@@ -17,8 +17,15 @@ declaradas em `src/etl/datasets_manifest.json`.
 3. **Build em staging.** Os parquets são gerados em `processed.staging/` (com `dim_politicos.parquet` e
    `ingestion_info.json`) e só então trocados, entrada a entrada, em `processed/`. O router, que lê
    `processed/`, nunca vê dados pela metade, e uma falha deixa os parquets atuais intactos.
-4. **Sem novidade, sem build.** O build só roda se houve novidade, se uma carga anterior ficou pendente
-   (`pending_build` no estado), se ainda não há parquets publicados ou com `--force-build`.
+4. **Sem novidade, sem build.** O build só roda se houve novidade que dispare build, se uma carga anterior ficou
+   pendente (`pending_build` no estado), se ainda não há parquets publicados ou com `--force-build`. Novidades
+   do **Senado não disparam build** (`"triggers_build": false` no manifesto): as matérias e a lista de senadores
+   são fontes dinâmicas que mudam quase toda hora, e reconstruir os parquets a cada mudança custaria uns 3
+   minutos por hora à toa. Elas são baixadas e registradas normalmente, ficam como "aguardando o próximo
+   build" (visível no `--status` e na página `/status`) e entram nos parquets no próximo build disparado por
+   Câmara ou TSE, o que acontece pelo menos uma vez por dia. Para um fonte do Senado voltar a disparar build,
+   troque o `triggers_build` dela no manifesto; para publicar o Senado na hora, use `--force-build`. Novidade só
+   do Senado também não gera aviso no webhook (o heartbeat segue normal).
 5. **Lock.** `.ingestion.lock` impede duas execuções ao mesmo tempo; a segunda sai com código 0.
 
 ## Arquivos de estado
@@ -163,6 +170,8 @@ seguinte (o log deixa de mostrar "ainda não publicado"), reconstrói `tse/votac
 
 ## Limitações conhecidas
 
+- Os parquets do Senado (matérias, senadores e CEAPS) podem ficar atrás das fontes por algumas horas: só são
+  reconstruídos junto com um build disparado por Câmara ou TSE (ou `--force-build`).
 - `camara/votacoes` e `votacoesVotos` são baixados mas ainda não convertidos em parquet (Fase 2).
 - A partição `ano=0` de `camara/proposicoes` vem do próprio CSV da Câmara (linhas sem ano de proposição).
 - A troca de `processed/` é atômica por entrada de primeiro nível (`camara/`, `senado/`, `tse/`, ...), não

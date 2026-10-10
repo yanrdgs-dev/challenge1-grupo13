@@ -181,12 +181,14 @@ def _run_locked(
     state = IngestionState.load(datasets_dir / STATE_FILE)
     started_at = _now()
     changes: List[str] = []
+    deferred_now: List[str] = []  # novidades de fontes que não disparam build (Senado)
     failures: List = []
 
     if not skip_download:
         logger.info(">>> Etapa 1/2: %s <<<", "verificação de novidades (nada será baixado)" if check_only
                     else "download incremental das bases públicas")
-        failures += run_downloads(datasets_dir, state=state, force=force, dry_run=check_only, changes=changes)
+        failures += run_downloads(datasets_dir, state=state, force=force, dry_run=check_only, changes=changes,
+                                  deferred=deferred_now)
         if anos_tse:
             failures += run_tse_downloads(datasets_dir, list(anos_tse), state=state, force=force,
                                           dry_run=check_only, changes=changes)
@@ -202,14 +204,22 @@ def _run_locked(
 
     def finish(code: int, built: bool) -> int:
         state.record_run(started_at, _now(), code, downloaded=len(changes), built=built,
-                         changes=changes, failures=errors)
+                         changes=changes, failures=errors, deferred=len(deferred_now))
         state.save()
         _publish_status_and_notify(state, processed_dir)
         return code
 
-    if changes:
+    triggering = [c for c in changes if c not in set(deferred_now)]
+    if triggering:
         state.pending_build = True  # sobrevive a uma falha: a próxima execução reconstrói
+    if deferred_now:
+        # baixadas e registradas, mas só entram nos parquets no próximo build disparado por outra fonte
+        state.deferred = state.deferred + [d for d in deferred_now if d not in state.deferred]
+    if triggering or deferred_now:
         state.save()
+    if deferred_now and not triggering:
+        logger.info("%d novidade(s) só do Senado: baixadas, aguardam o próximo build (não disparam rebuild)",
+                    len(deferred_now))
     if failures:
         logger.error("%d download(s) falharam:", len(failures))
         for f in failures:
@@ -232,6 +242,7 @@ def _run_locked(
         errors.extend(build_errors)
         return finish(1, built=False)
     state.pending_build = False
+    state.deferred = []  # tudo que estava baixado entrou neste build
     return finish(0, built=True)
 
 

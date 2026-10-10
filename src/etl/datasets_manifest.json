@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "descricao": "Fontes das bases públicas. {ano} é expandido por 'anos'; refresh: validators compara ETag/Last-Modified, always rebaixa sempre (fontes dinâmicas e pequenas); sha256 é opcional e só faz sentido em arquivo fixo.",
+  "descricao": "Fontes das bases públicas. {ano} é expandido por 'anos'; refresh: validators compara ETag/Last-Modified, always rebaixa sempre (fontes dinâmicas e pequenas); sha256 é opcional e só faz sentido em arquivo fixo. triggers_build: false = a novidade é baixada mas não dispara sozinha o rebuild (entra no próximo build disparado por outra fonte).",
   "sources": [
     {"id": "camara-ceap", "kind": "zip_csv", "anos": [2022, 2023, 2024, 2025, 2026],
      "url": "https://www.camara.leg.br/cotas/Ano-{ano}.csv.zip", "dest": "camara/ceap", "prefix": "Ano-{ano}",
@@ -20,13 +20,13 @@
     {"id": "camara-proposicoes-autores", "kind": "file", "anos": [2022, 2023, 2024, 2025, 2026],
      "url": "https://dadosabertos.camara.leg.br/arquivos/proposicoesAutores/csv/proposicoesAutores-{ano}.csv",
      "dest": "camara/proposicoes_autores/proposicoesAutores-{ano}.csv", "desc": "Câmara - Proposições Autores {ano}"},
-    {"id": "senado-senadores", "kind": "file", "refresh": "always",
+    {"id": "senado-senadores", "triggers_build": false, "kind": "file", "refresh": "always",
      "url": "https://legis.senado.leg.br/dadosabertos/senador/lista/atual.csv",
      "dest": "senado/cadastro/senadores.csv", "desc": "Senado - Cadastro Senadores"},
-    {"id": "senado-ceaps", "kind": "file", "anos": [2022, 2023, 2024, 2025, 2026],
+    {"id": "senado-ceaps", "triggers_build": false, "kind": "file", "anos": [2022, 2023, 2024, 2025, 2026],
      "url": "https://adm.senado.gov.br/adm-dadosabertos/api/v1/senadores/despesas_ceaps/{ano}/csv",
      "dest": "senado/ceaps/ceaps_{ano}.csv", "desc": "Senado CEAPS {ano}"},
-    {"id": "senado-materias", "kind": "file", "refresh": "always", "anos": [2022, 2023, 2024, 2025, 2026],
+    {"id": "senado-materias", "triggers_build": false, "kind": "file", "refresh": "always", "anos": [2022, 2023, 2024, 2025, 2026],
      "url": "https://legis.senado.leg.br/dadosabertos/processo.csv?ano={ano}",
      "dest": "senado/materias/materias-{ano}.csv", "desc": "Senado - Matérias {ano}"}
   ],

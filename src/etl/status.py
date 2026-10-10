@@ -71,6 +71,7 @@ def _summary(run: Dict[str, Any], state: IngestionState) -> Dict[str, Any]:
         "fontes_com_novidade": list(run.get("changes", [])),
         "total_novidades": run.get("downloaded", 0),
         "novidades_por_origem": _origins(run, state),
+        "novidades_adiadas": run.get("deferred", 0),
         "build": _build_label(run),
         "falhas": list(run.get("failures", [])),
     }
@@ -98,6 +99,7 @@ def build_status(state: IngestionState, now: Optional[datetime] = None) -> Dict[
         "carga_pendente": bool(state.pending_build),
         "dados_atualizados_em": max(downloaded_dates) if downloaded_dates else None,
         "fontes_registradas": len(state.files),
+        "aguardando_build": len(state.deferred),
         "falhas_seguidas": streak,
         "historico": [
             {"terminou_em": r.get("finished_at"), "resultado": "ok" if r.get("exit_code", 0) == 0 else "falhou",
@@ -150,8 +152,9 @@ def format_status(status: Dict[str, Any], now: Optional[datetime] = None) -> str
                      + f": {', '.join(shown)}" + (f" e mais {extra}" if extra > 0 else ""))
     else:
         lines.append("Novidades: nenhuma")
-    build_txt = {"publicado": "parquets publicados", "ignorado": "ignorado (sem novidades e parquets já publicados)",
-                 "falhou": "não concluído"}[run["build"]]
+    ignorado = ("ignorado (as novidades do Senado aguardam o próximo build)" if run.get("novidades_adiadas")
+                else "ignorado (sem novidades e parquets já publicados)")
+    build_txt = {"publicado": "parquets publicados", "ignorado": ignorado, "falhou": "não concluído"}[run["build"]]
     lines.append(f"Build: {build_txt}")
     if run["falhas"]:
         lines.append("Falhas:")
@@ -165,6 +168,9 @@ def format_status(status: Dict[str, Any], now: Optional[datetime] = None) -> str
     lines.append(f"Última carga com novidade: {_fmt(news['em'])} ({_ago(news['em'], now)}), {news['total']} fonte(s)"
                  if news else "Última carga com novidade: nenhuma registrada")
     lines.append(f"Dados atualizados em: {_fmt(status['dados_atualizados_em'])}")
+    if status.get("aguardando_build"):
+        lines.append(f"Aguardando o próximo build: {status['aguardando_build']} novidade(s) do Senado "
+                     "(são baixadas, mas não disparam sozinhas o rebuild dos parquets).")
     if status["carga_pendente"]:
         lines.append("Carga pendente: há dados baixados ainda não convertidos em parquet (o próximo build os publica).")
     lines.append(f"Fontes registradas: {status['fontes_registradas']}")

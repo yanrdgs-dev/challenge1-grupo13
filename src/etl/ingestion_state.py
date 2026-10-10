@@ -34,6 +34,7 @@ class IngestionState:
         self.path = Path(path)
         self.files: Dict[str, Dict[str, Any]] = {}
         self.pending_build = False  # há dados novos ainda não convertidos em parquet
+        self.deferred: List[str] = []  # novidades de fontes que não disparam build, aguardando o próximo
         self.last_run: Optional[Dict[str, Any]] = None
         self.history: List[Dict[str, Any]] = []  # últimas execuções, da mais antiga para a mais nova
         self.notify: Dict[str, Any] = {}  # memória dos avisos (evita repetir a mesma falha a cada hora)
@@ -47,6 +48,7 @@ class IngestionState:
             data = json.loads(state.path.read_text(encoding="utf-8"))
             state.files = dict(data.get("files", {}))
             state.pending_build = bool(data.get("pending_build", False))
+            state.deferred = list(data.get("deferred", []))
             state.last_run = data.get("last_run")
             state.history = list(data.get("history", []))
             state.notify = dict(data.get("notify", {}))
@@ -55,6 +57,7 @@ class IngestionState:
             logger.error("Estado ilegível em %s (%s); guardado em %s e recomeçando vazio", state.path, e, backup)
             os.replace(state.path, backup)
             state.files, state.pending_build, state.last_run = {}, False, None
+            state.deferred = []
             state.history, state.notify = [], {}
         return state
 
@@ -91,6 +94,7 @@ class IngestionState:
         built: bool,
         changes: Optional[List[str]] = None,
         failures: Optional[List[str]] = None,
+        deferred: int = 0,
     ) -> None:
         run = {
             "started_at": started_at, "finished_at": finished_at,
@@ -98,6 +102,7 @@ class IngestionState:
             "changes": list(changes or [])[:MAX_CHANGES],
             "changes_by_origin": count_by_origin(list(changes or [])),  # contado antes de truncar os ids
             "failures": [str(f) for f in (failures or [])][:MAX_FAILURES],
+            "deferred": deferred,  # quantas das novidades não disparam build (Senado)
         }
         self.last_run = run
         self.history = (self.history + [dict(run)])[-HISTORY_LIMIT:]
@@ -108,7 +113,7 @@ class IngestionState:
         payload = {
             "version": STATE_VERSION, "files": self.files,
             "pending_build": self.pending_build, "last_run": self.last_run,
-            "history": self.history, "notify": self.notify,
+            "history": self.history, "notify": self.notify, "deferred": self.deferred,
         }
         fd, tmp = tempfile.mkstemp(dir=self.path.parent, prefix=self.path.name + ".", suffix=".tmp")
         try:
