@@ -13,6 +13,10 @@ import pytest
 from src.etl.build_dim_politicos import build_and_save_dim_politicos
 from src.etl.build_parquet import process_all_datasets
 from src.etl.senado_cadastro import normalize_senado_senadores
+from src.tools.gastos_tools import check_parliamentary_expenses, get_top_ceap_spender, list_expense_categories
+from src.tools.legislativo_tools import get_proposition_tramitation_history
+from src.tools.politician_cache import PoliticianCache
+from src.tools.resolve_politician import resolve_politician
 
 FIX = Path(__file__).parent / "fixtures" / "ingestion"
 
@@ -27,6 +31,9 @@ def built(tmp_path_factory):
         "senadores.csv": "senado/cadastro",
         "consulta_cand_2026_BRASIL.csv": "tse/candidatos",
         "consulta_cand_complementar_2026_BRASIL.csv": "tse/candidatos",
+        "ceaps_2026.csv": "senado/ceaps",
+        "proposicoes-2026.csv": "camara/proposicoes",
+        "materias-2026.csv": "senado/materias",
     }
     for name, sub in layout.items():
         (ds / sub).mkdir(parents=True, exist_ok=True)
@@ -99,3 +106,54 @@ def test_normalize_dedupes_and_derives_mandate_years():
     out = normalize_senado_senadores(raw)
     assert out.height == 2 and out["Codigo Parlamentar"].n_unique() == 2
     assert out.filter(pl.col("Nome Parlamentar") == "Alan Rick")["Mandato"][0] == "2023-2031"
+
+
+# ------------------------------- as tools do agente sobre os parquets gerados ------------------------------- #
+
+@pytest.fixture
+def fresh_cache():
+    PoliticianCache.reset()
+    yield
+    PoliticianCache.reset()
+
+
+def test_resolve_politician_returns_the_canonical_id_the_expense_tools_use(built, fresh_cache):
+    res = resolve_politician("Danilo Forte", parquet_path=str(built["out"] / "dim_politicos.parquet"))
+    assert res["ambiguous"] is False and res["ideCadastro"] == 62881, res
+
+
+def test_camara_expenses_are_found_by_the_canonical_id(built):
+    # 6 linhas de R$ 117,72 do deputado 62881 na amostra
+    res = check_parliamentary_expenses(casa="camara", ano=2026, parlamentar_id="62881", base_dir=built["out"])
+    assert res.qtd_lancamentos == 6 and res.valor_total == pytest.approx(706.32)
+
+
+def test_camara_top_spender_is_identified_with_that_same_id(built):
+    top = get_top_ceap_spender(casa="camara", ano=2026, base_dir=built["out"])
+    assert top.gastadores[0].id_parlamentar == "62881"
+
+
+def test_senator_resolved_by_name_has_the_code_the_senate_expense_tool_joins_on(built, fresh_cache):
+    res = resolve_politician("Alan Rick", cargo="Senador", parquet_path=str(built["out"] / "dim_politicos.parquet"))
+    assert res["ambiguous"] is False and res["cod_senador"] == 5672, res
+    expenses = check_parliamentary_expenses(
+        casa="senado", ano=2026, parlamentar_id=str(res["cod_senador"]), base_dir=built["out"])
+    # decimais com vírgula e milhar da fonte convertidos: 462,18 + 109,32 + 4000,00 + 749,00 + 3322,77
+    assert expenses.qtd_lancamentos == 5 and expenses.valor_total == pytest.approx(8643.27)
+
+
+def test_expense_categories_come_from_the_ingested_data(built):
+    cats = list_expense_categories(casa="camara", base_dir=built["out"])
+    assert any("ESCRIT" in c.categoria.upper() for c in cats.categorias)
+
+
+def test_camara_proposition_tramitation_and_apensamento(built):
+    apensada = get_proposition_tramitation_history("camara", "2599890", data_dir=built["out"])
+    livre = get_proposition_tramitation_history("camara", "281460", data_dir=built["out"])
+    assert apensada["encontrado"] and apensada["apensada"] is True
+    assert livre["encontrado"] and livre["apensada"] is False
+
+
+def test_senado_materia_tramitation(built):
+    res = get_proposition_tramitation_history("senado", "8632122", data_dir=built["out"])
+    assert res["encontrado"] is True and res["situacao_atual"]
