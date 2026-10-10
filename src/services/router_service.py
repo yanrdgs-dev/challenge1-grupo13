@@ -57,7 +57,7 @@ app = FastAPI(
 )
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
-llm_client = LLMClient(timeout=float(os.getenv("ROUTER_LLM_TIMEOUT", "30.0")))
+llm_client = LLMClient(timeout=float(os.getenv("ROUTER_LLM_TIMEOUT", "30.0")), role="router")
 ROUTER_MODEL = os.getenv("ROUTER_MODEL", "qwen2.5:7b")
 JUDGE_SERVICE_URL = os.getenv("JUDGE_SERVICE_URL", "http://judge-service:8000").rstrip("/")
 
