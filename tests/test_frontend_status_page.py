@@ -81,6 +81,10 @@ def test_logic_tests_run_in_the_docker_build_and_are_excluded_from_the_app_typec
 
 
 def test_logic_unit_tests_pass():
+    # No CI as dependências do frontend só são instaladas dentro do build da imagem (Dockerfile.frontend roda
+    # `npm test` ali); este teste cobre o ambiente local, onde `npm ci` já foi feito.
+    if not (FRONT / "node_modules" / ".bin" / "tsc").exists():
+        pytest.skip("dependências do frontend não instaladas (npm ci); o build da imagem roda estes testes")
     node = subprocess.run(["node", "--version"], capture_output=True, text=True)
     if node.returncode != 0:
         pytest.skip("node não instalado")
