@@ -67,7 +67,7 @@ def test_last_run_is_recorded_with_news_and_failures(tmp_path):
     assert IngestionState.load(p).last_run == {
         "started_at": "a", "finished_at": "b", "exit_code": 0, "downloaded": 3, "built": True,
         "changes": ["camara-ceap-2026", "tse-bem_candidato_2026"], "failures": [],
-        "changes_by_origin": {"camara": 1, "tse": 1}}
+        "changes_by_origin": {"camara": 1, "tse": 1}, "deferred": 0}
 
 
 def test_record_run_without_details_defaults_to_empty_lists(tmp_path):
@@ -116,3 +116,19 @@ def test_run_without_news_has_empty_origin_counts(tmp_path):
     st = IngestionState.load(tmp_path / "s.json")
     st.record_run("a", "b", 0, 0, False)
     assert st.last_run["changes_by_origin"] == {}
+
+
+def test_deferred_and_run_deferred_count_survive_reload(tmp_path):
+    p = tmp_path / "s.json"
+    st = IngestionState.load(p)
+    st.deferred = ["senado-a"]
+    st.record_run("a", "b", 0, 1, False, changes=["senado-a"], deferred=1)
+    st.save()
+    again = IngestionState.load(p)
+    assert again.deferred == ["senado-a"] and again.last_run["deferred"] == 1
+
+
+def test_run_deferred_defaults_to_zero(tmp_path):
+    st = IngestionState.load(tmp_path / "s.json")
+    st.record_run("a", "b", 0, 0, False)
+    assert st.last_run["deferred"] == 0

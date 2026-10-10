@@ -153,3 +153,26 @@ def test_tse_rule_with_invalid_regex_is_invalid():
                 "rules": [{"package": "candidatos", "pattern": "(sem_fechar", "dest": "tse/x"}], "pending_ok": {}}
     with pytest.raises(ManifestError, match="regex"):
         validate_manifest(m)
+
+
+# ------------------------------- triggers_build ------------------------------- #
+
+def test_triggers_build_defaults_to_true_and_can_be_disabled():
+    m = base()
+    assert all(s.triggers_build for s in expand_sources(m))
+    m["sources"][0]["triggers_build"] = False
+    by_id = {s.id: s for s in expand_sources(m)}
+    assert by_id["camara-deputados"].triggers_build is False and by_id["camara-ceap-2025"].triggers_build is True
+
+
+def test_triggers_build_must_be_a_boolean():
+    m = base()
+    m["sources"][0]["triggers_build"] = "nao"
+    with pytest.raises(ManifestError, match="triggers_build"):
+        validate_manifest(m)
+
+
+def test_real_manifest_senado_never_triggers_a_rebuild_but_camara_does():
+    for s in expand_sources(load_manifest()):
+        origin = s.id.split("-", 1)[0]
+        assert s.triggers_build is (origin != "senado"), s.id

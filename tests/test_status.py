@@ -182,3 +182,26 @@ def test_format_status_shows_origin_breakdown(tmp_path):
     st.record_run(iso(1), iso(1), 0, 8, True, changes=changes)
     text = format_status(build_status(st, NOW), NOW)
     assert "8 fonte(s)" in text and "camara 3" in text and "tse 5" in text
+
+
+# ------------------------------- novidades adiadas (Senado) ------------------------------- #
+
+def test_status_counts_waiting_news_and_deferred_in_the_last_run(tmp_path):
+    st = IngestionState.load(tmp_path / "s.json")
+    st.record_run(iso(1), iso(1), 0, 2, False, changes=["senado-a", "senado-b"], deferred=2)
+    st.deferred = ["senado-a", "senado-b"]
+    s = build_status(st, NOW)
+    assert s["aguardando_build"] == 2 and s["ultima_execucao"]["novidades_adiadas"] == 2
+
+
+def test_status_without_deferred_news(tmp_path):
+    s = build_status(state_with(tmp_path, [run(1)]), NOW)
+    assert s["aguardando_build"] == 0 and s["ultima_execucao"]["novidades_adiadas"] == 0
+
+
+def test_format_status_explains_waiting_senado_news(tmp_path):
+    st = IngestionState.load(tmp_path / "s.json")
+    st.record_run(iso(1), iso(1), 0, 1, False, changes=["senado-a"], deferred=1)
+    st.deferred = ["senado-a"]
+    text = format_status(build_status(st, NOW), NOW)
+    assert "aguardam" in text.lower() and "senado" in text.lower()

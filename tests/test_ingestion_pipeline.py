@@ -18,11 +18,15 @@ def env(monkeypatch, tmp_path):
     ds.mkdir(parents=True)
     ctx = {"log": [], "changes": ["camara-ceap-2026"], "ds": ds, "out": out, "build_failures": [], "dim_error": None}
     ctx["download_failures"] = []
+    ctx["deferred_ids"] = []
 
-    def fake_downloads(base_dir, client=None, manifest=None, state=None, force=False, dry_run=False, changes=None):
+    def fake_downloads(base_dir, client=None, manifest=None, state=None, force=False, dry_run=False, changes=None,
+                       deferred=None):
         ctx["log"].append(("download_camara_senado", dict(force=force, dry_run=dry_run)))
         if changes is not None:
             changes.extend(ctx["changes"])
+        if deferred is not None:
+            deferred.extend(ctx["deferred_ids"])
         return []
 
     def fake_tse(base_dir, anos, client=None, manifest=None, state=None, force=False, dry_run=False, changes=None):
@@ -357,3 +361,68 @@ def test_status_flag_on_empty_state_says_never_ran_and_is_stale_with_max_age(env
     assert "nunca rodou" in capsys.readouterr().out.lower()
     assert pipeline.main(["--datasets-dir", str(env["ds"]), "--processed-dir", str(env["out"]),
                           "--status", "--max-age-hours", "6"]) == 2
+
+
+# ------------------------------- Senado não dispara rebuild ------------------------------- #
+
+def test_senado_only_news_do_not_trigger_a_build_but_are_remembered(env):
+    mark_as_built(env)
+    env["changes"], env["deferred_ids"] = ["senado-materias-2023"], ["senado-materias-2023"]
+    assert run(env) == 0
+    assert "build_parquet" not in env["names"]()
+    st = env["state"]()
+    assert st.pending_build is False and st.deferred == ["senado-materias-2023"]
+    assert st.last_run["downloaded"] == 1 and st.last_run["deferred"] == 1 and st.last_run["built"] is False
+
+
+def test_news_beyond_senado_trigger_the_build_and_publish_the_deferred_ones_too(env):
+    mark_as_built(env)
+    st = env["state"]()
+    st.deferred = ["senado-materias-2022"]
+    st.save()
+    env["changes"] = ["camara-ceap-2026", "senado-materias-2023"]
+    env["deferred_ids"] = ["senado-materias-2023"]
+    assert run(env) == 0 and "build_parquet" in env["names"]()
+    assert env["state"]().deferred == []  # entraram no build
+
+
+def test_failed_build_keeps_the_deferred_news(env):
+    mark_as_built(env)
+    st = env["state"]()
+    st.deferred = ["senado-materias-2022"]
+    st.save()
+    env["build_failures"] = [("TSE", RuntimeError("parse"))]
+    assert run(env) == 1
+    assert env["state"]().deferred == ["senado-materias-2022"]
+
+
+def test_deferred_news_accumulate_across_runs_without_duplicates(env):
+    mark_as_built(env)
+    env["changes"], env["deferred_ids"] = ["senado-materias-2023"], ["senado-materias-2023"]
+    run(env)
+    env["changes"], env["deferred_ids"] = ["senado-materias-2023", "senado-senadores"], ["senado-materias-2023", "senado-senadores"]
+    run(env)
+    assert env["state"]().deferred == ["senado-materias-2023", "senado-senadores"]
+
+
+def test_first_run_still_builds_even_if_all_news_are_deferred(env):
+    env["changes"], env["deferred_ids"] = ["senado-materias-2023"], ["senado-materias-2023"]
+    assert run(env) == 0 and "build_parquet" in env["names"]()
+
+
+def test_force_build_publishes_deferred_news(env):
+    mark_as_built(env)
+    st = env["state"]()
+    st.deferred = ["senado-materias-2022"]
+    st.save()
+    env["changes"], env["deferred_ids"] = [], []
+    assert run(env, force_build=True) == 0 and env["state"]().deferred == []
+
+
+def test_status_file_tells_that_senado_news_are_waiting(env):
+    mark_as_built(env)
+    env["changes"], env["deferred_ids"] = ["senado-materias-2023"], ["senado-materias-2023"]
+    run(env)
+    status = json.loads((env["out"] / "ingestion_status.json").read_text(encoding="utf-8"))
+    assert status["aguardando_build"] == 1
+    assert status["ultima_execucao"]["novidades_adiadas"] == 1 and status["ultima_execucao"]["build"] == "ignorado"

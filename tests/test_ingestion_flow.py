@@ -168,3 +168,23 @@ def test_tse_zip_whose_csv_names_differ_from_the_zip_name_is_not_redownloaded(tm
         changes = []
         run_tse_downloads(tmp_path, [2022], client=client, state=st, changes=changes)
     assert changes == [] and "GET" not in methods
+
+
+# ------------------------------- fontes que não disparam build ------------------------------- #
+
+def test_news_from_sources_that_do_not_trigger_a_build_are_reported_as_deferred(tmp_path):
+    manifest = {**MANIFEST, "sources": [dict(x) for x in MANIFEST["sources"]]}
+    manifest["sources"][2]["triggers_build"] = False  # "d", a fonte dinâmica
+    remote, st = Remote(), IngestionState.load(tmp_path / "s.json")
+    changes, deferred = [], []
+    with remote.client() as client:
+        run_downloads(tmp_path, client=client, manifest=manifest, state=st, changes=changes, deferred=deferred)
+    assert sorted(changes) == ["a", "d", "z-2030"]  # tudo que mudou continua sendo novidade
+    assert deferred == ["d"]  # mas só "d" não dispara build
+    assert (tmp_path / "x/d.csv").exists()  # e o arquivo foi baixado normalmente
+
+
+def test_deferred_is_optional(tmp_path):
+    remote, st = Remote(), IngestionState.load(tmp_path / "s.json")
+    with remote.client() as client:
+        assert run_downloads(tmp_path, client=client, manifest=MANIFEST, state=st, changes=[]) == []

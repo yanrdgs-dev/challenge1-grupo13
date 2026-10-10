@@ -32,7 +32,7 @@ def interface_keys(source: str, name: str) -> set:
 def backend_status():
     st = IngestionState.load(Path("/nonexistent/state.json"))
     changes = ["camara-a", "tse-b"]
-    st.record_run("2026-10-10T14:00:00+00:00", "2026-10-10T14:05:00+00:00", 0, 2, True, changes=changes)
+    st.record_run("2026-10-10T14:00:00+00:00", "2026-10-10T14:05:00+00:00", 0, 2, True, changes=changes, deferred=0)
     status = build_status(st, datetime(2026, 10, 10, 15, tzinfo=timezone.utc))
     status.update({"ultimo_sucesso_ha_horas": 0.9, "desatualizada": False})  # acrescentados pelo endpoint
     return status
