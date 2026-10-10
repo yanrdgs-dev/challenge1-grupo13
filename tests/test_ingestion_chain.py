@@ -26,6 +26,7 @@ def built(tmp_path_factory):
         "Ano-2026.csv": "camara/ceap",
         "senadores.csv": "senado/cadastro",
         "consulta_cand_2026_BRASIL.csv": "tse/candidatos",
+        "consulta_cand_complementar_2026_BRASIL.csv": "tse/candidatos",
     }
     for name, sub in layout.items():
         (ds / sub).mkdir(parents=True, exist_ok=True)
