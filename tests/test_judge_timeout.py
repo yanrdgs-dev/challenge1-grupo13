@@ -74,3 +74,10 @@ def test_call_judge_uses_the_computed_timeout(three_providers):
         client.post.return_value = MagicMock(json=MagicMock(return_value={"ok": True}))
         router_service._call_judge("http://judge-service:8000/judge", {"claim": "x"})
     assert client_cls.call_args.kwargs["timeout"] == 95.0
+
+
+def test_router_default_matches_the_judge_service_default():
+    """Se alguém mudar o padrão de um lado, o outro precisa acompanhar."""
+    from src.services import judge_service
+
+    assert router_service.DEFAULT_JUDGE_LLM_TIMEOUT == judge_service.llm_client.timeout

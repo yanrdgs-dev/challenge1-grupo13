@@ -238,11 +238,37 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
     return {"erro": f"Tool '{tool_name}' não implementada no roteador."}
 
 
+# Mesmo padrão do `JUDGE_LLM_TIMEOUT` em judge_service.py: o roteador precisa saber o quanto o juiz pode demorar.
+DEFAULT_JUDGE_LLM_TIMEOUT = 60.0
+JUDGE_CALL_MARGIN = 15.0
+
+
+def judge_call_timeout() -> float:
+    """Quanto o roteador espera o juiz: precisa ser MAIOR que a pior cadeia de LLM do juiz.
+
+    O juiz gasta o timeout do primeiro provedor (``JUDGE_LLM_TIMEOUT``) e, se ele falhar, um
+    ``FALLBACK_TIMEOUT`` por provedor seguinte. Esperar menos que isso descarta uma resposta que o
+    fallback ainda ia entregar. ``JUDGE_SERVICE_TIMEOUT`` (positivo) fixa o valor à mão.
+    """
+    try:
+        explicit = float(os.getenv("JUDGE_SERVICE_TIMEOUT", ""))
+    except ValueError:
+        explicit = 0.0
+    if explicit > 0:
+        return explicit
+    try:
+        judge_llm = float(os.getenv("JUDGE_LLM_TIMEOUT", DEFAULT_JUDGE_LLM_TIMEOUT))
+    except ValueError:
+        judge_llm = DEFAULT_JUDGE_LLM_TIMEOUT
+    fallbacks = max(len(llm_client.providers) - 1, 0)
+    return judge_llm + fallbacks * llm_client.fallback_timeout + JUDGE_CALL_MARGIN
+
+
 def _call_judge(
     endpoint: str, payload: Dict[str, Any], headers: Optional[Dict[str, str]] = None
 ) -> Dict[str, Any]:
     """Chama o Judge Service e devolve o JSON da resposta (levanta em erro HTTP ou de rede)."""
-    with httpx.Client(timeout=60.0) as client:
+    with httpx.Client(timeout=judge_call_timeout()) as client:
         resp = client.post(endpoint, json=payload, headers=headers or {})
         resp.raise_for_status()
         return resp.json()
