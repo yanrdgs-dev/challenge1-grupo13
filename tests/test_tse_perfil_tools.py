@@ -140,8 +140,9 @@ class TestAssets:
 
     def test_inexistente_e_ano_sem_tabela(self, base, tmp_path):
         assert get_candidate_assets(99, ano=2022, base_dir=base)["status"] == "nao_encontrado"
-        _write(tmp_path / "tse" / "candidatos" / "ano=2022", [_cand(1, "X")])
-        assert get_candidate_assets(1, ano=2022, base_dir=tmp_path)["status"] == "resultado_indisponivel"
+        outro = tmp_path / "outro"
+        _write(outro / "tse" / "candidatos" / "ano=2022", [_cand(1, "X")])
+        assert get_candidate_assets(1, ano=2022, base_dir=outro)["status"] == "resultado_indisponivel"
 
     def test_texto_livre_e_sem_ano(self, base):
         assert get_candidate_assets("Rico", ano=2022, base_dir=base)["status"] == "entidade_nao_resolvida"
