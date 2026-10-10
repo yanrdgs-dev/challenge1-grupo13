@@ -1,15 +1,19 @@
 """Sincroniza uma fonte: decide se há novidade, baixa e registra o estado."""
 
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 import httpx
 
-from src.etl.download_datasets import DownloadInfo
 from src.etl.freshness import Fingerprint, decide, head_fingerprint
 from src.etl.ingestion_state import IngestionState
+
+if TYPE_CHECKING:  # download_datasets importa este módulo; evita o ciclo
+    from src.etl.download_datasets import DownloadInfo
 
 logger = logging.getLogger("ETL.Sync")
 
@@ -52,6 +56,15 @@ def sync_item(
             return SyncOutcome("seria_baixado", decision.reason)
         logger.info("[ATUALIZANDO] %s: %s", item_id, decision.reason)
         info = download(True)
+        if record and record.get("sha256") and record["sha256"] == info.sha256:
+            # a fonte republicou (ou é dinâmica) mas os bytes são os mesmos: não é novidade de conteúdo
+            state.record_file(
+                item_id, url=url, dest=dest, fingerprint=info.fingerprint, size=info.size, sha256=info.sha256,
+                downloaded_at=record.get("downloaded_at"),
+            )
+            state.save()
+            logger.info("[SEM NOVIDADE] %s: conteúdo idêntico ao da última carga", item_id)
+            return SyncOutcome("sem_novidade", "conteúdo idêntico ao da última carga", info)
         state.record_file(
             item_id, url=url, dest=dest, fingerprint=info.fingerprint, size=info.size, sha256=info.sha256,
             downloaded_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),

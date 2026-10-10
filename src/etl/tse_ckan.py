@@ -12,8 +12,10 @@ from typing import Dict, List, Optional, Sequence
 
 import httpx
 
-from src.etl.download_datasets import DownloadError, download_zip_csv, make_client
+from src.etl.download_datasets import DownloadError, download_zip_csv, local_zip_state, make_client
+from src.etl.ingestion_state import IngestionState
 from src.etl.manifest import load_manifest, tse_config
+from src.etl.sync import sync_item
 
 logger = logging.getLogger("ETL.TSE")
 
@@ -99,9 +101,14 @@ def plan_tse_downloads(
 
 def run_tse_downloads(
     datasets_dir: Path, anos: Sequence[int], client: Optional[httpx.Client] = None,
-    manifest: Optional[dict] = None,
+    manifest: Optional[dict] = None, state: Optional[IngestionState] = None,
+    force: bool = False, dry_run: bool = False, changes: Optional[List[str]] = None,
 ) -> List[DownloadError]:
-    """Baixa e extrai os zips do TSE. Falhas são devolvidas e não interrompem os demais."""
+    """Baixa e extrai os zips do TSE. Falhas são devolvidas e não interrompem os demais.
+
+    Com `state`, só baixa o que tem novidade (ETag/Last-Modified do CDN) e acrescenta a `changes` o id
+    `tse-<nome do zip>` de cada recurso atualizado (ou que seria, em `dry_run`).
+    """
     own_client = client is None
     client = client or make_client()
     failures: List[DownloadError] = []
@@ -115,7 +122,20 @@ def run_tse_downloads(
                 continue
             for item in plan:
                 try:
-                    download_zip_csv(item.url, item.dest_dir, item.stem, item.desc, client=client)
+                    if state is None:
+                        download_zip_csv(item.url, item.dest_dir, item.stem, item.desc, client=client)
+                        continue
+                    exists, mtime, size = local_zip_state(item.dest_dir, item.stem)
+                    outcome = sync_item(
+                        f"tse-{item.stem}", item.url, refresh="validators", state=state, client=client,
+                        local_exists=exists, local_mtime=mtime, local_size=size,
+                        download=lambda force_, i=item: download_zip_csv(
+                            i.url, i.dest_dir, i.stem, i.desc, client=client, force=force_),
+                        force=force, dry_run=dry_run,
+                        dest=item.dest_dir.relative_to(datasets_dir).as_posix(),
+                    )
+                    if changes is not None and outcome.action != "sem_novidade":
+                        changes.append(f"tse-{item.stem}")
                 except DownloadError as e:
                     logger.error("%s", e)
                     failures.append(e)

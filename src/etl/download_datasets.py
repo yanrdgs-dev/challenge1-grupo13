@@ -21,7 +21,9 @@ from typing import List, Optional
 import httpx
 
 from src.etl.freshness import Fingerprint
+from src.etl.ingestion_state import IngestionState
 from src.etl.manifest import Source, expand_sources, load_manifest
+from src.etl.sync import sync_item
 
 logger = logging.getLogger("ETL.Download")
 
@@ -223,6 +225,21 @@ def download_zip_csv(
         _unlink(zip_path)
 
 
+def local_zip_state(directory: Path, prefix: str) -> tuple:
+    """(existe, mtime mais recente, None) dos CSVs extraídos de um zip, identificados pelo prefixo."""
+    files = [f for f in Path(directory).glob(f"{prefix}*.csv") if f.stat().st_size > MIN_VALID_SIZE]
+    if not files:
+        return False, None, None
+    return True, max(f.stat().st_mtime for f in files), None
+
+
+def _local_file_state(path: Path) -> tuple:
+    if path.exists() and path.stat().st_size > MIN_VALID_SIZE:
+        stat = path.stat()
+        return True, stat.st_mtime, stat.st_size
+    return False, None, None
+
+
 def _download_source(source: Source, base_dir: Path, client: httpx.Client) -> None:
     dest = base_dir / source.dest
     if source.kind == "zip_csv":
@@ -232,10 +249,44 @@ def _download_source(source: Source, base_dir: Path, client: httpx.Client) -> No
         download_file(source.url, dest, source.desc, client=client, expected_sha256=source.sha256)
 
 
+def _sync_source(
+    source: Source, base_dir: Path, client: httpx.Client, state: IngestionState, force: bool, dry_run: bool
+):
+    dest = base_dir / source.dest
+    if source.kind == "zip_csv":
+        exists, mtime, size = local_zip_state(dest, source.prefix)
+
+        def do(force_: bool) -> DownloadInfo:
+            return download_zip_csv(source.url, dest, source.prefix, source.desc, client=client,
+                                    expected_sha256=source.sha256, force=force_)
+    else:
+        exists, mtime, size = _local_file_state(dest)
+
+        def do(force_: bool) -> DownloadInfo:
+            return download_file(source.url, dest, source.desc, client=client,
+                                 expected_sha256=source.sha256, force=force_)
+
+    return sync_item(
+        source.id, source.url, refresh=source.refresh, state=state, client=client, local_exists=exists,
+        local_mtime=mtime, local_size=size, download=do, force=force, dry_run=dry_run, dest=source.dest,
+    )
+
+
 def run_downloads(
-    base_dir: Path, client: Optional[httpx.Client] = None, manifest: Optional[dict] = None
+    base_dir: Path,
+    client: Optional[httpx.Client] = None,
+    manifest: Optional[dict] = None,
+    state: Optional[IngestionState] = None,
+    force: bool = False,
+    dry_run: bool = False,
+    changes: Optional[List[str]] = None,
 ) -> List[DownloadError]:
-    """Baixa as fontes do manifesto. Falhas não interrompem as demais e são devolvidas ao chamador."""
+    """Baixa as fontes do manifesto. Falhas não interrompem as demais e são devolvidas ao chamador.
+
+    Sem `state`, pula o que já existe em disco. Com `state`, baixa só o que tem novidade (ver
+    `freshness.decide`), registra o estado e acrescenta a `changes` o id de cada fonte atualizada
+    (ou que seria atualizada, em `dry_run`).
+    """
     base_dir = Path(base_dir)
     sources = expand_sources(manifest if manifest is not None else load_manifest())
     own_client = client is None
@@ -244,7 +295,12 @@ def run_downloads(
     try:
         for source in sources:
             try:
-                _download_source(source, base_dir, client)
+                if state is None:
+                    _download_source(source, base_dir, client)
+                else:
+                    outcome = _sync_source(source, base_dir, client, state, force, dry_run)
+                    if changes is not None and outcome.action != "sem_novidade":
+                        changes.append(source.id)
             except DownloadError as e:
                 logger.error("%s", e)
                 failures.append(e)
