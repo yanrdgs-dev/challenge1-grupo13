@@ -341,6 +341,79 @@ TOOLS_CATALOG.extend([
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_candidate_profile",
+            "description": "Perfil declarado de um CANDIDATO ao TSE: gênero, grau de instrução, estado civil, cor/raça, ocupação, naturalidade, idade na posse, reeleição. Usar para claims sobre escolaridade, profissão ou perfil do candidato.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nome_candidato": {"type": "string", "description": "Nome de urna ou civil do candidato (resolvido pelo sistema antes da consulta)."},
+                    "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
+                    "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado, se a claim disser."},
+                    "uf": {"type": "string", "description": "UF da disputa, para desambiguar homônimos."},
+                    "numero": {"type": "integer", "description": "Número do candidato na urna, se citado."},
+                },
+                "required": ["nome_candidato", "ano"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_candidate_assets",
+            "description": "Bens declarados por um CANDIDATO ao TSE: total, quantidade, composição por tipo e maior bem. Usar para claims sobre patrimônio ('declarou R$ X em bens').",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nome_candidato": {"type": "string", "description": "Nome de urna ou civil do candidato (resolvido pelo sistema antes da consulta)."},
+                    "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
+                    "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado, se a claim disser."},
+                    "uf": {"type": "string", "description": "UF da disputa, para desambiguar homônimos."},
+                    "numero": {"type": "integer", "description": "Número do candidato na urna, se citado."},
+                },
+                "required": ["nome_candidato", "ano"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_cash_and_special_assets",
+            "description": "Dinheiro em espécie e bens especiais (aeronave, embarcação, joias, ouro) declarados por um CANDIDATO ao TSE. Usar para claims sobre dinheiro vivo, avião, barco ou joias declarados.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nome_candidato": {"type": "string", "description": "Nome de urna ou civil do candidato (resolvido pelo sistema antes da consulta)."},
+                    "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
+                    "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado, se a claim disser."},
+                    "uf": {"type": "string", "description": "UF da disputa, para desambiguar homônimos."},
+                    "numero": {"type": "integer", "description": "Número do candidato na urna, se citado."},
+                },
+                "required": ["nome_candidato", "ano"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "verify_official_social_media",
+            "description": "Links de redes sociais que um CANDIDATO registrou no TSE. Usar para claims sobre perfil oficial; informe 'termo' (perfil ou URL) para checar se foi registrado.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nome_candidato": {"type": "string", "description": "Nome de urna ou civil do candidato (resolvido pelo sistema antes da consulta)."},
+                    "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
+                    "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado, se a claim disser."},
+                    "uf": {"type": "string", "description": "UF da disputa, para desambiguar homônimos."},
+                    "numero": {"type": "integer", "description": "Número do candidato na urna, se citado."},
+                    "termo": {"type": "string", "description": "Perfil ou endereço citado na claim (ex: '@lulaoficial'), para checar se o candidato o registrou."},
+                },
+                "required": ["nome_candidato", "ano"],
+            },
+        },
+    },
 ])
 
 ROUTER_SYSTEM_PROMPT = (
@@ -362,6 +435,8 @@ ROUTER_SYSTEM_PROMPT = (
     "- Se a alegação trata do RESULTADO de uma eleição (quem ganhou, total de votos de um cargo, ranking), utilize 'get_election_result'; "
     "se trata dos votos ou da eleição de um CANDIDATO específico, utilize 'get_candidate_votes' (o nome é resolvido pelo sistema; use 'resolve_candidate' só para identificar o candidato). "
     "Para a SITUAÇÃO da candidatura (deferida, indeferida, renúncia, cassada) utilize 'check_candidate_status'; para o MOTIVO de um indeferimento ou cassação, 'check_disqualification_motive' (não precisam de turno). "
+    "Para PERFIL do candidato (escolaridade, profissão, naturalidade) utilize 'check_candidate_profile'; para PATRIMÔNIO declarado, 'get_candidate_assets'; "
+    "para dinheiro em espécie e bens como aeronave, embarcação ou joias, 'check_cash_and_special_assets'; para perfis de redes sociais registrados no TSE, 'verify_official_social_media' (com 'termo'). Nenhuma precisa de turno.\n"
     "NÃO invente ano nem turno: se a alegação não diz o ano ('na última eleição') ou o turno, deixe o parâmetro vazio, para que a evidência seja INCONCLUSIVO. "
     "Se a alegação é sobre o resultado da eleição de 2026, chame mesmo assim a tool de resultado com ano 2026: o sistema informa que os dados abertos do TSE ainda não foram atualizados. Votos de eleição são do TSE; votos em plenário do Congresso são das tools de votação.\n"
     "Extraia todos os parâmetros possíveis (casa, número, ano, sigla, estado/UF) diretamente da frase."

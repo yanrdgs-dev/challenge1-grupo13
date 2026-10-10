@@ -235,3 +235,64 @@ def test_motive_result_warns_that_absence_of_a_row_is_not_proof_of_regularity(tm
         pl.DataFrame(rows).write_parquet(folder / "p.parquet")
     res = check_disqualification_motive(4, ano=2022, base_dir=tmp_path)
     assert res["total_motivos"] == 0 and "não prova" in res["aviso"]
+
+
+# ------------------- perfil, patrimônio e redes sociais (passo 3) ------------------- #
+
+_STEP3 = ("check_candidate_profile", "get_candidate_assets", "check_cash_and_special_assets", "verify_official_social_media")
+
+
+def test_step3_tools_are_in_the_catalog_with_name_and_year_required_and_no_turno():
+    for name in _STEP3:
+        params = _tool(name)["parameters"]
+        assert {"nome_candidato", "ano"} <= set(params["required"]), name
+        assert "turno" not in params["properties"], name
+    assert "termo" in _tool("verify_official_social_media")["parameters"]["properties"]
+
+
+@pytest.mark.parametrize("name", _STEP3)
+def test_step3_tools_resolve_the_name_first_and_use_the_canonical_id(name):
+    with patch.object(router_service, "resolve_candidate", return_value=RESOLVED) as resolver, \
+         patch.object(router_service, name, return_value={"encontrado": True}) as tool:
+        res = execute_tool(name, {"nome_candidato": "Lula", "ano": 2022})
+    resolver.assert_called_once()
+    assert tool.call_args.kwargs["sq_candidato"] == 77 and tool.call_args.kwargs["ano"] == 2022
+    assert res["entidade_resolvida"]["sq_candidato"] == 77
+
+
+@pytest.mark.parametrize("name", _STEP3)
+@pytest.mark.parametrize("resolution", [AMBIGUOUS, NOT_FOUND])
+def test_step3_tools_never_reach_the_data_tool_with_unresolved_name(name, resolution):
+    with patch.object(router_service, "resolve_candidate", return_value=resolution), \
+         patch.object(router_service, name) as tool:
+        res = execute_tool(name, {"nome_candidato": "João Silva", "ano": 2022})
+    tool.assert_not_called()
+    assert res["status"] == "entidade_nao_resolvida" and evidence_failed(res)
+
+
+def test_social_media_term_is_forwarded():
+    with patch.object(router_service, "resolve_candidate", return_value=RESOLVED), \
+         patch.object(router_service, "verify_official_social_media", return_value={"encontrado": True}) as tool:
+        execute_tool("verify_official_social_media", {"nome_candidato": "Lula", "ano": 2022, "termo": "@lulaoficial"})
+    assert tool.call_args.kwargs["termo"] == "@lulaoficial"
+
+
+def test_step3_sources_and_base_dates():
+    info = {"fontes": {
+        "tse-consulta_cand_2022": {"baixado_em": "2026-10-10T10:00:00+00:00"},
+        "tse-bem_candidato_2022": {"baixado_em": "2026-10-10T11:00:00+00:00"},
+        "tse-rede_social_candidato_2022_AC": {"baixado_em": "2026-10-10T08:00:00+00:00"},
+        "tse-rede_social_candidato_2022_SP": {"baixado_em": "2026-10-10T09:00:00+00:00"},
+    }}
+    ok = {"encontrado": True}
+    for tool in _STEP3:
+        assert derive_sources(tool, {}, ok) == [TSE], tool
+    assert data_date("check_candidate_profile", {"ano": 2022}, ok, info) == "2026-10-10T10:00:00+00:00"
+    assert data_date("get_candidate_assets", {"ano": 2022}, ok, info) == "2026-10-10T11:00:00+00:00"
+    assert data_date("check_cash_and_special_assets", {"ano": 2022}, ok, info) == "2026-10-10T11:00:00+00:00"
+    assert data_date("verify_official_social_media", {"ano": 2022}, ok, info) == "2026-10-10T09:00:00+00:00"
+
+
+def test_prompt_mentions_step3_tools():
+    for name in _STEP3:
+        assert name in ROUTER_SYSTEM_PROMPT, name
