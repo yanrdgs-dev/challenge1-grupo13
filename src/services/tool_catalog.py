@@ -414,6 +414,42 @@ TOOLS_CATALOG.extend([
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_campaign_finances",
+            "description": "Prestação de contas de campanha de um CANDIDATO no TSE: total de receitas, despesas contratadas e despesas pagas, com composição por origem. Usar para 'fulano gastou/arrecadou R$ X na campanha'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nome_candidato": {"type": "string", "description": "Nome de urna ou civil do candidato (resolvido pelo sistema antes da consulta)."},
+                    "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
+                    "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado, se a claim disser."},
+                    "uf": {"type": "string", "description": "UF da disputa, para desambiguar homônimos."},
+                    "numero": {"type": "integer", "description": "Número do candidato na urna, se citado."},
+                },
+                "required": ["nome_candidato", "ano"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_top_campaign_finances",
+            "description": "Ranking de candidatos de um cargo por gasto ou arrecadação de campanha (TSE). Usar para 'quem mais gastou/arrecadou na campanha para presidente/governador'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado."},
+                    "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
+                    "metrica": {"type": "string", "enum": ["receitas", "despesas_contratadas"], "description": "'despesas_contratadas' para gasto (padrão); 'receitas' para arrecadação."},
+                    "uf": {"type": "string", "description": "UF da disputa, se a claim restringir a um estado."},
+                    "top_n": {"type": "integer", "description": "Quantos candidatos listar (padrão 5)."},
+                },
+                "required": ["cargo", "ano"],
+            },
+        },
+    },
 ])
 
 ROUTER_SYSTEM_PROMPT = (
@@ -437,6 +473,8 @@ ROUTER_SYSTEM_PROMPT = (
     "Para a SITUAÇÃO da candidatura (deferida, indeferida, renúncia, cassada) utilize 'check_candidate_status'; para o MOTIVO de um indeferimento ou cassação, 'check_disqualification_motive' (não precisam de turno). "
     "Para PERFIL do candidato (escolaridade, profissão, naturalidade) utilize 'check_candidate_profile'; para PATRIMÔNIO declarado, 'get_candidate_assets'; "
     "para dinheiro em espécie e bens como aeronave, embarcação ou joias, 'check_cash_and_special_assets'; para perfis de redes sociais registrados no TSE, 'verify_official_social_media' (com 'termo'). Nenhuma precisa de turno.\n"
+    "Para GASTO ou ARRECADAÇÃO de campanha de um candidato utilize 'get_campaign_finances'; para o ranking de quem mais gastou ou arrecadou num cargo, 'get_top_campaign_finances' (gasto = 'despesas_contratadas'). Não precisam de turno. "
+    "Gastos da cota parlamentar (CEAP) são outra coisa: usam as tools de cota.\n"
     "NÃO invente ano nem turno: se a alegação não diz o ano ('na última eleição') ou o turno, deixe o parâmetro vazio, para que a evidência seja INCONCLUSIVO. "
     "Se a alegação é sobre o resultado da eleição de 2026, chame mesmo assim a tool de resultado com ano 2026: o sistema informa que os dados abertos do TSE ainda não foram atualizados. Votos de eleição são do TSE; votos em plenário do Congresso são das tools de votação.\n"
     "Extraia todos os parâmetros possíveis (casa, número, ano, sigla, estado/UF) diretamente da frase."

@@ -29,6 +29,8 @@ _TSE_TABLES = {
     "check_candidate_profile": "tse-consulta_cand_",
     "get_candidate_assets": "tse-bem_candidato_",
     "check_cash_and_special_assets": "tse-bem_candidato_",
+    "get_campaign_finances": "tse-prestacao_de_contas_eleitorais_candidatos_",
+    "get_top_campaign_finances": "tse-prestacao_de_contas_eleitorais_candidatos_",
     "verify_official_social_media": "tse-rede_social_candidato_",  # 2022 vem uma fonte por UF
 }
 

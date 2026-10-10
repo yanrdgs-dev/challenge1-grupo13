@@ -63,6 +63,7 @@ Fora do escopo: `scrape_dados_abertos_tse` (raspagem de HTML, lê só 10 itens e
 3. Perfil e patrimônio: `check_candidate_profile`, `get_candidate_assets`, `check_cash_and_special_assets`, `verify_official_social_media`.
    **Passo 3 entregue (2026-10-10)** em `src/tools/tse_perfil_tools.py`, no catálogo do roteador (todas resolvem o nome antes, sem turno). Sem bem declarado não é patrimônio zero (aviso na evidência); "Não divulgável" e marcadores viram `None`; CPF, título, e-mail e data de nascimento não saem; redes sociais valem só para o que o candidato registrou no TSE (aceita `termo` para checar um perfil). Conferido com Lula e Bolsonaro 2022 e Lula 2026.
 4. Finanças de campanha: totais de receitas e despesas por candidato.
+   **Passo 4 entregue (2026-10-10)** em `src/tools/tse_financas_tools.py`: `get_campaign_finances` (receitas, despesas contratadas e pagas; a paga liga por `SQ_PRESTADOR_CONTAS`) e `get_top_campaign_finances` (ranking por cargo, receitas ou despesas contratadas). Cada candidato tem um só tipo de prestação e um só prestador no ano (conferido), então somar não duplica. Prestação não final (a de 2026 é parcial) traz aviso; sem prestação publicada não é gasto zero; nenhum doador ou fornecedor sai. Conferido: Lula 2022 receitas R$ 135.539.287,82 e despesas contratadas R$ 131.313.037,45; Presidente 2022 lidera Lula, Bolsonaro, Thronicke.
 5. Guarda de especificidade: "primeiro turno" ou "a última eleição" sem ano vira INCONCLUSIVO (regra 3).
 6. Golden v2: ao menos 10 claims de TSE nos três vereditos, incluindo 2º turno e candidato ambíguo.
 7. Opcional: ampliar para 2018, 2020 e 2024 conforme o volume de dados.
@@ -92,4 +93,4 @@ Decidir se tramitação, vetos e presença entram no catálogo do roteador. Se e
 
 Fase 0, Fase 0.5, Fase 1 (descoberta primeiro), Fases 2 e 3 em paralelo, Fases 4 e 5 acompanhando desde a Fase 1.
 
-**Onde estamos (2026-10-10):** Fases 0 e 0.5 concluídas; Fase 1, passo 1 (descoberta) concluído. Passos 2 e 3 concluídos; próximo, o passo 4 (finanças de campanha: receitas e despesas por candidato).
+**Onde estamos (2026-10-10):** Fases 0 e 0.5 concluídas; Fase 1, passo 1 (descoberta) concluído. Passos 2, 3 e 4 concluídos; próximo, o passo 5 (guarda de especificidade) e o 6 (golden v2).

@@ -51,7 +51,7 @@ def test_every_catalog_tool_is_dispatched_and_none_is_simulated():
             "fonte": "portal_transparencia", "tipo_dado": "licitacoes_dados_abertos",
         }
         for name in names:
-            tool_args = {**args, "cargo": "Presidente"} if name == "get_election_result" else args
+            tool_args = {**args, "cargo": "Presidente"} if name in ("get_election_result", "get_top_campaign_finances") else args
             result = execute_tool(name, tool_args)
             assert "erro" not in result, name
 
