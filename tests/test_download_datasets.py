@@ -265,3 +265,36 @@ def test_main_returns_nonzero_when_any_download_fails(tmp_path, monkeypatch):
 def test_main_returns_zero_when_all_succeed(tmp_path, monkeypatch):
     monkeypatch.setattr(download_datasets, "run_downloads", lambda base_dir, client=None: [])
     assert download_datasets.main(["--base-dir", str(tmp_path)]) == 0
+
+
+# ------------------------------- erro de disco ------------------------------- #
+
+def test_disk_error_while_writing_is_explicit_error_and_leaves_no_file(tmp_path):
+    dest = tmp_path / "a.csv"
+
+    def full_disk(*args, **kwargs):
+        raise OSError(122, "Disk quota exceeded")
+
+    with client_for(ok_handler) as client, patch.object(download_datasets.os, "replace", full_disk):
+        with pytest.raises(DownloadError, match="Disk quota"):
+            download_file(URL, dest, "teste", client=client)
+    assert not dest.exists()
+    assert not list(tmp_path.glob("*.part"))
+
+
+def test_disk_error_while_extracting_is_explicit_error_and_cleans_partial_files(tmp_path):
+    payload = make_zip("Ano-2024.csv", BODY)
+
+    class FullDiskZip(zipfile.ZipFile):
+        def extract(self, member, path=None, pwd=None):
+            target = Path(path) / member.filename
+            target.write_bytes(b"parcial")
+            raise OSError(122, "Disk quota exceeded")
+
+    def handler(request):
+        return httpx.Response(200, content=payload)
+
+    with client_for(handler) as client, patch.object(download_datasets.zipfile, "ZipFile", FullDiskZip):
+        with pytest.raises(DownloadError, match="Disk quota"):
+            download_zip_csv(URL, tmp_path, "Ano-2024", "CEAP 2024", client=client)
+    assert not list(tmp_path.glob("*"))
