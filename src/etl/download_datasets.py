@@ -10,13 +10,17 @@ import hashlib
 import logging
 import os
 import sys
+import shutil
+import tempfile
 import time
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
 import httpx
 
+from src.etl.freshness import Fingerprint
 from src.etl.manifest import Source, expand_sources, load_manifest
 
 logger = logging.getLogger("ETL.Download")
@@ -35,6 +39,15 @@ class DownloadError(Exception):
 
 class TransientDownloadError(DownloadError):
     """Falha que pode passar sozinha (timeout, rede, HTTP 5xx, download parcial): vale tentar de novo."""
+
+
+@dataclass(frozen=True)
+class DownloadInfo:
+    path: Path
+    size: Optional[int]
+    sha256: Optional[str]
+    skipped: bool
+    fingerprint: Optional[Fingerprint]
 
 
 def _sleep(seconds: float) -> None:
@@ -62,7 +75,10 @@ def _unlink(path: Path) -> None:
 
 
 def _stream_to_part(url: str, part: Path, desc: str, client: httpx.Client) -> tuple:
-    """Baixa `url` para `part` e devolve (bytes gravados, sha256); confere o Content-Length se informado."""
+    """Baixa `url` para `part` e devolve (bytes gravados, sha256, impressão digital HTTP).
+
+    Confere o Content-Length se informado.
+    """
     written = 0
     digest = hashlib.sha256()
     try:
@@ -71,6 +87,7 @@ def _stream_to_part(url: str, part: Path, desc: str, client: httpx.Client) -> tu
                 raise TransientDownloadError(f"{desc}: HTTP {resp.status_code} em {url}")
             if resp.status_code >= 400:
                 raise DownloadError(f"{desc}: HTTP {resp.status_code} em {url}")
+            fingerprint = Fingerprint.from_headers(resp.headers)
             expected = resp.headers.get("Content-Length")
             if resp.headers.get("Content-Encoding", "identity") != "identity":
                 expected = None  # Content-Length refere-se aos bytes comprimidos, não aos decodificados
@@ -88,7 +105,7 @@ def _stream_to_part(url: str, part: Path, desc: str, client: httpx.Client) -> tu
         raise TransientDownloadError(
             f"{desc}: download parcial, Content-Length={expected} mas {written} bytes recebidos"
         )
-    return written, digest.hexdigest()
+    return written, digest.hexdigest(), fingerprint
 
 
 def download_file(
@@ -97,16 +114,17 @@ def download_file(
     desc: str,
     client: Optional[httpx.Client] = None,
     expected_sha256: Optional[str] = None,
-) -> Path:
-    """Baixa `url` para `dest_path` de forma atômica. Pula se já existe um arquivo válido.
+    force: bool = False,
+) -> DownloadInfo:
+    """Baixa `url` para `dest_path` de forma atômica. Pula se já existe um arquivo válido (salvo `force`).
 
     Com `expected_sha256`, um conteúdo diferente é `DownloadError` e nada é gravado.
     """
     dest_path = Path(dest_path)
     dest_path.parent.mkdir(parents=True, exist_ok=True)
-    if dest_path.exists() and dest_path.stat().st_size > MIN_VALID_SIZE:
+    if not force and dest_path.exists() and dest_path.stat().st_size > MIN_VALID_SIZE:
         logger.info("[PULANDO] %s já existe (%.1f KB)", desc, dest_path.stat().st_size / 1024)
-        return dest_path
+        return DownloadInfo(dest_path, dest_path.stat().st_size, None, True, None)
 
     own_client = client is None
     client = client or make_client()
@@ -116,7 +134,7 @@ def download_file(
     try:
         for attempt in range(1, RETRY_ATTEMPTS + 1):
             try:
-                size, sha256 = _stream_to_part(url, part, desc, client)
+                size, sha256, fingerprint = _stream_to_part(url, part, desc, client)
                 break
             except TransientDownloadError as e:
                 _unlink(part)
@@ -138,36 +156,41 @@ def download_file(
         if own_client:
             client.close()
     logger.info("Concluído: %s (%.2f MB em %.1fs)", desc, size / 1024 / 1024, time.time() - start)
-    return dest_path
+    return DownloadInfo(dest_path, size, sha256, False, fingerprint)
 
 
-def _safe_extract(zip_path: Path, extract_dir: Path, desc: str) -> List[Path]:
-    """Extrai o zip recusando membros que escapem de `extract_dir`; desfaz se algo falhar."""
+def _safe_extract(zip_path: Path, extract_dir: Path, desc: str) -> None:
+    """Extrai o zip recusando membros que escapem de `extract_dir`.
+
+    Extrai primeiro para um diretório temporário e só então move os arquivos para o destino: se algo
+    falhar, os arquivos extraídos anteriormente continuam intactos.
+    """
     root = extract_dir.resolve()
-    extracted: List[Path] = []
+    staging = Path(tempfile.mkdtemp(dir=root, prefix=".extract-"))
     try:
         with zipfile.ZipFile(zip_path) as zf:
-            for member in zf.infolist():
+            members = zf.infolist()
+            for member in members:
                 target = (root / member.filename).resolve()
                 if root != target and root not in target.parents:
                     raise DownloadError(f"{desc}: zip com caminho inseguro ({member.filename})")
             bad = zf.testzip()
             if bad is not None:
                 raise DownloadError(f"{desc}: zip corrompido em {bad}")
-            for member in zf.infolist():
-                extracted.append(root / member.filename)  # antes de extrair: cobre arquivo parcial
-                zf.extract(member, root)
+            for member in members:
+                zf.extract(member, staging)
+        for member in members:
+            if member.is_dir():
+                continue
+            final = root / member.filename
+            final.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(staging / member.filename, final)
     except zipfile.BadZipFile as e:
         raise DownloadError(f"{desc}: arquivo zip inválido: {e}") from e
     except OSError as e:
-        for path in extracted:
-            _unlink(path)
         raise DownloadError(f"{desc}: erro de disco ao extrair: {e}") from e
-    except BaseException:
-        for path in extracted:
-            _unlink(path)
-        raise
-    return extracted
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
 
 
 def download_zip_csv(
@@ -177,19 +200,25 @@ def download_zip_csv(
     desc: str,
     client: Optional[httpx.Client] = None,
     expected_sha256: Optional[str] = None,
-) -> None:
-    """Baixa um zip e extrai o CSV em `extract_dir`. Pula se o CSV esperado já está lá."""
+    force: bool = False,
+) -> DownloadInfo:
+    """Baixa um zip e extrai o CSV em `extract_dir`. Pula se o CSV esperado já está lá (salvo `force`).
+
+    Devolve os dados do zip baixado (tamanho, sha256, validadores HTTP).
+    """
     extract_dir = Path(extract_dir)
     extract_dir.mkdir(parents=True, exist_ok=True)
     existing = list(extract_dir.glob(f"{expected_file_prefix}*.csv"))
-    if existing and existing[0].stat().st_size > MIN_VALID_SIZE:
+    if not force and existing and existing[0].stat().st_size > MIN_VALID_SIZE:
         logger.info("[PULANDO] %s já descompactado (%s)", desc, existing[0].name)
-        return
+        return DownloadInfo(existing[0], existing[0].stat().st_size, None, True, None)
 
     zip_path = extract_dir / f"{expected_file_prefix}.zip.tmp"
+    _unlink(zip_path)  # sobra de execução interrompida seria tratada como download válido
     try:
-        download_file(url, zip_path, desc, client=client, expected_sha256=expected_sha256)
+        info = download_file(url, zip_path, desc, client=client, expected_sha256=expected_sha256)
         _safe_extract(zip_path, extract_dir, desc)
+        return info
     finally:
         _unlink(zip_path)
 
