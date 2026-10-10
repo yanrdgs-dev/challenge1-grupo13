@@ -91,3 +91,8 @@ def _reset_llm_provider_guards():
     provider_guard.reset()
     yield
     provider_guard.reset()
+
+
+# O teste de vida do Ollama faria um GET real em localhost:11434 em todo teste que simula só o `post`.
+# Os testes dele (tests/test_ollama_probe.py) ligam o teste explicitamente.
+os.environ["OLLAMA_PROBE_TIMEOUT"] = "0"
