@@ -131,3 +131,15 @@ Para fechar: `az network nsg rule delete -g polis-rg --nsg-name polis-vmNSG -n h
 - A VM é um ponto único de falha; vale um backup do `data/processed` (a ingestão regenera os parquets, mas o tempo ainda não foi medido).
 - As actions estão fixadas por versão maior (`@v4`, `@v6`), não por SHA.
 - O achado 3 do plano segue aberto: sem fallback, um timeout do Ollama vira 503.
+
+## Provedores de LLM (cadeia com disjuntor e teto diário)
+
+O `LLMClient` percorre uma cadeia ordenada, definida em `LLM_PROVIDERS` (padrão recomendado: `ollama,groq,deepseek`). A lógica é custo zero primeiro: o Ollama local, depois a Groq gratuita, e o DeepSeek pago só se os dois falharem. Sem `LLM_PROVIDERS`, valem `LLM_PROVIDER` e `FALLBACK_PROVIDER` como antes.
+
+- **Disjuntor** (`src/core/provider_guard.py`): depois de `LLM_BREAKER_FAILURES` falhas seguidas (3), o provedor é pulado por `LLM_BREAKER_COOLDOWN` segundos (120), sem esperar o timeout a cada checagem. Passado o tempo, uma única requisição testa o provedor; se der certo, ele volta a ser o primeiro (é assim que o Mac reassume o Ollama). Se todos os disjuntores estiverem abertos, a cadeia tenta mesmo assim.
+- **Teto diário:** por padrão só o DeepSeek, com 200 chamadas por dia UTC (`DEEPSEEK_DAILY_CAP`; `0` desliga). Tentativas que falham também contam. Acima do teto, nenhuma chamada paga é feita e o agente devolve a mensagem de indisponibilidade, nunca um palpite.
+- **Erro de configuração** (chave ausente) passa ao próximo provedor e não abre o disjuntor.
+- **Limitações:** o estado fica na memória de cada processo. O roteador e o juiz são serviços separados, então cada um tem o seu contador (o teto efetivo pode chegar ao dobro), e um reinício zera as contagens. O saldo real continua sendo o do painel do DeepSeek.
+- **Modelos:** o roteador pede `qwen2.5:7b` e o juiz `qwen2.5:14b` ao Ollama. Groq, OpenAI e DeepSeek usam um modelo único por provedor, vindo do ambiente (`GROQ_MODEL`, `DEEPSEEK_MODEL`...). O padrão da Groq (`llama-3.1-8b-instant`) fica abaixo do 14b do juiz: configure um modelo maior e rode o golden dataset antes de confiar nos vereditos.
+- **Privacidade:** com a Groq e o DeepSeek, o texto da alegação e a evidência saem da infraestrutura do projeto.
+

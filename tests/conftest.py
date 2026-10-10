@@ -81,3 +81,13 @@ def trace_recorder():
     with patch("src.observability.tracing.observation", recorder.observation), \
          patch("src.observability.tracing.trace_attributes", recorder.trace_attributes):
         yield recorder
+
+
+@pytest.fixture(autouse=True)
+def _reset_llm_provider_guards():
+    """Disjuntor e teto diário guardam estado no processo: cada teste começa com tudo zerado."""
+    from src.core import provider_guard
+
+    provider_guard.reset()
+    yield
+    provider_guard.reset()
