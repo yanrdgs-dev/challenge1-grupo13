@@ -170,6 +170,6 @@ Para atingir **latência analítica em milissegundos** via **DuckDB** e **Polars
 
 A poda automática (`prune_redundant`) só se aplica quando a tabela é reconhecida sem ambiguidade:
 
-- `tse_candidatos`: tem `SQ_CANDIDATO` e `NM_URNA_CANDIDATO` ou `CD_CARGO` **e nenhuma medida** (`NR_TURNO`, colunas `QT_*` ou `VR_*`). Tabelas de resultado (votação por zona e por seção), receitas e despesas contratadas também têm `SQ_CANDIDATO`, mas carregam votos e valores que o schema de cadastro descartaria.
+- `tse_candidatos`: tem `SQ_CANDIDATO` e `NM_URNA_CANDIDATO` ou `CD_CARGO` **e nenhuma medida de fato** (colunas `QT_*` ou `VR_RECEITA`, `VR_DESPESA_CONTRATADA`, `VR_PAGTO_DESPESA`; `NR_TURNO` e `VR_DESPESA_MAX_CAMPANHA` existem no cadastro e não contam). Tabelas de resultado (votação por zona e por seção), receitas e despesas contratadas também têm `SQ_CANDIDATO`, mas carregam votos e valores que o schema de cadastro descartaria.
 - `tse_despesas`: tem `VR_PAGTO_DESPESA` **e** `SQ_CANDIDATO`. As despesas pagas de 2022 vêm por prestador de contas (`SQ_PRESTADOR_CONTAS`), sem coluna de candidato, e por isso não são podadas.
 - Tabela não reconhecida mantém todas as colunas.

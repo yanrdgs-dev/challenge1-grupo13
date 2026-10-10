@@ -48,6 +48,9 @@ TSE_BENS_COLUMNS: List[str] = [
     "VR_BEM_CANDIDATO",
 ]
 
+# Colunas de valor que só existem em tabelas de fatos (receitas e despesas), nunca no cadastro.
+FACT_VALUE_COLUMNS: Set[str] = {"VR_RECEITA", "VR_DESPESA_CONTRATADA", "VR_PAGTO_DESPESA"}
+
 # 4. Esquema Câmara dos Deputados - Votações Nominais e Proposições
 CAMARA_VOTACOES_COLUMNS: List[str] = [
     "idVotacao",
@@ -143,9 +146,10 @@ def detect_schema_by_columns(columns: List[str]) -> Optional[str]:
     if "VR_BEM_CANDIDATO" in cols_set or "DS_TIPO_BEM_CANDIDATO" in cols_set:
         return "tse_bens"
 
-    # Cadastro de candidatos = identidade sem medidas. Tabelas com votos (QT_*), valores (VR_*) ou turno
-    # (resultados, receitas, despesas) também têm SQ_CANDIDATO, mas o schema de cadastro as destruiria.
-    has_measures = "NR_TURNO" in cols_set or any(c.startswith(("QT_", "VR_")) for c in cols_set)
+    # Cadastro de candidatos = identidade sem medidas. Tabelas com votos (QT_*) ou valores de receita e
+    # despesa (resultados, receitas, despesas) também têm SQ_CANDIDATO, mas o schema de cadastro as destruiria.
+    # NR_TURNO e VR_DESPESA_MAX_CAMPANHA (teto de gastos) existem no cadastro oficial: não são medidas de fato.
+    has_measures = any(c.startswith("QT_") for c in cols_set) or bool(cols_set & FACT_VALUE_COLUMNS)
     if (
         "SQ_CANDIDATO" in cols_set
         and ("NM_URNA_CANDIDATO" in cols_set or "CD_CARGO" in cols_set)
