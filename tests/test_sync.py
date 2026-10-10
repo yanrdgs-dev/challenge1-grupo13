@@ -164,3 +164,26 @@ def test_republished_file_with_same_bytes_is_not_a_news_item(tmp_path):
     out = run(srv, tmp_path, st)
     assert out.action == "sem_novidade" and "idêntico" in out.reason
     assert st.get_file("a")["fingerprint"]["etag"] == '"v2"'  # a impressão digital nova é registrada
+
+
+def test_sync_passes_the_breaker_to_head_so_a_dead_host_is_not_asked_again(tmp_path):
+    from src.etl.freshness import HostBreaker
+
+    heads = []
+
+    def handler(request):
+        if request.method == "HEAD":
+            heads.append(request.url.path)
+            raise httpx.ReadTimeout("sem resposta")
+        return httpx.Response(200, content=BODY)
+
+    st, breaker = new_state(tmp_path), HostBreaker(max_failures=2)
+    for i in range(4):
+        dest = tmp_path / f"f{i}.csv"
+        dest.write_bytes(BODY)
+        with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+            out = sync_item(f"f{i}", f"https://lento.gov.br/f{i}.csv", refresh="validators", state=st,
+                            client=client, local_exists=True, local_mtime=dest.stat().st_mtime,
+                            local_size=len(BODY), download=lambda f: None, breaker=breaker)
+        assert out.action == "sem_novidade"
+    assert len(heads) == 2

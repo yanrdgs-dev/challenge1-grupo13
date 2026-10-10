@@ -113,3 +113,55 @@ def test_without_validators_same_size_is_no_news():
 def test_remote_without_any_information_keeps_local_copy():
     r = d(prior=fp('"v1"', OLD, 10), remote=fp())
     assert not r.download
+
+
+# ------------------------------- timeout curto e disjuntor por host ------------------------------- #
+
+def test_head_uses_a_short_timeout():
+    seen = {}
+
+    def handler(request):
+        seen["timeout"] = request.extensions["timeout"]
+        return httpx.Response(200)
+
+    with httpx.Client(transport=httpx.MockTransport(handler), timeout=httpx.Timeout(30.0, read=180.0)) as c:
+        head_fingerprint("https://x.gov.br/a", c)
+    assert seen["timeout"]["read"] <= 20
+
+
+def failing_client(counter):
+    def handler(request):
+        counter.append(request.url.host)
+        raise httpx.ReadTimeout("sem resposta")
+
+    return httpx.Client(transport=httpx.MockTransport(handler))
+
+
+def test_breaker_skips_a_host_after_two_consecutive_failures():
+    from src.etl.freshness import HostBreaker
+
+    hits, breaker = [], HostBreaker(max_failures=2)
+    with failing_client(hits) as c:
+        results = [head_fingerprint(f"https://lento.gov.br/{i}", c, breaker) for i in range(5)]
+    assert results == [None] * 5
+    assert hits == ["lento.gov.br", "lento.gov.br"]  # as três últimas nem foram tentadas
+
+
+def test_breaker_is_per_host_and_resets_on_success():
+    from src.etl.freshness import HostBreaker
+
+    state = {"fail": True}
+
+    def handler(request):
+        if request.url.host == "bom.gov.br" or not state["fail"]:
+            return httpx.Response(200, headers={"ETag": '"x"'})
+        raise httpx.ReadTimeout("sem resposta")
+
+    breaker = HostBreaker(max_failures=2)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as c:
+        assert head_fingerprint("https://lento.gov.br/1", c, breaker) is None
+        state["fail"] = False
+        assert head_fingerprint("https://lento.gov.br/2", c, breaker) is not None  # sucesso zera a contagem
+        state["fail"] = True
+        assert head_fingerprint("https://lento.gov.br/3", c, breaker) is None
+        assert head_fingerprint("https://bom.gov.br/1", c, breaker) is not None  # outro host não é afetado
