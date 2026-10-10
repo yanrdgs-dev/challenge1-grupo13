@@ -23,6 +23,7 @@ from src.guardrails.actions import (
     check_input_specificity,
 )
 from src.observability import tracing
+from src.api.routes.ingestion import router as ingestion_router
 from src.services import frontend_api
 from src.observability.prompts import get_prompt
 from src.prompts.defaults import PROMPT_ROUTER_SYSTEM
@@ -583,6 +584,7 @@ def _run_check(
 
 # Rotas do frontend (/api/*): traduzem o contrato do Pólis e reaproveitam o mesmo pipeline do /check.
 frontend_api.register(app, _traced_check)
+app.include_router(ingestion_router)  # GET /api/ingestion/status
 
 
 if __name__ == "__main__":
