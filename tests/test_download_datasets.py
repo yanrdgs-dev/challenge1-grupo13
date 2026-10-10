@@ -354,3 +354,74 @@ def test_run_downloads_verifies_manifest_sha256(tmp_path):
         failures = run_downloads(tmp_path, client=client, manifest=manifest)
     assert len(failures) == 1 and "sha256" in str(failures[0])
     assert not (tmp_path / "x/a.csv").exists()
+
+
+# ------------------------------- retentativa de erros transitórios ------------------------------- #
+
+def flaky_handler(failures, fail_with):
+    state = {"n": 0}
+
+    def handler(request):
+        state["n"] += 1
+        if state["n"] <= failures:
+            return fail_with()
+        return httpx.Response(200, content=BODY)
+
+    return handler, state
+
+
+def test_transient_timeout_is_retried_until_it_succeeds(tmp_path, _no_download_backoff):
+    def boom():
+        raise httpx.ReadTimeout("lento")
+
+    handler, state = flaky_handler(2, boom)
+    dest = tmp_path / "a.csv"
+    with client_for(handler) as client:
+        download_file(URL, dest, "teste", client=client)
+    assert dest.read_bytes() == BODY and state["n"] == 3
+    assert len(_no_download_backoff) == 2 and _no_download_backoff[0] < _no_download_backoff[1]  # backoff crescente
+
+
+def test_server_error_5xx_is_retried(tmp_path):
+    handler, state = flaky_handler(1, lambda: httpx.Response(503))
+    with client_for(handler) as client:
+        download_file(URL, tmp_path / "a.csv", "teste", client=client)
+    assert state["n"] == 2
+
+
+def test_partial_download_is_retried(tmp_path):
+    handler, state = flaky_handler(
+        1, lambda: httpx.Response(200, content=BODY[:100], headers={"Content-Length": str(len(BODY))}))
+    with client_for(handler) as client:
+        download_file(URL, tmp_path / "a.csv", "teste", client=client)
+    assert state["n"] == 2 and (tmp_path / "a.csv").read_bytes() == BODY
+
+
+def test_persistent_transient_error_gives_up_after_three_attempts(tmp_path):
+    def boom():
+        raise httpx.ConnectTimeout("fora do ar")
+
+    handler, state = flaky_handler(99, boom)
+    with client_for(handler) as client, pytest.raises(DownloadError, match="timeout"):
+        download_file(URL, tmp_path / "a.csv", "teste", client=client)
+    assert state["n"] == 3 and not list(tmp_path.glob("*"))
+
+
+@pytest.mark.parametrize("status", [404, 403])
+def test_definitive_http_errors_are_not_retried(tmp_path, status):
+    handler, state = flaky_handler(99, lambda: httpx.Response(status))
+    with client_for(handler) as client, pytest.raises(DownloadError, match=str(status)):
+        download_file(URL, tmp_path / "a.csv", "teste", client=client)
+    assert state["n"] == 1
+
+
+def test_sha256_mismatch_is_not_retried(tmp_path):
+    handler, state = flaky_handler(0, lambda: None)
+    with client_for(handler) as client, pytest.raises(DownloadError, match="sha256"):
+        download_file(URL, tmp_path / "a.csv", "teste", client=client, expected_sha256="0" * 64)
+    assert state["n"] == 1
+
+
+def test_default_client_has_a_long_read_timeout():
+    with make_client() as client:
+        assert client.timeout.read >= 120
