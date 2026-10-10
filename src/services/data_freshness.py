@@ -34,6 +34,13 @@ _TSE_TABLES = {
     "verify_official_social_media": "tse-rede_social_candidato_",  # 2022 vem uma fonte por UF
 }
 
+_COMPARE_TABLES = {
+    "votos_validos": "tse-votacao_candidato_munzona_",
+    "patrimonio": "tse-bem_candidato_",
+    "receitas": "tse-prestacao_de_contas_eleitorais_candidatos_",
+    "despesas_contratadas": "tse-prestacao_de_contas_eleitorais_candidatos_",
+}
+
 _cache: Dict[str, Tuple[Tuple[int, int], Optional[Dict[str, Any]]]] = {}
 
 
@@ -93,6 +100,11 @@ def data_date(
     if tool_name in _PARQUET_PROPOSITION_TOOLS:
         prefix = {"camara": "camara-proposicoes-", "senado": "senado-materias-"}.get(casa)
         return _latest(fontes, _family(fontes, prefix)) if prefix else None
+
+    if tool_name == "compare_candidates":
+        table = _COMPARE_TABLES.get(args.get("metrica"))
+        ano = args.get("ano")
+        return _latest(fontes, _family(fontes, f"{table}{ano}")) if table and ano is not None else None
 
     if tool_name in _TSE_TABLES:
         ano = args.get("ano")
