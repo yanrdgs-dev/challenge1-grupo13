@@ -20,6 +20,14 @@ BRASILIA = timezone(timedelta(hours=-3))
 _EXPENSE_TOOLS = {"get_top_ceap_spender", "list_expense_categories", "check_parliamentary_expenses"}
 _PARQUET_PROPOSITION_TOOLS = {"get_proposition_tramitation_history", "check_bill_apensamentos"}
 
+_TSE_TABLES = {
+    "resolve_candidate": "tse-consulta_cand_",
+    "get_election_result": "tse-votacao_candidato_munzona_",
+    "get_candidate_votes": "tse-votacao_candidato_munzona_",
+    "check_candidate_status": "tse-consulta_cand_complementar_",
+    "check_disqualification_motive": "tse-motivo_cassacao_",
+}
+
 _cache: Dict[str, Tuple[Tuple[int, int], Optional[Dict[str, Any]]]] = {}
 
 
@@ -80,9 +88,9 @@ def data_date(
         prefix = {"camara": "camara-proposicoes-", "senado": "senado-materias-"}.get(casa)
         return _latest(fontes, _family(fontes, prefix)) if prefix else None
 
-    if tool_name in ("get_election_result", "get_candidate_votes", "resolve_candidate"):
+    if tool_name in _TSE_TABLES:
         ano = args.get("ano")
-        table = "tse-consulta_cand_" if tool_name == "resolve_candidate" else "tse-votacao_candidato_munzona_"
+        table = _TSE_TABLES[tool_name]
         return _latest(fontes, [f"{table}{ano}"]) if ano is not None else None
 
     if tool_name == "resolve_politician":

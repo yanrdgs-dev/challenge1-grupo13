@@ -345,3 +345,113 @@ def get_candidate_votes(
                 "total_candidatos_cargo": ranking.height,
             }
     raise AssertionError("o candidato está em `own`, logo no recorte do cargo")  # pragma: no cover
+
+
+# --------------------------------------------------------------------------- situação e motivos
+
+def _candidate_guard(sq_candidato: Any, ano: Any) -> Any:
+    """Valida o ID canônico (regra 2) e o ano (regra 3). Devolve ``(sq, None)`` ou ``(None, evidência vazia)``."""
+    sq_text = str(sq_candidato).strip() if sq_candidato is not None and not isinstance(sq_candidato, bool) else ""
+    if not sq_text.isdigit():
+        return None, _empty("entidade_nao_resolvida",
+                            "A tool exige o SQ_CANDIDATO numérico devolvido por resolve_candidate (regra 2).")
+    if not isinstance(ano, int) or isinstance(ano, bool):
+        return None, _empty("especificacao_insuficiente", "Ano da eleição não informado; não foi possível consultar.")
+    return int(sq_text), None
+
+
+def _registered_candidate(base_dir: Optional[Path], sq: int, ano: int) -> Optional[pl.DataFrame]:
+    """Linhas de `candidatos` (uma por turno) do candidato no ano; None se não consta."""
+    df = _read(base_dir, "candidatos", ano, [pl.col("SQ_CANDIDATO") == sq])
+    return df if df is not None and not df.is_empty() else None
+
+
+def _status_record(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "detalhe_situacao": _clean(row.get("DS_DETALHE_SITUACAO_CAND")),
+        "situacao_total": _clean(row.get("DS_SITUACAO_CANDIDATO_TOT")),
+        "situacao_julgamento": _clean(row.get("DS_SITUACAO_JULGAMENTO")),
+        "situacao_cassacao": _clean(row.get("DS_SITUACAO_CASSACAO")),
+        "situacao_diploma": _clean(row.get("DS_SITUACAO_DIPLOMA")),
+    }
+
+
+def _identity(cadastro: pl.DataFrame, ano: int) -> Dict[str, Any]:
+    first = cadastro.row(0, named=True)
+    return {
+        "sq_candidato": int(first["SQ_CANDIDATO"]),
+        "nome_urna": first.get("NM_URNA_CANDIDATO"),
+        "nome_civil": first.get("NM_CANDIDATO"),
+        "partido": first.get("SG_PARTIDO"),
+        "cargo": first.get("DS_CARGO"),
+        "uf": first.get("SG_UF"),
+        "ano": ano,
+    }
+
+
+def check_candidate_status(sq_candidato: Any, ano: Optional[int], base_dir: Optional[Path] = None) -> Dict[str, Any]:
+    """Situação da candidatura (deferida, indeferida, renúncia, cassada...) e resultado por turno.
+
+    O campo preenchido muda por ano: 2022 traz o detalhe; 2026 traz o julgamento. Marcadores do TSE viram None.
+    Linhas do complementar que divergem entre si são declaradas em ``registros_divergentes``/``outros_registros``.
+    """
+    sq, problem = _candidate_guard(sq_candidato, ano)
+    if problem:
+        return problem
+    cadastro = _registered_candidate(base_dir, sq, ano)
+    if cadastro is None:
+        return _empty("nao_encontrado", f"SQ_CANDIDATO {sq} não consta entre as candidaturas de {ano}.")
+
+    first = cadastro.row(0, named=True)
+    resultado = {int(r["NR_TURNO"]): _clean(r.get("DS_SIT_TOT_TURNO"))
+                 for r in cadastro.iter_rows(named=True) if r.get("NR_TURNO") is not None}
+    records: List[Dict[str, Any]] = []
+    complementar = _read(base_dir, "candidatos_complementar", ano, [pl.col("SQ_CANDIDATO") == sq])
+    if complementar is not None:
+        for row in complementar.iter_rows(named=True):
+            record = _status_record(row)
+            if record not in records:
+                records.append(record)
+    main = records[0] if records else _status_record({})
+    return {
+        "encontrado": True,
+        "status": "ok",
+        **_identity(cadastro, ano),
+        "situacao_candidatura": _clean(first.get("DS_SITUACAO_CANDIDATURA")),
+        **main,
+        "resultado_por_turno": {t: s for t, s in sorted(resultado.items()) if s is not None},
+        "registros_divergentes": max(len(records) - 1, 0),
+        "outros_registros": records[1:],
+    }
+
+
+def check_disqualification_motive(sq_candidato: Any, ano: Optional[int], base_dir: Optional[Path] = None) -> Dict[str, Any]:
+    """Motivos de indeferimento ou cassação registrados no TSE para o candidato (``cassacao``)."""
+    sq, problem = _candidate_guard(sq_candidato, ano)
+    if problem:
+        return problem
+    cadastro = _registered_candidate(base_dir, sq, ano)
+    if cadastro is None:
+        return _empty("nao_encontrado", f"SQ_CANDIDATO {sq} não consta entre as candidaturas de {ano}.")
+    motivos_df = _read(base_dir, "cassacao", ano, [pl.col("SQ_CANDIDATO") == sq])
+    if motivos_df is None:
+        # Sem a tabela não dá para afirmar que não há motivo (regra 1): é falta de dado, não ausência de motivo.
+        return _empty("resultado_indisponivel", f"Sem base de motivos de cassação/indeferimento do TSE para {ano}.", ano=ano)
+
+    motivos = [
+        {"tipo": _clean(r.get("DS_TP_MOTIVO")), "motivo": (r.get("DS_MOTIVO") or "").strip() or None,
+         "processo": r.get("NR_PROCESSO")}
+        for r in motivos_df.iter_rows(named=True)
+    ]
+    status = check_candidate_status(sq, ano, base_dir)
+    return {
+        "encontrado": True,
+        "status": "ok",
+        **_identity(cadastro, ano),
+        "detalhe_situacao": status.get("detalhe_situacao"),
+        "situacao_julgamento": status.get("situacao_julgamento"),
+        "total_motivos": len(motivos),
+        "motivos": motivos,
+        "aviso": "A tabela registra só os motivos de indeferimento ou cassação julgados: a ausência de linha "
+                 "não prova que a candidatura foi regular; veja detalhe_situacao.",
+    }

@@ -160,3 +160,78 @@ def test_claim_about_2026_result_answers_that_open_data_is_not_updated_without_c
     assert "ainda não foram atualizados" in body["justificativa"]
     assert body["regra_acionada"] == "dados_tse_nao_atualizados"
     assert body["tool_usada"] == "get_election_result"
+
+
+# ------------------- situação da candidatura e motivos de indeferimento ------------------- #
+
+STATUS = {"encontrado": True, "status": "ok", "sq_candidato": 77, "detalhe_situacao": "DEFERIDO"}
+
+
+def test_catalog_has_status_and_motive_tools_with_ano_required_and_no_turno():
+    for name in ("check_candidate_status", "check_disqualification_motive"):
+        params = _tool(name)["parameters"]
+        assert {"nome_candidato", "ano"} <= set(params["required"]), name
+        assert "turno" not in params["required"], name
+
+
+def test_status_tool_resolves_the_name_first_and_uses_the_canonical_id():
+    with patch.object(router_service, "resolve_candidate", return_value=RESOLVED) as resolver, \
+         patch.object(router_service, "check_candidate_status", return_value=dict(STATUS)) as tool:
+        res = execute_tool("check_candidate_status", {"nome_candidato": "Lula", "ano": 2022})
+    resolver.assert_called_once()
+    tool.assert_called_once_with(sq_candidato=77, ano=2022)
+    assert res["detalhe_situacao"] == "DEFERIDO" and res["entidade_resolvida"]["sq_candidato"] == 77
+
+
+def test_motive_tool_resolves_the_name_first_and_uses_the_canonical_id():
+    with patch.object(router_service, "resolve_candidate", return_value=RESOLVED), \
+         patch.object(router_service, "check_disqualification_motive", return_value={"encontrado": True, "motivos": []}) as tool:
+        res = execute_tool("check_disqualification_motive", {"nome_candidato": "Lula", "ano": 2022})
+    tool.assert_called_once_with(sq_candidato=77, ano=2022)
+    assert res["entidade_resolvida"]["sq_candidato"] == 77
+
+
+@pytest.mark.parametrize("name", ["check_candidate_status", "check_disqualification_motive"])
+@pytest.mark.parametrize("resolution", [AMBIGUOUS, NOT_FOUND])
+def test_status_and_motive_never_reach_the_data_tool_with_unresolved_name(name, resolution):
+    with patch.object(router_service, "resolve_candidate", return_value=resolution), \
+         patch.object(router_service, name) as tool:
+        res = execute_tool(name, {"nome_candidato": "João Silva", "ano": 2022})
+    tool.assert_not_called()
+    assert res["status"] == "entidade_nao_resolvida" and evidence_failed(res)
+
+
+def test_status_for_2026_still_resolves_because_candidacies_are_published():
+    with patch.object(router_service, "election_results_available", return_value=False), \
+         patch.object(router_service, "resolve_candidate", return_value=RESOLVED), \
+         patch.object(router_service, "check_candidate_status", return_value=dict(STATUS)):
+        res = execute_tool("check_candidate_status", {"nome_candidato": "Lula", "ano": 2026})
+    assert res["encontrado"] is True
+
+
+def test_sources_and_base_date_of_status_and_motive_tools():
+    for tool in ("check_candidate_status", "check_disqualification_motive"):
+        assert derive_sources(tool, {}, {"encontrado": True, "status": "ok"}) == [TSE]
+    info = {"fontes": {
+        "tse-consulta_cand_complementar_2022": {"baixado_em": "2026-10-10T12:00:00+00:00"},
+        "tse-motivo_cassacao_2022": {"baixado_em": "2026-10-10T13:00:00+00:00"},
+    }}
+    ok = {"encontrado": True}
+    assert data_date("check_candidate_status", {"ano": 2022}, ok, info) == "2026-10-10T12:00:00+00:00"
+    assert data_date("check_disqualification_motive", {"ano": 2022}, ok, info) == "2026-10-10T13:00:00+00:00"
+
+
+def test_motive_result_warns_that_absence_of_a_row_is_not_proof_of_regularity(tmp_path):
+    from src.tools.tse_tools import check_disqualification_motive
+    import polars as pl
+    for table, rows in {
+        "candidatos": [{"SQ_CANDIDATO": 4, "NM_CANDIDATO": "X", "NM_URNA_CANDIDATO": "X", "SG_PARTIDO": "PT",
+                        "DS_CARGO": "PRESIDENTE", "SG_UF": "BR", "NR_TURNO": 1, "DS_SIT_TOT_TURNO": "#NE",
+                        "DS_SITUACAO_CANDIDATURA": "INAPTO"}],
+        "cassacao": [{"SQ_CANDIDATO": 9, "DS_TP_MOTIVO": "t", "DS_MOTIVO": "m", "NR_PROCESSO": 1}],
+    }.items():
+        folder = tmp_path / "tse" / table / "ano=2022"
+        folder.mkdir(parents=True)
+        pl.DataFrame(rows).write_parquet(folder / "p.parquet")
+    res = check_disqualification_motive(4, ano=2022, base_dir=tmp_path)
+    assert res["total_motivos"] == 0 and "não prova" in res["aviso"]
