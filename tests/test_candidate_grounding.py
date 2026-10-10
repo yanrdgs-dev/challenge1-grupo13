@@ -40,7 +40,10 @@ def test_cargo_is_kept_only_when_the_claim_says_it(cargo, claim, kept):
     ("DF", "Fulano foi eleito deputado distrital no Distrito Federal em 2022.", True),
     ("SP", CLAIM, False),
     ("RS", "Pablo Marçal teve a candidatura cancelada em 2022 no Brasil.", False),
-    ("PA", "O deputado Pará de Minas foi eleito em 2022.", False),  # "PA" não é a sigla do Pará escrita na frase
+    ("PA", "Fulano foi eleito para o Senado em 2022.", False),  # a preposição "para" não é o estado do Pará
+    ("PA", "Fulano foi eleito senador pelo Pará em 2022.", True),
+    ("MT", "Fulano foi eleito em Mato Grosso do Sul em 2022.", False),  # MS, não MT
+    ("MS", "Fulano foi eleito em Mato Grosso do Sul em 2022.", True),
 ])
 def test_uf_is_kept_only_when_the_claim_says_it(uf, claim, kept):
     args = ground_candidate_args("get_candidate_assets", {"nome_candidato": "X", "ano": 2022, "uf": uf}, claim)
