@@ -66,7 +66,8 @@ def test_last_run_is_recorded_with_news_and_failures(tmp_path):
     st.save()
     assert IngestionState.load(p).last_run == {
         "started_at": "a", "finished_at": "b", "exit_code": 0, "downloaded": 3, "built": True,
-        "changes": ["camara-ceap-2026", "tse-bem_candidato_2026"], "failures": []}
+        "changes": ["camara-ceap-2026", "tse-bem_candidato_2026"], "failures": [],
+        "changes_by_origin": {"camara": 1, "tse": 1}}
 
 
 def test_record_run_without_details_defaults_to_empty_lists(tmp_path):

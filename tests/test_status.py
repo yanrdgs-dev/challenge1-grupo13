@@ -45,7 +45,8 @@ def test_status_reports_the_last_news_even_when_the_last_run_had_none(tmp_path):
     runs = [run(10, downloaded=2, built=True, changes=["camara-ceap-2026", "tse-bem_candidato_2026"]), run(3), run(1)]
     s = build_status(state_with(tmp_path, runs), NOW)
     assert s["ultima_execucao"]["total_novidades"] == 0
-    assert s["ultima_novidade"] == {"em": iso(10), "total": 2, "fontes": ["camara-ceap-2026", "tse-bem_candidato_2026"]}
+    assert s["ultima_novidade"] == {"em": iso(10), "total": 2, "por_origem": {"camara": 1, "tse": 1},
+                                    "fontes": ["camara-ceap-2026", "tse-bem_candidato_2026"]}
 
 
 def test_status_failed_run_and_consecutive_failures(tmp_path):

@@ -84,8 +84,9 @@ def format_message(run: Mapping[str, Any], recovered: bool) -> Tuple[str, str]:
         lines += [f"- {f}" for f in run.get("failures", [])] or ["- sem detalhes (veja o journal da VM)"]
         lines.append("Os parquets publicados continuam os da carga anterior.")
         return "Ingestão falhou", "\n".join(lines)
-    news = (f"{run.get('downloaded', 0)} fonte(s) com novidade: " + ", ".join(changes[:8])
-            + (" ..." if len(changes) > 8 else "")) if run.get("downloaded") else "sem novidades nas fontes"
+    origins = ", ".join(f"{o} {n}" for o, n in sorted((run.get("changes_by_origin") or {}).items()))
+    news = (f"{run.get('downloaded', 0)} fonte(s) com novidade" + (f" ({origins})" if origins else "") + ": "
+            + ", ".join(changes[:8]) + (" ..." if run.get("downloaded", 0) > 8 else "")) if run.get("downloaded") else "sem novidades nas fontes"
     built = "Parquets publicados." if run.get("built") else "Parquets não foram reconstruídos."
     if recovered:
         return "Ingestão normalizada", f"A execução voltou a funcionar: {news}. {built}"
