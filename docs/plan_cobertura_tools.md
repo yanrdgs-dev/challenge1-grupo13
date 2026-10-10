@@ -31,6 +31,8 @@ Hoje os CSVs são baixados à mão. A `origin/feat/webscraping` tem `scripts/dow
 6. Encadear `download → build_parquet → dim_politicos` num comando, agendado na VM com lock, e gravar a data de cada carga para o juiz poder citá-la.
 7. Cuidados: os arquivos do TSE são grandes (os 5 principais de 2022 somam cerca de 1,3 GB); conferir o disco da VM antes.
 
+**Status (2026-10-10):** passos 1 a 6 entregues no código (PRs #53 e `feat/fase0-5-manifesto-e-agendamento`). Detalhes de uso e instalação em `docs/ingestion.md`. Pendente fora do código: instalar o timer na VM (`deploy/ingestion/`), o que depende de conferir disco e memória de lá. O passo 5 trouxe `senado/materias` pelo serviço `/dadosabertos/processo` (o `materia/pesquisa/lista` está descontinuado) e os anos 2022 a 2026 de Câmara e Senado. As votações da Câmara são baixadas, mas ainda não convertidas em parquet (Fase 2).
+
 Fora do escopo: `scrape_dados_abertos_tse` (raspagem de HTML, lê só 10 itens e não baixa) e `url_scraper.py` (artigos de notícia).
 
 ## Fase 1: tools do TSE (G)
