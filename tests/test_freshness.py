@@ -165,3 +165,15 @@ def test_breaker_is_per_host_and_resets_on_success():
         state["fail"] = True
         assert head_fingerprint("https://lento.gov.br/3", c, breaker) is None
         assert head_fingerprint("https://bom.gov.br/1", c, breaker) is not None  # outro host não é afetado
+
+
+def test_head_connect_timeout_is_short_because_httpx_retries_each_resolved_address():
+    seen = {}
+
+    def handler(request):
+        seen["t"] = request.extensions["timeout"]
+        return httpx.Response(200)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as c:
+        head_fingerprint("https://x.gov.br/a", c)
+    assert seen["t"]["connect"] <= 5

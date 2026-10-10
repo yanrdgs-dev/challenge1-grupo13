@@ -144,3 +144,27 @@ def test_tse_dry_run_reports_without_downloading(tmp_path):
         failures = run_tse_downloads(tmp_path, [2022], client=client, state=st, changes=changes, dry_run=True)
     assert failures == [] and len(changes) > 10
     assert not (tmp_path / "tse").exists()
+
+
+def test_tse_zip_whose_csv_names_differ_from_the_zip_name_is_not_redownloaded(tmp_path):
+    # prestacao_de_contas_eleitorais_candidatos_2022.zip contém receitas_candidatos_2022_BRASIL.csv etc.
+    def inner(stem):
+        return "receitas_candidatos_2022_BRASIL.csv" if stem.startswith("prestacao") else f"{stem}.csv"
+
+    st = IngestionState.load(tmp_path / "s.json")
+    with httpx.Client(transport=httpx.MockTransport(make_handler(inner=inner))) as client:
+        run_tse_downloads(tmp_path, [2022], client=client, state=st, changes=[])
+    assert (tmp_path / "tse/prestacao_contas/receitas_candidatos_2022_BRASIL.csv").exists()
+
+    methods = []
+    base = make_handler(inner=inner)
+
+    def spy(request):
+        if request.url.path.endswith("prestacao_de_contas_eleitorais_candidatos_2022.zip"):
+            methods.append(request.method)
+        return base(request)
+
+    with httpx.Client(transport=httpx.MockTransport(spy)) as client:
+        changes = []
+        run_tse_downloads(tmp_path, [2022], client=client, state=st, changes=changes)
+    assert changes == [] and "GET" not in methods

@@ -99,7 +99,8 @@ def zip_bytes(csv_name):
     return buf.getvalue()
 
 
-def make_handler(packages=None, hits=None, fail_urls=()):
+def make_handler(packages=None, hits=None, fail_urls=(), inner=None):
+    inner = inner or (lambda stem: f"{stem}.csv")
     packages = PACKAGES if packages is None else packages
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -114,7 +115,7 @@ def make_handler(packages=None, hits=None, fail_urls=()):
         if str(url) in fail_urls:
             return httpx.Response(500)
         stem = url.path.rsplit("/", 1)[-1].removesuffix(".zip")
-        return httpx.Response(200, content=zip_bytes(f"{stem}.csv"))
+        return httpx.Response(200, content=zip_bytes(inner(stem)))
 
     return handler
 
