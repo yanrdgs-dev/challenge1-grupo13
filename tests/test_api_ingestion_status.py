@@ -70,4 +70,4 @@ def test_route_lives_on_the_app_the_router_image_actually_runs():
     dockerfile = (Path(__file__).resolve().parents[1] / "docker" / "Dockerfile.router").read_text(encoding="utf-8")
     module, attr = re.search(r'"uvicorn",\s*"([\w.]+):(\w+)"', dockerfile).groups()
     assert (module, attr) == ("src.services.router_service", "app"), "o CMD do router mudou: ajuste este teste e o registro da rota"
-    assert "/api/ingestion/status" in {getattr(r, "path", None) for r in app.routes}
+    assert "/api/ingestion/status" in app.openapi()["paths"]
