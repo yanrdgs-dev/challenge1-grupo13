@@ -21,7 +21,7 @@ def run(argv, claims, check=None, client=None, tmp_path=None):
     client = client or FakeLangfuse()
     check_fn = check or perfect_check(claims)
     return main(
-        argv + (["--thresholds-file", str(tmp_path / "nenhum.json")] if tmp_path else []),
+        ["--golden-path", str(GOLDEN)] + argv + (["--thresholds-file", str(tmp_path / "nenhum.json")] if tmp_path else []),
         client_factory=lambda: client,
         check_fn_factory=lambda url, session: check_fn,
     ), client
@@ -62,7 +62,7 @@ def test_default_gate_enforces_constitution_rules_even_without_flags(claims, cap
 def test_thresholds_file_is_applied(claims, tmp_path):
     path = tmp_path / "t.json"
     path.write_text(json.dumps({"verdict_match": 1.0}))
-    code = main(["--local", "--thresholds-file", str(path)], client_factory=lambda: FakeLangfuse(),
+    code = main(["--local", "--golden-path", str(GOLDEN), "--thresholds-file", str(path)], client_factory=lambda: FakeLangfuse(),
                    check_fn_factory=lambda u, s: (lambda claim: {"veredito": "FALSO", "tool_usada": "get_top_ceap_spender",
                                                                   "evidencia_coletada": {"a": 1}, "fontes_primarias": ["x"]}))
     assert code == 1
@@ -88,7 +88,7 @@ def test_router_url_and_session_are_passed_to_the_check_factory(claims, tmp_path
         seen["url"], seen["session"] = url, session
         return perfect_check(claims)
 
-    main(["--local", "--router-url", "http://router:8000", "--run-name", "r1",
+    main(["--local", "--golden-path", str(GOLDEN), "--router-url", "http://router:8000", "--run-name", "r1",
           "--thresholds-file", str(tmp_path / "x.json")],
          client_factory=lambda: FakeLangfuse(), check_fn_factory=factory)
     assert seen == {"url": "http://router:8000", "session": "golden-r1"}
