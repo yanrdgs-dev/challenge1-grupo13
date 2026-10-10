@@ -57,7 +57,7 @@ Fora do escopo: `scrape_dados_abertos_tse` (raspagem de HTML, lê só 10 itens e
 ## Fase 1: tools do TSE (G)
 
 1. Descoberta: abrir os parquets na VM e documentar o esquema em `docs/data_schemas.md` (turnos, cargos, anos, UFs). Confirmar se o 2º turno foi ingerido.
-   *Já confirmado (2026-10-10):* o 2º turno de 2022 foi ingerido (`votacao_munzona` com `NR_TURNO` 1 e 2) e os votos de presidente batem com o resultado oficial nos dois turnos (Lula 57.259.504 e Bolsonaro 51.072.345 no 1º; 60.345.999 e 58.206.354 no 2º). O TSE 2026 tem candidatos, bens, prestação de contas e redes sociais, mas `resultados-2026` ainda só tem relatórios em PDF; claims sobre o resultado de 2026 devem dar INCONCLUSIVO (regra 3). Falta documentar o esquema (colunas, valores de `NR_TURNO`, `DS_CARGO`, UFs) em `docs/data_schemas.md`.
+   **Passo 1 concluído (2026-10-10).** Esquema, domínios, sentinelas, chaves e homônimos documentados em `docs/data_schemas.md` seção 8, com o mapeamento proposto de cada tool para o parquet. Confirmado: o 2º turno de 2022 foi ingerido e os votos de presidente batem com o resultado oficial nos dois turnos; o TSE 2026 tem candidatos, bens, prestação de contas e redes sociais, mas `resultados-2026` ainda só tem PDFs (claims sobre o resultado de 2026 devem dar INCONCLUSIVO, regra 3). Achados que mudam as tools: `QT_VOTOS_NOMINAIS` inclui votos anulados (o resultado oficial é `QT_VOTOS_NOMINAIS_VALIDOS`); `despesas_pagas` só liga ao candidato via `SQ_PRESTADOR_CONTAS`; há 173 grupos de homônimos, 161 deles do mesmo partido; o `DS_CARGO` muda de caixa entre tabelas. A descoberta também achou e corrigiu um defeito no ETL: o `candidatos` perdia `NR_TURNO` (linhas do 2º turno duplicadas e indistinguíveis) e os campos de perfil.
 2. Resultado: `get_election_result(cargo, ano, uf, turno)`, `get_candidate_votes(sq_candidato, ano, turno)`, `check_candidate_status` e `check_disqualification_motive`.
 3. Perfil e patrimônio: `check_candidate_profile`, `get_candidate_assets`, `check_cash_and_special_assets`, `verify_official_social_media`.
 4. Finanças de campanha: totais de receitas e despesas por candidato.
@@ -90,4 +90,4 @@ Decidir se tramitação, vetos e presença entram no catálogo do roteador. Se e
 
 Fase 0, Fase 0.5, Fase 1 (descoberta primeiro), Fases 2 e 3 em paralelo, Fases 4 e 5 acompanhando desde a Fase 1.
 
-**Onde estamos (2026-10-10):** Fases 0 e 0.5 concluídas. Próxima: Fase 1, começando pela descoberta do esquema do TSE.
+**Onde estamos (2026-10-10):** Fases 0 e 0.5 concluídas; Fase 1, passo 1 (descoberta) concluído. Próximo: passo 2, as tools de resultado (`resolve_candidate`, `get_election_result`, `get_candidate_votes`), com a guarda de especificidade.
