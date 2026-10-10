@@ -30,6 +30,16 @@ jobs:
       - name: Testes unitários
         run: uv run pytest -q
 
+  caddy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Valida a sintaxe do Caddyfile do site
+        run: |
+          docker run --rm -v "$PWD/deploy/Caddyfile.site:/etc/caddy/Caddyfile:ro" caddy:2.8.4 \
+            caddy validate --config /etc/caddy/Caddyfile
+
   build:
     needs: test
     runs-on: ubuntu-latest
