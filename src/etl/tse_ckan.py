@@ -25,16 +25,27 @@ PACKAGES: Dict[int, Dict[str, str]] = {
         "prestacao": "dadosabertos-tse-jus-br-dataset-prestacao-de-contas-eleitorais-2022",
         "resultados": "resultados-2022",
     },
+    2026: {
+        "candidatos": "candidatos-2026",
+        "prestacao": "prestacao-de-contas-eleitorais-2026",
+        "resultados": "resultados-2026",
+    },
 }
 
+# Pacotes cujos recursos ainda podem não ter sido publicados: logo após o 1º turno de 2026 o TSE só tinha
+# relatórios em PDF em `resultados-2026`. Recurso ausente aí é aviso ("ainda não publicado"), não falha.
+# Para anos já encerrados (2022) a ausência continua sendo erro.
+PENDING_OK: Dict[int, set] = {2026: {"resultados"}}
+
 # (pacote, regex do nome do zip sem extensão, subdiretório de destino). `{a}` vira o ano.
+# Em 2022 as redes sociais vêm por UF; em 2026, em um zip único.
 RULES = [
     ("candidatos", r"consulta_cand_{a}", "tse/candidatos"),
     ("candidatos", r"consulta_cand_complementar_{a}", "tse/candidatos"),
     ("candidatos", r"bem_candidato_{a}", "tse/bens"),
     ("candidatos", r"consulta_coligacao_{a}", "tse/coligacoes"),
     ("candidatos", r"motivo_cassacao_{a}", "tse/cassacao"),
-    ("candidatos", r"rede_social_candidato_{a}_[A-Z]{{2}}", "tse/redes_sociais"),
+    ("candidatos", r"rede_social_candidato_{a}(_[A-Z]{{2}})?", "tse/redes_sociais"),
     ("prestacao", r"prestacao_de_contas_eleitorais_candidatos_{a}", "tse/prestacao_contas"),
     ("resultados", r"Historico_Totalizacao_Presidente_BR_[12]T_{a}", "tse/votacao/totalizacao"),
     ("resultados", r"votacao_candidato_munzona_{a}", "tse/votacao/munzona/votacao_candidato_munzona_{a}"),
@@ -101,6 +112,12 @@ def plan_tse_downloads(
                     url=url, stem=stem, dest_dir=datasets_dir / subdir.format(a=ano),
                     desc=f"TSE {stem}",
                 ))
+        if not matched and package in PENDING_OK.get(ano, set()):
+            logger.warning(
+                "TSE %s: '%s' ainda não publicado no CKAN (%s); segue sem esse recurso",
+                ano, pattern.format(a=ano), PACKAGES[ano][package],
+            )
+            continue
         if not matched:
             raise DownloadError(
                 f"CKAN {PACKAGES[ano][package]}: nenhum recurso para '{pattern.format(a=ano)}'"

@@ -21,7 +21,7 @@ logger = logging.getLogger("ETL.Pipeline")
 def run_pipeline(
     datasets_dir: Path,
     processed_dir: Path,
-    anos_tse: Sequence[int] = (2022,),
+    anos_tse: Sequence[int] = (2022, 2026),
     skip_download: bool = False,
     allow_partial: bool = False,
 ) -> int:
@@ -59,7 +59,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Pipeline: download das bases públicas -> build_parquet.")
     parser.add_argument("--datasets-dir", default="datasets", help="CSVs brutos (padrão: datasets)")
     parser.add_argument("--processed-dir", default="data/processed", help="saída em parquet (padrão: data/processed)")
-    parser.add_argument("--tse-anos", type=int, nargs="*", default=[2022], help="anos do TSE (padrão: 2022; vazio = pula o TSE)")
+    parser.add_argument("--tse-anos", type=int, nargs="*", default=[2022, 2026], help="anos do TSE (padrão: 2022 2026; vazio = pula o TSE)")
     parser.add_argument("--skip-download", action="store_true", help="só roda o build_parquet")
     parser.add_argument("--allow-partial", action="store_true", help="monta parquet mesmo com downloads falhos")
     args = parser.parse_args(argv)

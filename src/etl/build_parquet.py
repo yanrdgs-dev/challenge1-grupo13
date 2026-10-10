@@ -726,8 +726,8 @@ def process_all_datasets(
 
         # TSE - Votação Munzona
         {
-            "name": "TSE - Votação Munzona (2022)",
-            "input": ds_path / "tse/votacao/munzona/votacao_candidato_munzona_2022",
+            "name": "TSE - Votação Munzona",
+            "input": ds_path / "tse/votacao/munzona",
             "output": out_base / "tse/votacao_munzona",
             "encoding": "latin1", "delimiter": ";", "partition_col": "ano",
             "prefer_brasil": True,
@@ -743,9 +743,9 @@ def process_all_datasets(
 
         # TSE - Detalhe Votação Seção 2022
         {
-            "name": "TSE - Detalhe Votação Seção 2022",
-            "input": ds_path / "tse/votacao/secao/detalhe_votacao_secao_2022",
-            "output": out_base / "tse/detalhe_votacao_secao_2022",
+            "name": "TSE - Detalhe Votação Seção",
+            "input": ds_path / "tse/votacao/secao",
+            "output": out_base / "tse/detalhe_votacao_secao",
             "encoding": "latin1", "delimiter": ";", "partition_col": "ano",
             "prefer_brasil": True,
         },
