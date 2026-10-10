@@ -172,6 +172,12 @@ def test_make_client_keeps_ssl_verification_on():
     assert kwargs.get("timeout") is not None
 
 
+def test_make_client_builds_a_real_client_with_valid_headers():
+    # sem mock do httpx.Client: cabeçalhos não-ASCII fazem o construtor falhar
+    with make_client() as client:
+        assert client.headers["User-Agent"].isascii()
+
+
 def test_module_never_disables_ssl():
     source = Path(download_datasets.__file__).read_text(encoding="utf-8")
     assert "CERT_NONE" not in source
