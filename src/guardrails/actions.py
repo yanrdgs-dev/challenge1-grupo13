@@ -5,6 +5,7 @@ sem overhead de chamadas extras de LLM.
 """
 
 import re
+import unicodedata
 from typing import Any, Dict, List, Optional
 
 
@@ -53,6 +54,25 @@ GENERIC_PROPOSITIONS = [
     "projeto de lei sobre inteligencia artificial",
 ]
 
+# Claims eleitorais (Fase 1, passo 5): o resultado depende de ano e turno, que a claim precisa trazer.
+# Os padrões rodam sobre o texto sem acentos e em minúsculas.
+_YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
+_ELECTION_WORD = re.compile(r"\b(?:eleicao|eleicoes|pleito|turno)\b")
+_ORDINAL_TURN = re.compile(r"\b(?:primeiro|segundo|1|2)\s*(?:o|º|°)?\s*turno\b")
+_RELATIVE_ELECTION = re.compile(
+    r"\b(?:ultim[ao]s?\s+(?:eleicao|eleicoes|pleito)|(?:eleicao|eleicoes)\s+(?:passadas?|anteriores?|recentes?)|"
+    r"eleicao\s+anterior)\b"
+)
+_RESULT_VERB = re.compile(
+    r"\b(?:venceu|ganhou|perdeu|derrotou|vencedor|vencedora|mais\s+votad[oa])\b"
+)
+_WAS_ELECTED = re.compile(r"\b(?:foi|foram|fora)\s+(?:re)?elei\w+")  # "deputado eleito" é descrição, não resultado
+# "Primeiro turno" também existe na votação de PEC em plenário: fora do âmbito eleitoral.
+_LEGISLATIVE_TURN = re.compile(r"\b(?:pec|emenda|plenario|camara|senado|projeto|aprovad\w+|votacao|proposta)\b")
+_FUTURE_ELECTION = re.compile(
+    r"\b(?:vai|vao)\s+(?:ganhar|vencer|perder|ser\s+elei\w+)|\b(?:sera|serao)\s+elei\w+|\b(?:vencera|ganhara|perdera)\b"
+)
+
 # Consultas de opinião e viés partidário
 PARTISAN_OPINION_PATTERNS = [
     r"qual\s+(?:é|e)\s+o\s+melhor\s+partido",
@@ -62,6 +82,31 @@ PARTISAN_OPINION_PATTERNS = [
     r"voce\s+apoia",
     r"quem\s+(?:é|e)\s+melhor\s*:\s*\w+\s+ou\s+\w+",
 ]
+
+
+def _fold(text: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", text.lower())
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+
+
+def _election_specificity_problem(text: str) -> Optional[str]:
+    """Motivo pelo qual uma claim eleitoral não é verificável, ou None (regra 3: ano e turno não se adivinham)."""
+    folded = _fold(text)
+    if _FUTURE_ELECTION.search(folded):
+        return ("A alegação trata de um resultado eleitoral futuro ou ainda não ocorrido. "
+                "Conforme a Regra 3 da Constituição do Agente, previsões não são fatos consumados verificáveis.")
+    if _YEAR.search(folded):
+        return None
+    if _RELATIVE_ELECTION.search(folded):
+        problem = "usa uma referência relativa a uma eleição ('a última eleição', 'a eleição passada')"
+    elif _ORDINAL_TURN.search(folded) and not _LEGISLATIVE_TURN.search(folded):
+        problem = "cita um turno sem informar o ano da eleição"
+    elif _WAS_ELECTED.search(folded) or (_RESULT_VERB.search(folded) and _ELECTION_WORD.search(folded)):
+        problem = "afirma um resultado eleitoral sem informar o ano da eleição"
+    else:
+        return None
+    return (f"Alegação subespecificada: {problem}. Conforme a Regra 3 da Constituição do Agente, "
+            "sem o ano (e o turno, quando houver) não há como ancorar a consulta ao TSE.")
 
 
 def check_input_specificity(claim: str) -> Dict[str, Any]:
@@ -126,6 +171,16 @@ def check_input_specificity(claim: str) -> Dict[str, Any]:
                 ),
                 "rule_matched": "guarda_de_especificidade",
             }
+
+    # 5. Claims eleitorais sem ano/turno ancorável, ou sobre resultado futuro
+    election_problem = _election_specificity_problem(text)
+    if election_problem:
+        return {
+            "is_valid": False,
+            "verdict": "INCONCLUSIVO",
+            "reason": election_problem,
+            "rule_matched": "guarda_de_especificidade",
+        }
 
     # Claim atende aos critérios de especificidade prévia
     return {
