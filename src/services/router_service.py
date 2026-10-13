@@ -189,7 +189,15 @@ def _resolve_parlamentar_id(casa: str, valor: str, uf: Optional[str] = None) -> 
     return {"id": str(canonical)}
 
 
-def _with_resolved_candidate(args: Dict[str, Any], run: Callable[[int], Dict[str, Any]]) -> Dict[str, Any]:
+# Cargos de turno único: não existe 2º turno para deputado nem para senador, então o turno não se pergunta.
+_SINGLE_ROUND_CARGOS = frozenset({"deputado federal", "deputado estadual", "deputado distrital", "senador"})
+
+
+def _single_round(cargo: Any) -> bool:
+    return str(cargo or "").strip().lower() in _SINGLE_ROUND_CARGOS
+
+
+def _with_resolved_candidate(args: Dict[str, Any], run: Callable[..., Dict[str, Any]], with_resolution: bool = False) -> Dict[str, Any]:
     """Resolve o candidato (regra 2) e só então chama a tool de dado com o SQ_CANDIDATO canônico."""
     nome = str(args["nome_candidato"]).strip()
     with tracing.observation(
@@ -204,7 +212,7 @@ def _with_resolved_candidate(args: Dict[str, Any], run: Callable[[int], Dict[str
             ambiguous=bool(res.get("ambiguous")), candidato_informado=nome, resolucao=res,
             motivo=res.get("motivo"),
         )
-    evidence = run(res["sq_candidato"])
+    evidence = run(res["sq_candidato"], res) if with_resolution else run(res["sq_candidato"])
     resolution = {k: res.get(k) for k in ("sq_candidato", "nome_urna", "nome_civil", "partido", "cargo", "uf", "ano")}
     return {**evidence, "entidade_resolvida": resolution}
 
@@ -239,9 +247,14 @@ def _compare_candidates(args: Dict[str, Any]) -> Dict[str, Any]:
 def _candidate_votes(args: Dict[str, Any]) -> Dict[str, Any]:
     if not election_results_available(args["ano"]):
         return results_unavailable(args["ano"])  # sem votação publicada (ex.: 2026): nem resolve o nome
-    return _with_resolved_candidate(
-        args, lambda sq: get_candidate_votes(sq_candidato=sq, ano=args["ano"], turno=args["turno"])
-    )
+
+    def votes(sq: int, resolved: Dict[str, Any]) -> Dict[str, Any]:
+        turno = args.get("turno")
+        if turno is None and _single_round(resolved.get("cargo") or args.get("cargo")):
+            turno = 1
+        return get_candidate_votes(sq_candidato=sq, ano=args["ano"], turno=turno)
+
+    return _with_resolved_candidate(args, votes, with_resolution=True)
 
 
 def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -322,7 +335,10 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
             uf=args.get("uf"), numero=args.get("numero"),
         )
     if tool_name == "get_election_result":
-        return get_election_result(cargo=args["cargo"], ano=args["ano"], turno=args["turno"], uf=args.get("uf"))
+        turno = args.get("turno")
+        if turno is None and _single_round(args["cargo"]):
+            turno = 1
+        return get_election_result(cargo=args["cargo"], ano=args["ano"], turno=turno, uf=args.get("uf"))
     if tool_name == "compare_candidates":
         return _compare_candidates(args)
     if tool_name == "get_candidate_votes":
