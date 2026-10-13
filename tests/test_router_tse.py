@@ -34,17 +34,48 @@ def _tool(name):
 
 # ------------------------------ catálogo ------------------------------ #
 
-def test_catalog_exposes_the_three_tse_tools_with_ano_and_turno_required():
+def test_catalog_exposes_the_three_tse_tools_with_ano_required_and_turno_optional():
     assert "ano" in _tool("resolve_candidate")["parameters"]["required"]
-    assert {"cargo", "ano", "turno"} <= set(_tool("get_election_result")["parameters"]["required"])
-    assert {"nome_candidato", "ano", "turno"} <= set(_tool("get_candidate_votes")["parameters"]["required"])
+    assert {"cargo", "ano"} <= set(_tool("get_election_result")["parameters"]["required"])
+    assert {"nome_candidato", "ano"} <= set(_tool("get_candidate_votes")["parameters"]["required"])
+    # deputado e senador só têm 1º turno: o sistema completa; a tool continua recusando turno que falta no resto
+    for name in ("get_election_result", "get_candidate_votes"):
+        assert "turno" not in _tool(name)["parameters"]["required"]
+        assert "1º turno" in _tool(name)["parameters"]["properties"]["turno"]["description"]
 
 
-def test_missing_turno_is_rejected_before_any_tool_runs():
-    _, problem = validate_tool_args("get_election_result", {"cargo": "Presidente", "ano": 2022})
-    assert problem and "turno" in problem
-    result = execute_tool("get_election_result", {"cargo": "Presidente", "ano": 2022})
-    assert result["status"] == "parametros_invalidos" and evidence_failed(result)
+@pytest.mark.parametrize("cargo", ["Deputado Federal", "Deputado Estadual", "Deputado Distrital", "Senador"])
+def test_election_result_of_single_round_cargo_defaults_to_first_round(cargo):
+    with patch.object(router_service, "get_election_result", return_value={"encontrado": True}) as tool:
+        execute_tool("get_election_result", {"cargo": cargo, "ano": 2022, "uf": "DF"})
+    assert tool.call_args.kwargs["turno"] == 1
+
+
+@pytest.mark.parametrize("cargo", ["Presidente", "Governador"])
+def test_election_result_of_two_round_cargo_without_turno_is_still_underspecified(cargo):
+    """Presidente e governador podem ter 2º turno: sem o turno não há palpite (regra 3)."""
+    result = execute_tool("get_election_result", {"cargo": cargo, "ano": 2022, "uf": "SP"})
+    assert result["status"] == "especificacao_insuficiente" and evidence_failed(result)
+
+
+def test_explicit_turno_of_the_claim_is_never_overridden():
+    with patch.object(router_service, "get_election_result", return_value={"encontrado": True}) as tool:
+        execute_tool("get_election_result", {"cargo": "Presidente", "ano": 2022, "turno": 2})
+    assert tool.call_args.kwargs["turno"] == 2
+
+
+@pytest.mark.parametrize("resolved_cargo", ["DEPUTADO FEDERAL", "Deputado Estadual", "SENADOR"])
+def test_candidate_votes_without_turno_uses_first_round_for_resolved_single_round_cargo(resolved_cargo):
+    with patch.object(router_service, "resolve_candidate", return_value={**RESOLVED, "cargo": resolved_cargo}), \
+         patch.object(router_service, "get_candidate_votes", return_value=dict(VOTES)) as votes:
+        execute_tool("get_candidate_votes", {"nome_candidato": "Fulano", "ano": 2022})
+    assert votes.call_args.kwargs["turno"] == 1
+
+
+def test_candidate_votes_without_turno_stays_underspecified_for_presidential_candidate():
+    with patch.object(router_service, "resolve_candidate", return_value=RESOLVED):   # cargo PRESIDENTE
+        result = execute_tool("get_candidate_votes", {"nome_candidato": "Lula", "ano": 2022})
+    assert result["status"] == "especificacao_insuficiente" and evidence_failed(result)
 
 
 def test_prompt_tells_the_router_to_use_tse_tools_and_not_to_guess_year_or_turn():
