@@ -151,3 +151,9 @@ def test_unresolved_proposition_has_no_source():
                           {"id_proposicao": None, "ambiguous": False, "casa": "camara"}) == []
     assert derive_sources("resolve_proposition", {"casa": "camara"},
                           {"id_proposicao": 5, "ambiguous": False, "casa": "camara"}) == [CAMARA]
+
+
+@pytest.mark.parametrize("tool", ["get_proposition_tramitation_history", "check_bill_apensamentos"])
+@pytest.mark.parametrize("casa, expected", [("camara", [CAMARA]), ("senado", [SENADO])])
+def test_tramitation_tools_cite_the_house_source(tool, casa, expected):
+    assert derive_sources(tool, {"casa": casa}, {"encontrado": True, "casa": casa}) == expected
