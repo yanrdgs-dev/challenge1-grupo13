@@ -319,3 +319,71 @@ def test_frontend_response_shows_the_date_as_a_detail_line():
         ferramentas_usadas=["check_parliamentary_expenses"], trace_id="abc", regra_acionada=None,
         dados_atualizados_em="2026-10-10T14:13:18+00:00")
     assert any("atualizad" in line.lower() and "10/10/2026" in line for line in to_frontend_response(response).subdetails)
+
+
+# ------------------- proposição citada formalmente ("PLN 2/2025") nunca fica sem o resolvedor ------------------- #
+
+PLN_CLAIM = "O PLN 2/2025 trata das diretrizes orçamentárias de 2026?"
+RESOLVER_CALL = {"name": "resolve_proposition",
+                 "arguments": {"casa": "congresso", "sigla_tipo": "PLN", "numero": 2, "ano": 2025}}
+
+
+@pytest.mark.parametrize("claim, expected", [
+    ("O PLN 2/2025 trata das diretrizes?", ("PLN", 2, 2025)),
+    ("A PEC 45/2019 foi aprovada?", ("PEC", 45, 2019)),
+    ("O PL nº 2630, de 2020, foi aprovado?", ("PL", 2630, 2020)),
+    ("O pl 2.630/2020 foi aprovado?", ("PL", 2630, 2020)),
+    ("A MPV 1.303 /2025 caducou?", ("MPV", 1303, 2025)),
+    ("Quanto o deputado Fraga gastou em 2023?", None),
+    ("O candidato de número 22/2024 foi eleito?", None),
+])
+def test_cited_proposition_is_extracted_from_the_claim(claim, expected):
+    assert router_service._cited_proposition(claim) == expected
+
+
+def test_claim_citing_a_proposition_retries_with_resolver_when_llm_picks_unrelated_tool(mock_llm):
+    mock_llm.chat.side_effect = [
+        _chat_result([{"name": "get_campaign_finances", "arguments": {"ano": 2026}}]),
+        _chat_result([RESOLVER_CALL]),
+    ]
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 168120}) as execute:
+        outcome = router_service._route_and_execute(PLN_CLAIM)
+
+    assert execute.call_args.args[0] == "resolve_proposition"
+    assert outcome.tool_name == "resolve_proposition"
+    assert mock_llm.chat.call_args_list[1].kwargs["tools"] == router_service._RESOLVER_ONLY_CATALOG
+
+
+def test_claim_citing_a_proposition_retries_when_llm_picks_no_tool(mock_llm):
+    mock_llm.chat.side_effect = [_chat_result([]), _chat_result([RESOLVER_CALL])]
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 168120}) as execute:
+        router_service._route_and_execute(PLN_CLAIM)
+
+    assert execute.call_args.args[0] == "resolve_proposition"
+
+
+def test_claim_citing_a_proposition_falls_back_to_the_cited_numbers_when_retry_also_fails(mock_llm):
+    """O resolvedor roda com sigla/número/ano da própria alegação, nunca com ID soprado pelo LLM."""
+    mock_llm.chat.side_effect = [_chat_result([]), _chat_result([])]
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 168120}) as execute:
+        router_service._route_and_execute(PLN_CLAIM)
+
+    assert execute.call_args.args == (
+        "resolve_proposition", {"casa": "congresso", "sigla_tipo": "PLN", "numero": 2, "ano": 2025}
+    )
+
+
+def test_claim_citing_a_proposition_keeps_the_llm_choice_when_it_is_already_proposition_related(mock_llm):
+    mock_llm.chat.return_value = _chat_result([RESOLVER_CALL])
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 1}):
+        router_service._route_and_execute(PLN_CLAIM)
+
+    mock_llm.chat.assert_called_once()
+
+
+def test_claim_without_proposition_citation_never_forces_the_resolver(mock_llm):
+    mock_llm.chat.return_value = _chat_result([])
+    outcome = router_service._route_and_execute("O céu é azul?")
+
+    assert outcome.tool_name is None
+    mock_llm.chat.assert_called_once()
