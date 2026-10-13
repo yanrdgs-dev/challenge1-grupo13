@@ -40,6 +40,7 @@ def test_every_catalog_tool_is_dispatched_and_none_is_simulated():
          patch.object(router_service, "get_top_ceap_spender", return_value=_dataclass_like({"ok": 1})), \
          patch.object(router_service, "list_expense_categories", return_value=_dataclass_like({"ok": 2})), \
          patch.object(router_service, "check_parliamentary_expenses", return_value=_dataclass_like({"ok": 3})), \
+         patch.object(router_service, "get_member_expenses", return_value=_dataclass_like({"ok": 4})), \
          patch.object(router_service, "get_proposition_vote_result", return_value=[]):
         args = {
             "casa": "camara", "ano": 2023, "nome_busca": "Fulano", "id_proposicao": 10,
@@ -150,6 +151,64 @@ def test_expenses_with_unresolved_name_never_calls_data_tool(resolution, ambiguo
     assert result["status"] == "entidade_nao_resolvida"
     assert result["ambiguous"] is ambiguous
     assert result["parlamentar_informado"] == "Fulano"
+
+
+# ------------------------------- get_member_expenses ------------------------------- #
+
+def test_member_expenses_resolves_name_with_uf_before_querying(trace_recorder):
+    """'Fraga do DF': a UF vai para o resolvedor (regra 2) e a tool recebe só o ID canônico."""
+    with patch.object(router_service, "resolve_politician", return_value=RESOLVED_CAMARA) as resolver, \
+         patch.object(router_service, "get_member_expenses", return_value=_dataclass_like({"ok": 1})) as tool:
+        result = execute_tool(
+            "get_member_expenses",
+            {"casa": "camara", "ano": 2023, "parlamentar": "Fraga", "uf": "DF", "categoria": "Combustíveis"},
+        )
+
+    assert resolver.call_args.kwargs["nome_busca"] == "Fraga"
+    assert resolver.call_args.kwargs["uf"] == "DF"
+    assert resolver.call_args.kwargs["cargo"] == "Deputado Federal"
+    tool.assert_called_once_with(casa="camara", ano=2023, parlamentar_id="204379", categoria="Combustíveis")
+    assert result == {"ok": 1}
+    assert [n for n, _ in trace_recorder.tree()] == ["resolve_politician"]
+
+
+def test_member_expenses_numeric_id_skips_resolution():
+    with patch.object(router_service, "resolve_politician") as resolver, \
+         patch.object(router_service, "get_member_expenses", return_value=_dataclass_like({})) as tool:
+        execute_tool("get_member_expenses", {"casa": "camara", "ano": 2023, "parlamentar": "204379"})
+
+    resolver.assert_not_called()
+    assert tool.call_args.kwargs["parlamentar_id"] == "204379"
+    assert tool.call_args.kwargs["categoria"] is None
+
+
+def test_member_expenses_senado_resolves_to_cod_senador():
+    with patch.object(router_service, "resolve_politician", return_value=RESOLVED_SENADO) as resolver, \
+         patch.object(router_service, "get_member_expenses", return_value=_dataclass_like({})) as tool:
+        execute_tool("get_member_expenses", {"casa": "senado", "ano": 2023, "parlamentar": "Beltrana"})
+
+    assert resolver.call_args.kwargs["cargo"] == "Senador"
+    assert tool.call_args.kwargs["parlamentar_id"] == "5012"
+
+
+@pytest.mark.parametrize("resolution, ambiguous", [(NOT_FOUND, False), (AMBIGUOUS, True)])
+def test_member_expenses_unresolved_name_never_calls_data_tool(resolution, ambiguous):
+    with patch.object(router_service, "resolve_politician", return_value=resolution), \
+         patch.object(router_service, "get_member_expenses") as tool:
+        result = execute_tool("get_member_expenses", {"casa": "camara", "ano": 2023, "parlamentar": "Fulano"})
+
+    tool.assert_not_called()
+    assert result["status"] == "entidade_nao_resolvida"
+    assert result["ambiguous"] is ambiguous
+    assert result["parlamentar_informado"] == "Fulano"
+
+
+def test_member_expenses_without_parliamentarian_is_invalid_params():
+    with patch.object(router_service, "get_member_expenses") as tool:
+        result = execute_tool("get_member_expenses", {"casa": "camara", "ano": 2023})
+
+    tool.assert_not_called()
+    assert result["status"] == "parametros_invalidos"
 
 
 # ---------------------------- get_proposition_vote_result ---------------------------- #

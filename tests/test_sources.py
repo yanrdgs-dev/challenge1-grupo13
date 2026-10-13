@@ -13,7 +13,9 @@ TSE = "Tribunal Superior Eleitoral (TSE) - Dados Abertos"
 
 # ------------------------------ derive_sources ------------------------------ #
 
-@pytest.mark.parametrize("tool", ["get_top_ceap_spender", "list_expense_categories", "check_parliamentary_expenses"])
+@pytest.mark.parametrize(
+    "tool", ["get_top_ceap_spender", "list_expense_categories", "check_parliamentary_expenses", "get_member_expenses"]
+)
 @pytest.mark.parametrize("casa, expected", [("camara", CAMARA_CEAP), ("senado", SENADO_CEAPS)])
 def test_expense_tools_cite_ceap_source_by_casa(tool, casa, expected):
     assert derive_sources(tool, {"casa": casa, "ano": 2023}, {"total": 1}) == [expected]
