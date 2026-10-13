@@ -237,3 +237,27 @@ def test_member_expenses_with_name_present_in_the_claim_runs_the_tool(mock_llm, 
     execute.assert_called_once()
     assert outcome.evidence == {"qtd_lancamentos": 3}
     assert outcome.tools_used == ["get_member_expenses"]
+
+
+@pytest.mark.parametrize("claim, expected_uf", [
+    ("Quanto o deputado Fraga do DF gastou com combustível?", "DF"),
+    ("Quanto a senadora Beltrana de SP gastou com combustível?", "SP"),
+    ("Quanto o deputado Fraga (DF) gastou com combustível?", "DF"),
+    ("Quanto o deputado Fraga gastou com combustível?", None),
+    ("Quanto o deputado Fraga do PL gastou com combustível?", None),   # PL é partido, não UF
+])
+def test_member_expenses_infers_uf_from_the_claim_when_llm_omits_it(mock_llm, claim, expected_uf):
+    _, execute = _route_member_expenses(mock_llm, claim, "Fraga")
+
+    assert execute.call_args.args[1].get("uf") == expected_uf
+
+
+def test_member_expenses_keeps_uf_chosen_by_llm(mock_llm):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "get_member_expenses",
+          "arguments": {"casa": "camara", "ano": 2023, "parlamentar": "Fraga", "uf": "ES"}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={}) as execute:
+        router_service._route_and_execute("Quanto o deputado Fraga do DF gastou?")
+
+    assert execute.call_args.args[1]["uf"] == "ES"
