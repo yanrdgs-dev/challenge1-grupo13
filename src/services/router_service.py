@@ -516,7 +516,10 @@ _CITED_PROPOSITION_RE = re.compile(
 # Tools com que uma proposição citada convive sem ser desviada para o resolvedor.
 _PROPOSITION_COMPATIBLE_TOOLS = {
     "resolve_proposition", "get_proposition_vote_result", "check_institutional_rule", "check_data_source_coverage",
+    "get_proposition_tramitation_history", "check_bill_apensamentos",
 }
+_APENSAMENTO_CUE_RE = re.compile(r"apens|anexad|apensad", re.IGNORECASE)
+_TRAMITACAO_CUE_RE = re.compile(r"tramit|comiss[aã]o|comiss[oõ]es|em que fase|situa[cç][aã]o atual|parad[ao]", re.IGNORECASE)
 
 
 def _cited_proposition(claim_text: str) -> Optional[tuple]:
@@ -657,6 +660,17 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
         except HTTPException:
             chat.tool_calls = []
         chat.tool_calls = [c for c in chat.tool_calls if c["name"] in _QUOTA_TOOL_NAMES]
+
+    if chat.tool_calls and chat.tool_calls[0]["name"] == "resolve_proposition":
+        # O prompt manda resolver a proposição primeiro, e o modelo para aí. Se a pergunta é sobre
+        # tramitação ou apensamento, a tool certa resolve a proposição por dentro e consulta o dado.
+        wanted = (
+            "check_bill_apensamentos" if _APENSAMENTO_CUE_RE.search(claim_text)
+            else "get_proposition_tramitation_history" if _TRAMITACAO_CUE_RE.search(claim_text)
+            else None
+        )
+        if wanted:
+            chat.tool_calls = [{**chat.tool_calls[0], "name": wanted}]
 
     if not chat.tool_calls:
         return RoutingOutcome(routing_ms=(time.perf_counter() - start) * 1000)
