@@ -430,8 +430,9 @@ def test_campaign_tool_without_electoral_cue_in_the_claim_is_rerouted_to_the_quo
         outcome = router_service._route_and_execute(claim)
 
     retry_tools = {t["function"]["name"] for t in mock_llm.chat.call_args_list[1].kwargs["tools"]}
-    # compare_candidates também é do TSE e o modelo, sem a tool de campanha, inventa candidatos para ela
-    assert not retry_tools & {"get_campaign_finances", "get_top_campaign_finances", "compare_candidates"}
+    # só tools de cota: o modelo, sem a de campanha, escolhe outra do TSE e inventa candidatos
+    assert not retry_tools & {"get_campaign_finances", "get_top_campaign_finances", "compare_candidates",
+                              "get_election_result", "resolve_candidate"}
     assert "get_top_ceap_spender" in retry_tools
     assert outcome.tool_name == "get_top_ceap_spender"
     assert execute.call_args.args[0] == "get_top_ceap_spender"

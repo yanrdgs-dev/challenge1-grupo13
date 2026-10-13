@@ -474,12 +474,17 @@ def _cited_proposition(claim_text: str) -> Optional[tuple]:
 
 
 _CAMPAIGN_TOOLS = {"get_campaign_finances", "get_top_campaign_finances"}
-_NO_CAMPAIGN_CATALOG = [
-    t for t in TOOLS_CATALOG if t["function"]["name"] not in _CAMPAIGN_TOOLS | {"compare_candidates"}
-]
+_QUOTA_TOOL_NAMES = {
+    "get_top_ceap_spender", "list_expense_categories", "check_parliamentary_expenses", "get_member_expenses",
+    "check_institutional_rule", "check_data_source_coverage",
+}
+# Sem menção a campanha/eleição o modelo pequeno insiste nas tools do TSE (e inventa candidatos): o retry
+# só enxerga as tools de cota parlamentar e as normativas.
+_NO_CAMPAIGN_CATALOG = [t for t in TOOLS_CATALOG if t["function"]["name"] in _QUOTA_TOOL_NAMES]
 _NO_CAMPAIGN_HINT = (
-    "\n\nA alegação NÃO menciona campanha nem eleição, então não é gasto de campanha eleitoral. Gastos de "
-    "parlamentares são da cota parlamentar (CEAP/CEAPS): escolha a tool de cota adequada, ou nenhuma tool."
+    "\n\nA alegação NÃO menciona campanha nem eleição. Gastos de parlamentares são da cota parlamentar "
+    "(CEAP/CEAPS): para 'quem mais gastou' use 'get_top_ceap_spender'; para o gasto de um parlamentar citado "
+    "use 'get_member_expenses'. Se nenhuma se aplica, não chame tool."
 )
 _ELECTORAL_CUE_RE = re.compile(
     r"campanh|elei[cç]|eleitor|candidat|arrecad|doa[cç]|\btse\b|presta[cç][aã]o de contas|pleito|"
@@ -592,9 +597,7 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
             chat = _chat_for_routing(claim_text, _NO_CAMPAIGN_CATALOG, _NO_CAMPAIGN_HINT)
         except HTTPException:
             chat.tool_calls = []
-        chat.tool_calls = [
-            c for c in chat.tool_calls if c["name"] not in _CAMPAIGN_TOOLS | {"compare_candidates"}
-        ]
+        chat.tool_calls = [c for c in chat.tool_calls if c["name"] in _QUOTA_TOOL_NAMES]
 
     if not chat.tool_calls:
         return RoutingOutcome(routing_ms=(time.perf_counter() - start) * 1000)
