@@ -460,3 +460,41 @@ def test_rerouted_claim_that_gets_no_tool_stays_without_evidence(mock_llm):
 
     execute.assert_not_called()
     assert outcome.tool_name is None
+
+
+# ------------------- sem tool escolhida o julgador não é chamado (regra 1: nada de resposta da memória) ------------------- #
+
+def test_no_tool_chosen_never_calls_the_judge_and_answers_inconclusive(mock_llm):
+    """'O que é a PEC da reforma tributária?': sem tool não há evidência; o juiz explicaria da memória do modelo."""
+    mock_llm.chat.return_value = _chat_result([])
+    with patch.object(router_service, "_call_judge") as judge:
+        resp = client.post("/check", json={"claim": "O que é a PEC da reforma tributária?"})
+
+    judge.assert_not_called()
+    data = resp.json()
+    assert resp.status_code == 200
+    assert data["veredito"] == "INCONCLUSIVO"
+    assert data["tool_usada"] is None and data["ferramentas_usadas"] == []
+    assert data["regra_acionada"] == "sem_ferramenta_aplicavel"
+    assert data["fontes_primarias"] == []
+    assert "evidência" in data["justificativa"].lower()
+
+
+def test_no_tool_chosen_text_does_not_explain_anything_from_the_model_memory(mock_llm):
+    mock_llm.chat.return_value = _chat_result([])
+    mock_llm.chat.return_value.content = "A PEC da reforma tributária é uma proposta que unifica impostos..."
+    with patch.object(router_service, "_call_judge"):
+        data = client.post("/check", json={"claim": "O que é a PEC da reforma tributária?"}).json()
+
+    assert "unifica" not in data["justificativa"]
+
+
+def test_chosen_tool_with_failed_evidence_still_goes_to_the_judge(mock_llm):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "resolve_politician", "arguments": {"nome_busca": "Fulano de Tal"}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"erro": "x"}), \
+         patch.object(router_service, "_call_judge", return_value=_judge_response(veredito="INCONCLUSIVO")) as judge:
+        client.post("/check", json={"claim": CLAIM_ESPECIFICA})
+
+    judge.assert_called_once()
