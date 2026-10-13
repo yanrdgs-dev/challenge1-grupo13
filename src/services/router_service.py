@@ -550,8 +550,11 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
         # números da própria alegação (nunca um ID do LLM).
         logger.warning("Alegação cita %s mas o LLM escolheu %s; roteando pelo resolvedor.", cited,
                        chat.tool_calls[0]["name"] if chat.tool_calls else "nenhuma tool")
-        retry = _chat_for_routing(claim_text, _RESOLVER_ONLY_CATALOG, _RESOLVE_FIRST_HINT)
-        resolver_call = next((c for c in retry.tool_calls if c["name"] == "resolve_proposition"), None)
+        try:
+            retry = _chat_for_routing(claim_text, _RESOLVER_ONLY_CATALOG, _RESOLVE_FIRST_HINT)
+            resolver_call = next((c for c in retry.tool_calls if c["name"] == "resolve_proposition"), None)
+        except HTTPException:
+            resolver_call = None
         if resolver_call is None:
             sigla, numero, ano = cited
             resolver_call = {
