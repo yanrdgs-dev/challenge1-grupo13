@@ -189,6 +189,56 @@ TOOLS_CATALOG: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "get_proposition_tramitation_history",
+            "description": "Histórico de tramitação de uma proposição (PL, PEC, MPV...): órgãos e despachos pelos quais passou, se passou por comissão temática e a situação atual. Resolve a proposição pelo número/ano ou nome popular antes de consultar.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "casa": {
+                        "type": "string",
+                        "enum": ["camara", "senado", "congresso"],
+                        "description": "Casa legislativa da matéria ('congresso' tenta Câmara e depois Senado).",
+                    },
+                    "sigla_tipo": {"type": "string", "description": "Sigla do tipo formal (ex: 'PL', 'PLN', 'PEC')."},
+                    "numero": {"type": "integer", "description": "Número oficial da matéria (ex: 2630, 45)."},
+                    "ano": {"type": "integer", "description": "Ano de apresentação da matéria (ex: 2019)."},
+                    "termo_busca": {
+                        "type": "string",
+                        "description": "Nome popular da matéria quando não há número (ex: 'Marco Temporal'). Nunca invente.",
+                    },
+                },
+                "required": ["casa"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_bill_apensamentos",
+            "description": "Verifica se uma proposição tramita sozinha ou apensada (anexada) a outra proposição principal. Resolve a proposição pelo número/ano ou nome popular antes de consultar.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "casa": {
+                        "type": "string",
+                        "enum": ["camara", "senado", "congresso"],
+                        "description": "Casa legislativa da matéria ('congresso' tenta Câmara e depois Senado).",
+                    },
+                    "sigla_tipo": {"type": "string", "description": "Sigla do tipo formal (ex: 'PL', 'PLN', 'PEC')."},
+                    "numero": {"type": "integer", "description": "Número oficial da matéria (ex: 2630, 45)."},
+                    "ano": {"type": "integer", "description": "Ano de apresentação da matéria (ex: 2019)."},
+                    "termo_busca": {
+                        "type": "string",
+                        "description": "Nome popular da matéria quando não há número (ex: 'Marco Temporal'). Nunca invente.",
+                    },
+                },
+                "required": ["casa"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_proposition_vote_result",
             "description": "Consulta o resultado e os votos nominais dos parlamentares em uma votação na Câmara ou Senado.",
             "parameters": {
@@ -312,11 +362,11 @@ TOOLS_CATALOG.extend([
                 "properties": {
                     "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado."},
                     "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
-                    "turno": {"type": "integer", "description": "1 ou 2. NÃO invente: se a claim não diz o turno, deixe vazio."},
+                    "turno": {"type": "integer", "description": "1 ou 2. NÃO invente: se a claim não diz o turno, deixe vazio. Deputados e senadores só têm 1º turno: o sistema completa."},
                     "uf": {"type": "string", "description": "UF da disputa (obrigatória para Governador, Senador e Deputados)."},
                     "top_n": {"type": "integer", "description": "Quantos candidatos listar (padrão 10)."},
                 },
-                "required": ["cargo", "ano", "turno"],
+                "required": ["cargo", "ano"],
             },
         },
     },
@@ -330,12 +380,12 @@ TOOLS_CATALOG.extend([
                 "properties": {
                     "nome_candidato": {"type": "string", "description": "Nome de urna ou civil do candidato (resolvido pelo sistema antes da consulta)."},
                     "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
-                    "turno": {"type": "integer", "description": "1 ou 2. NÃO invente."},
+                    "turno": {"type": "integer", "description": "1 ou 2. NÃO invente: deixe vazio se a claim não diz. Deputados e senadores só têm 1º turno: o sistema completa."},
                     "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado, se a claim disser."},
                     "uf": {"type": "string", "description": "UF da disputa, para desambiguar homônimos."},
                     "numero": {"type": "integer", "description": "Número do candidato na urna, se citado."},
                 },
-                "required": ["nome_candidato", "ano", "turno"],
+                "required": ["nome_candidato", "ano"],
             },
         },
     },
@@ -519,6 +569,7 @@ ROUTER_SYSTEM_PROMPT = (
     "- Se a alegação pergunta sobre ranking de gastos ou 'quem mais gastou a cota (CEAP/CEAPS)', utilize 'get_top_ceap_spender'.\n"
     "- Se a alegação questiona se um tipo de gasto é permitido ou elegível (ex: consultoria, combustível), utilize 'list_expense_categories'.\n"
     "- Se a alegação pergunta quanto um parlamentar ESPECÍFICO gastou ou teve reembolsado da cota (ex: combustível, passagens, \"vale-combustível\"), utilize 'get_member_expenses' com o nome em 'parlamentar', a sigla do estado em 'uf' quando citada e SEMPRE a 'categoria' quando a alegação citar um tipo de gasto (\"vale-combustível\", gasolina e combustível = 'Combustíveis'; passagem = 'Passagens Aéreas'). A cota reembolsa despesas, não paga salário nem vale em dinheiro.\n"
+    "- Se a alegação trata da TRAMITAÇÃO de uma proposição (por quais comissões passou, em que fase está, onde está parada), utilize 'get_proposition_tramitation_history'; se pergunta se está APENSADA a outra, 'check_bill_apensamentos'. Passe a sigla, o número e o ano citados (ou o nome popular).\n"
     "- Se a alegação cita limites monetários numéricos de gastos (ex: 'R$ 500 por mês'), utilize 'check_parliamentary_expenses'.\n"
     "- Se a alegação trata do que é PERMITIDO ou de COMO FUNCIONA um procedimento (regra, regimento, lei), utilize 'check_institutional_rule' com o tópico mais próximo. "
     "Regras e normas NÃO são resolvidas com tools de dados.\n"

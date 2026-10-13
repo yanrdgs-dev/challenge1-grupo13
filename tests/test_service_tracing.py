@@ -111,9 +111,13 @@ def test_tool_error_is_recorded_and_flow_continues(trace_recorder):
 
 
 def test_output_rail_override_is_recorded(trace_recorder):
+    no_ids = {"ideCadastro": None, "cod_senador": None, "sq_candidato": None, "ambiguous": False}
     with patch.object(router_service, "llm_client") as llm, \
-         patch.object(router_service, "_call_judge", return_value={**JUDGE_OK, "veredito": "FALSO"}):
-        llm.chat.return_value = _router_chat([])  # sem tool
+         patch.object(router_service, "execute_tool", return_value=no_ids), \
+         patch.object(router_service, "_call_judge",
+                      return_value={**JUDGE_OK, "veredito": "FALSO", "fontes_primarias": []}):
+        # tool escolhida, mas sem evidência nem fonte atribuível: o juiz diz FALSO e o rail de saída barra
+        llm.chat.return_value = _router_chat([{"name": "resolve_politician", "arguments": {"nome_busca": "Fulano"}}])
         resp = router_client.post("/check", json={"claim": CLAIM})
 
     assert resp.json()["veredito"] == "INCONCLUSIVO"

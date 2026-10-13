@@ -38,6 +38,7 @@ from src.tools.gastos_tools import (
     get_top_ceap_spender,
     list_expense_categories,
 )
+from src.tools.legislativo_tools import check_bill_apensamentos, get_proposition_tramitation_history
 from src.tools.knowledge_tools import check_data_source_coverage, check_institutional_rule
 from src.tools.resolve_politician import resolve_politician
 from src.tools.resolve_proposition import resolve_proposition
@@ -189,7 +190,15 @@ def _resolve_parlamentar_id(casa: str, valor: str, uf: Optional[str] = None) -> 
     return {"id": str(canonical)}
 
 
-def _with_resolved_candidate(args: Dict[str, Any], run: Callable[[int], Dict[str, Any]]) -> Dict[str, Any]:
+# Cargos de turno único: não existe 2º turno para deputado nem para senador, então o turno não se pergunta.
+_SINGLE_ROUND_CARGOS = frozenset({"deputado federal", "deputado estadual", "deputado distrital", "senador"})
+
+
+def _single_round(cargo: Any) -> bool:
+    return str(cargo or "").strip().lower() in _SINGLE_ROUND_CARGOS
+
+
+def _with_resolved_candidate(args: Dict[str, Any], run: Callable[..., Dict[str, Any]], with_resolution: bool = False) -> Dict[str, Any]:
     """Resolve o candidato (regra 2) e só então chama a tool de dado com o SQ_CANDIDATO canônico."""
     nome = str(args["nome_candidato"]).strip()
     with tracing.observation(
@@ -204,9 +213,39 @@ def _with_resolved_candidate(args: Dict[str, Any], run: Callable[[int], Dict[str
             ambiguous=bool(res.get("ambiguous")), candidato_informado=nome, resolucao=res,
             motivo=res.get("motivo"),
         )
-    evidence = run(res["sq_candidato"])
+    evidence = run(res["sq_candidato"], res) if with_resolution else run(res["sq_candidato"])
     resolution = {k: res.get(k) for k in ("sq_candidato", "nome_urna", "nome_civil", "partido", "cargo", "uf", "ano")}
     return {**evidence, "entidade_resolvida": resolution}
+
+
+def _with_resolved_proposition(args: Dict[str, Any], run: Callable[[str, str], Dict[str, Any]]) -> Dict[str, Any]:
+    """Resolve a proposição (regra 2) e só então consulta o dado com o ID canônico e a Casa onde ele foi achado."""
+    casa = str(args["casa"]).strip().lower()
+    houses = ["camara", "senado"] if casa == "congresso" else [casa]
+    res: Dict[str, Any] = {}
+    house = houses[0]
+    for house in houses:
+        with tracing.observation("resolve_proposition", input={**{k: args.get(k) for k in (
+            "sigla_tipo", "numero", "ano", "termo_busca")}, "casa": house}) as span:
+            res = resolve_proposition(
+                casa=house, sigla_tipo=args.get("sigla_tipo"), numero=args.get("numero"),
+                ano=args.get("ano"), termo_busca=args.get("termo_busca"),
+            )
+            span.update(output=res)
+        if res.get("ambiguous") or res.get("id_proposicao") is not None:
+            break
+    if res.get("ambiguous") or res.get("id_proposicao") is None:
+        return _unresolved(
+            ambiguous=bool(res.get("ambiguous")),
+            proposicao_informada={k: args.get(k) for k in ("sigla_tipo", "numero", "ano", "termo_busca")},
+            resolucao=res,
+        )
+    try:
+        evidence = run(house, str(res["id_proposicao"]))
+    except (ValueError, OSError) as exc:
+        evidence = {"encontrado": False, "erro": str(exc)}
+    resolution = {k: res.get(k) for k in ("id_proposicao", "sigla_tipo", "numero", "ano", "ementa")}
+    return {**evidence, "entidade_resolvida": {**resolution, "casa": house}}
 
 
 def _compare_candidates(args: Dict[str, Any]) -> Dict[str, Any]:
@@ -239,9 +278,14 @@ def _compare_candidates(args: Dict[str, Any]) -> Dict[str, Any]:
 def _candidate_votes(args: Dict[str, Any]) -> Dict[str, Any]:
     if not election_results_available(args["ano"]):
         return results_unavailable(args["ano"])  # sem votação publicada (ex.: 2026): nem resolve o nome
-    return _with_resolved_candidate(
-        args, lambda sq: get_candidate_votes(sq_candidato=sq, ano=args["ano"], turno=args["turno"])
-    )
+
+    def votes(sq: int, resolved: Dict[str, Any]) -> Dict[str, Any]:
+        turno = args.get("turno")
+        if turno is None and _single_round(resolved.get("cargo") or args.get("cargo")):
+            turno = 1
+        return get_candidate_votes(sq_candidato=sq, ano=args["ano"], turno=turno)
+
+    return _with_resolved_candidate(args, votes, with_resolution=True)
 
 
 def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -306,6 +350,14 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
             parlamentar_id=resolved["id"],
             categoria=args.get("categoria"),
         ).to_dict()
+    if tool_name == "get_proposition_tramitation_history":
+        return _with_resolved_proposition(
+            args, lambda house, pid: get_proposition_tramitation_history(casa=house, id_proposicao=pid)
+        )
+    if tool_name == "check_bill_apensamentos":
+        return _with_resolved_proposition(
+            args, lambda house, pid: check_bill_apensamentos(id_proposicao=pid, casa=house)
+        )
     if tool_name == "get_proposition_vote_result":
         casa = str(args["casa"]).strip().lower()
         prop_id = str(args.get("id_proposicao") or "").strip()
@@ -322,7 +374,10 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
             uf=args.get("uf"), numero=args.get("numero"),
         )
     if tool_name == "get_election_result":
-        return get_election_result(cargo=args["cargo"], ano=args["ano"], turno=args["turno"], uf=args.get("uf"))
+        turno = args.get("turno")
+        if turno is None and _single_round(args["cargo"]):
+            turno = 1
+        return get_election_result(cargo=args["cargo"], ano=args["ano"], turno=turno, uf=args.get("uf"))
     if tool_name == "compare_candidates":
         return _compare_candidates(args)
     if tool_name == "get_candidate_votes":
@@ -461,7 +516,10 @@ _CITED_PROPOSITION_RE = re.compile(
 # Tools com que uma proposição citada convive sem ser desviada para o resolvedor.
 _PROPOSITION_COMPATIBLE_TOOLS = {
     "resolve_proposition", "get_proposition_vote_result", "check_institutional_rule", "check_data_source_coverage",
+    "get_proposition_tramitation_history", "check_bill_apensamentos",
 }
+_APENSAMENTO_CUE_RE = re.compile(r"apens|anexad|apensad", re.IGNORECASE)
+_TRAMITACAO_CUE_RE = re.compile(r"tramit|comiss[aã]o|comiss[oõ]es|em que fase|situa[cç][aã]o atual|parad[ao]", re.IGNORECASE)
 
 
 def _cited_proposition(claim_text: str) -> Optional[tuple]:
@@ -473,6 +531,10 @@ def _cited_proposition(claim_text: str) -> Optional[tuple]:
     return sigla.upper(), int(numero.replace(".", "")), int(ano)
 
 
+NO_TOOL_JUSTIFICATION = (
+    "Não há uma fonte oficial de dados abertos aplicável a esta pergunta, então não há evidência para checá-la. "
+    "Para proposições, cite a sigla, o número e o ano (ex.: PEC 45/2019); para gastos, o parlamentar e o ano."
+)
 _CAMPAIGN_TOOLS = {"get_campaign_finances", "get_top_campaign_finances"}
 _QUOTA_TOOL_NAMES = {
     "get_top_ceap_spender", "list_expense_categories", "check_parliamentary_expenses", "get_member_expenses",
@@ -598,6 +660,17 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
         except HTTPException:
             chat.tool_calls = []
         chat.tool_calls = [c for c in chat.tool_calls if c["name"] in _QUOTA_TOOL_NAMES]
+
+    if chat.tool_calls and chat.tool_calls[0]["name"] == "resolve_proposition":
+        # O prompt manda resolver a proposição primeiro, e o modelo para aí. Se a pergunta é sobre
+        # tramitação ou apensamento, a tool certa resolve a proposição por dentro e consulta o dado.
+        wanted = (
+            "check_bill_apensamentos" if _APENSAMENTO_CUE_RE.search(claim_text)
+            else "get_proposition_tramitation_history" if _TRAMITACAO_CUE_RE.search(claim_text)
+            else None
+        )
+        if wanted:
+            chat.tool_calls = [{**chat.tool_calls[0], "name": wanted}]
 
     if not chat.tool_calls:
         return RoutingOutcome(routing_ms=(time.perf_counter() - start) * 1000)
@@ -757,6 +830,24 @@ def _run_check(
             tempo_roteamento_ms=round(tempo_roteamento_ms, 2),
             ferramentas_usadas=outcome.tools_used,
             regra_acionada="dados_tse_nao_atualizados",
+        )
+
+    # 2c. Nenhuma tool aplicável: sem evidência não há o que julgar. O juiz receberia um prompt vazio e
+    # responderia da memória do modelo (regra 1), então a resposta é determinística.
+    if tool_name is None and not evidence:
+        return CheckClaimResponse(
+            claim=claim_text,
+            tool_usada=None,
+            parametros_tool=None,
+            evidencia_coletada=None,
+            veredito="INCONCLUSIVO",
+            confianca="ALTA",
+            justificativa=NO_TOOL_JUSTIFICATION,
+            fontes_primarias=[],
+            tempo_total_ms=round((time.perf_counter() - start_total) * 1000, 2),
+            tempo_roteamento_ms=round(tempo_roteamento_ms, 2),
+            ferramentas_usadas=[],
+            regra_acionada="sem_ferramenta_aplicavel",
         )
 
     # 3. Comunicação com o Agente Julgador no Kubernetes

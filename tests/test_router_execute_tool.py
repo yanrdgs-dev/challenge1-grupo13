@@ -359,3 +359,62 @@ def test_invalid_params_make_the_verdict_inconclusive_and_flag_the_tool_span(tra
     assert resp.json()["veredito"] == "INCONCLUSIVO"            # evidência inválida nunca sustenta veredito
     update = trace_recorder.merged_updates("tool.check_parliamentary_expenses")
     assert update["level"] == "WARNING" and "ano" in update["status_message"]
+
+
+# ----------------------- tramitação e apensamento (resolve a proposição antes, regra 2) ----------------------- #
+
+PROP_CAMARA = {"id_proposicao": 2196833, "sigla_tipo": "PEC", "numero": 45, "ano": 2019, "casa": "camara",
+               "ambiguous": False, "candidatos": []}
+PROP_SENADO = {**PROP_CAMARA, "id_proposicao": 137999, "casa": "senado"}
+PROP_NONE = {"id_proposicao": None, "casa": "camara", "ambiguous": False, "candidatos": []}
+PROP_AMBIGUOUS = {"id_proposicao": None, "casa": "camara", "ambiguous": True,
+                  "candidatos": [{"id_proposicao": 1}, {"id_proposicao": 2}]}
+PEC_ARGS = {"casa": "camara", "sigla_tipo": "PEC", "numero": 45, "ano": 2019}
+
+
+@pytest.mark.parametrize("tool, function", [
+    ("get_proposition_tramitation_history", "get_proposition_tramitation_history"),
+    ("check_bill_apensamentos", "check_bill_apensamentos"),
+])
+def test_tramitation_tools_resolve_the_proposition_then_query_with_the_canonical_id(tool, function):
+    with patch.object(router_service, "resolve_proposition", return_value=PROP_CAMARA) as resolver, \
+         patch.object(router_service, function, return_value={"encontrado": True}) as data_tool:
+        result = execute_tool(tool, PEC_ARGS)
+
+    assert resolver.call_args.kwargs["numero"] == 45 and resolver.call_args.kwargs["sigla_tipo"] == "PEC"
+    assert data_tool.call_args.kwargs["id_proposicao"] == "2196833"
+    assert data_tool.call_args.kwargs["casa"] == "camara"
+    assert result["encontrado"] is True
+    assert result["entidade_resolvida"]["id_proposicao"] == 2196833
+
+
+def test_tramitation_with_congresso_tries_camara_then_senado():
+    with patch.object(router_service, "resolve_proposition", side_effect=[PROP_NONE, PROP_SENADO]) as resolver, \
+         patch.object(router_service, "get_proposition_tramitation_history", return_value={"encontrado": True}) as tool:
+        execute_tool("get_proposition_tramitation_history", {**PEC_ARGS, "casa": "congresso"})
+
+    assert [c.kwargs["casa"] for c in resolver.call_args_list] == ["camara", "senado"]
+    assert tool.call_args.kwargs["casa"] == "senado" and tool.call_args.kwargs["id_proposicao"] == "137999"
+
+
+@pytest.mark.parametrize("resolution, ambiguous", [(PROP_NONE, False), (PROP_AMBIGUOUS, True)])
+@pytest.mark.parametrize("tool", ["get_proposition_tramitation_history", "check_bill_apensamentos"])
+def test_tramitation_tools_never_query_data_for_an_unresolved_proposition(tool, resolution, ambiguous):
+    with patch.object(router_service, "resolve_proposition", return_value=resolution), \
+         patch.object(router_service, tool) as data_tool:
+        result = execute_tool(tool, PEC_ARGS)
+
+    data_tool.assert_not_called()
+    assert result["status"] == "entidade_nao_resolvida" and result["ambiguous"] is ambiguous
+
+
+def test_tramitation_tool_without_any_way_to_identify_the_proposition_is_invalid():
+    result = execute_tool("get_proposition_tramitation_history", {"casa": "camara"})
+    assert result["status"] in ("entidade_nao_resolvida", "parametros_invalidos")
+
+
+def test_tramitation_data_missing_in_parquet_is_not_a_fake_result():
+    with patch.object(router_service, "resolve_proposition", return_value=PROP_CAMARA), \
+         patch.object(router_service, "get_proposition_tramitation_history", side_effect=ValueError("sem dados")):
+        result = execute_tool("get_proposition_tramitation_history", PEC_ARGS)
+    assert result.get("encontrado") is False and "erro" in result

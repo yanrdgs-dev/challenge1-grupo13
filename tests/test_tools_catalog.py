@@ -78,3 +78,13 @@ def test_proposition_resolver_covers_congress_bills_such_as_pln():
     assert "PLN" in ROUTER_SYSTEM_PROMPT and "resolve_proposition" in ROUTER_SYSTEM_PROMPT
     # numeração com ano ("2/2025") separa número e ano; não é pedido de campanha eleitoral
     assert "2/2025" in ROUTER_SYSTEM_PROMPT
+
+
+def test_tramitation_tools_are_in_the_catalog_and_prompt_and_take_a_formal_citation():
+    for name in ("get_proposition_tramitation_history", "check_bill_apensamentos"):
+        params = _tool(name)["parameters"]
+        assert {"casa", "sigla_tipo", "numero", "ano", "termo_busca"} <= set(params["properties"])
+        assert params["required"] == ["casa"]
+        assert name in ROUTER_SYSTEM_PROMPT
+    assert "tramitação" in _tool("get_proposition_tramitation_history")["description"].lower()
+    assert "apens" in _tool("check_bill_apensamentos")["description"].lower()
