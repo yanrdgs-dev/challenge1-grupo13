@@ -13,7 +13,9 @@ TSE = "Tribunal Superior Eleitoral (TSE) - Dados Abertos"
 CAMARA_CEAP = "Câmara dos Deputados - Dados Abertos (CEAP)"
 SENADO_CEAPS = "Senado Federal - Dados Abertos (CEAPS)"
 
-_EXPENSE_TOOLS = {"get_top_ceap_spender", "list_expense_categories", "check_parliamentary_expenses"}
+_EXPENSE_TOOLS = {
+    "get_top_ceap_spender", "list_expense_categories", "check_parliamentary_expenses", "get_member_expenses",
+}
 _TOOL_NAME_RE = re.compile(r"^(?:get|resolve|check|list)_[a-z_]+$")
 
 

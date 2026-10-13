@@ -241,7 +241,7 @@ def test_member_expenses_with_name_present_in_the_claim_runs_the_tool(mock_llm, 
 
 @pytest.mark.parametrize("claim, expected_uf", [
     ("Quanto o deputado Fraga do DF gastou com combustível?", "DF"),
-    ("Quanto a senadora Beltrana de SP gastou com combustível?", "SP"),
+    ("Quanto a senadora Fraga de SP gastou com combustível?", "SP"),
     ("Quanto o deputado Fraga (DF) gastou com combustível?", "DF"),
     ("Quanto o deputado Fraga gastou com combustível?", None),
     ("Quanto o deputado Fraga do PL gastou com combustível?", None),   # PL é partido, não UF

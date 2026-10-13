@@ -8,7 +8,9 @@ coletar a evidência factual e acionar o microsserviço Julgador.
 import json
 import logging
 import os
+import re
 import time
+import unicodedata
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
@@ -30,6 +32,7 @@ from src.services.tool_args import validate_tool_args
 from src.services.sources import derive_sources, ensure_source_cited, evidence_failed, merge_sources
 from src.tools.gastos_tools import (
     check_parliamentary_expenses,
+    get_member_expenses,
     get_top_ceap_spender,
     list_expense_categories,
 )
@@ -137,7 +140,7 @@ def _unresolved(**extra: Any) -> Dict[str, Any]:
     return {"status": "entidade_nao_resolvida", "ambiguous": False, **extra}
 
 
-def _resolve_parlamentar_id(casa: str, valor: str) -> Dict[str, Any]:
+def _resolve_parlamentar_id(casa: str, valor: str, uf: Optional[str] = None) -> Dict[str, Any]:
     """Converte nome de parlamentar em ID canônico (regra 2). Se já for ID numérico, repassa."""
     valor = str(valor).strip()
     if valor.isdigit():
@@ -146,9 +149,10 @@ def _resolve_parlamentar_id(casa: str, valor: str) -> Dict[str, Any]:
     with tracing.observation(
         "resolve_politician", input={"nome_busca": valor, "casa": casa}
     ) as span:
-        res = _resolve_politician_with_fallback(
-            {"nome_busca": valor, "cargo": _CARGO_POR_CASA.get(casa)}
-        )
+        resolve_args: Dict[str, Any] = {"nome_busca": valor, "cargo": _CARGO_POR_CASA.get(casa)}
+        if uf:
+            resolve_args["uf"] = uf
+        res = _resolve_politician_with_fallback(resolve_args)
         span.update(output=res)
 
     canonical = res.get("ideCadastro") if casa == "camara" else res.get("cod_senador")
@@ -211,6 +215,17 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
             ano=args["ano"],
             categoria=args.get("categoria"),
             parlamentar_id=parlamentar_id,
+        ).to_dict()
+    if tool_name == "get_member_expenses":
+        casa = str(args["casa"]).strip().lower()
+        resolved = _resolve_parlamentar_id(casa, args["parlamentar"], args.get("uf"))
+        if "unresolved" in resolved:
+            return resolved["unresolved"]
+        return get_member_expenses(
+            casa=casa,
+            ano=args["ano"],
+            parlamentar_id=resolved["id"],
+            categoria=args.get("categoria"),
         ).to_dict()
     if tool_name == "get_proposition_vote_result":
         casa = str(args["casa"]).strip().lower()
@@ -340,6 +355,30 @@ def _chat_for_routing(claim_text: str, tools: List[Dict[str, Any]], hint: str = 
         )
 
 
+_UFS = frozenset(
+    "AC AL AP AM BA CE DF ES GO MA MT MS MG PA PB PR PE PI RJ RN RS RO RR SC SP SE TO".split()
+)
+_UF_IN_CLAIM_RE = re.compile(r"(?:\b(?:do|da|de|pelo|pela)\s+|\()([A-Z]{2})\b")
+
+
+def _uf_in_claim(claim_text: str) -> Optional[str]:
+    """Sigla de UF escrita na alegação ('Fraga do DF', 'Fulano (SP)'); partido como 'PL' não conta."""
+    for match in _UF_IN_CLAIM_RE.finditer(claim_text):
+        if match.group(1) in _UFS:
+            return match.group(1)
+    return None
+
+
+def _name_in_claim(name: Any, claim_text: str) -> bool:
+    """True se ao menos um termo do nome (3+ letras, sem acento/caixa) aparece na alegação."""
+    def words(text: str) -> set:
+        folded = unicodedata.normalize("NFKD", str(text).lower())
+        plain = "".join(ch for ch in folded if not unicodedata.combining(ch))
+        return {w for w in "".join(c if c.isalnum() else " " for c in plain).split() if len(w) >= 3}
+
+    return bool(name) and bool(words(name) & words(claim_text))
+
+
 def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]] = None) -> RoutingOutcome:
     """Escolhe a tool com o LLM e a executa. Para votações, encadeia resolver → dado (regra 2).
 
@@ -370,6 +409,20 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
             return RoutingOutcome("get_proposition_vote_result", {}, evidence, [],
                                   (time.perf_counter() - start) * 1000)
         tool_name, tool_args = "resolve_proposition", resolver_call["arguments"]
+
+    # Guarda das regras 2 e 3: o nome do parlamentar vem da alegação, nunca do "conhecimento" do LLM.
+    if tool_name == "get_member_expenses" and not _name_in_claim(tool_args.get("parlamentar"), claim_text):
+        logger.warning("LLM usou o parlamentar %r, que não consta na alegação; consulta descartada.", tool_args.get("parlamentar"))
+        evidence = _unresolved(
+            parlamentar_informado=tool_args.get("parlamentar"),
+            motivo="A alegação não cita o parlamentar informado pelo roteador; a consulta foi descartada.",
+        )
+        return RoutingOutcome(tool_name, tool_args, evidence, [], (time.perf_counter() - start) * 1000)
+
+    if tool_name == "get_member_expenses" and not tool_args.get("uf"):
+        inferred_uf = _uf_in_claim(claim_text)
+        if inferred_uf:
+            tool_args = {**tool_args, "uf": inferred_uf}
 
     routing_ms = (time.perf_counter() - start) * 1000
     if on_step:

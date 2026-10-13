@@ -155,6 +155,40 @@ TOOLS_CATALOG: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "get_member_expenses",
+            "description": "Consulta quanto a cota parlamentar (CEAP/CEAPS) reembolsou a UM parlamentar específico em um ano, com total, detalhamento por categoria (combustíveis, passagens, etc.) e maiores lançamentos. É reembolso de despesa, não salário nem benefício pago em dinheiro.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "casa": {
+                        "type": "string",
+                        "enum": ["camara", "senado"],
+                        "description": "Casa legislativa do parlamentar ('camara' para deputado, 'senado' para senador).",
+                    },
+                    "ano": {
+                        "type": "integer",
+                        "description": "Ano de referência dos gastos (ex: 2023).",
+                    },
+                    "parlamentar": {
+                        "type": "string",
+                        "description": "Nome do parlamentar exatamente como citado na alegação. Nunca invente nem deduza um nome: se a alegação não cita nenhum parlamentar, não use esta tool. É resolvido para o ID oficial antes da consulta.",
+                    },
+                    "uf": {
+                        "type": "string",
+                        "description": "Sigla do estado citada na alegação (ex: 'DF'), usada só para desambiguar homônimos.",
+                    },
+                    "categoria": {
+                        "type": "string",
+                        "description": "Categoria da despesa quando a alegação cita uma (ex: 'Combustíveis', 'Passagens Aéreas').",
+                    },
+                },
+                "required": ["casa", "ano", "parlamentar"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "get_proposition_vote_result",
             "description": "Consulta o resultado e os votos nominais dos parlamentares em uma votação na Câmara ou Senado.",
             "parameters": {
@@ -259,6 +293,7 @@ ROUTER_SYSTEM_PROMPT = (
     "  ⚠️ ATENÇÃO PARA 'resolve_politician': Passe APENAS 'nome_busca' com o nome. NUNCA passe 'uf' ou 'cargo' se a alegação estiver justamente afirmando de qual estado ou cargo ele é (ex: 'Nikolas Ferreira é deputado de Distrito Federal'). Se passar 'uf': 'DF', a ferramenta buscará um Nikolas no DF, não achará e gerará um falso INCONCLUSIVO! Busque pelo nome para obter o estado real (MG) e permitir ao julgador cravar FALSO.\n"
     "- Se a alegação pergunta sobre ranking de gastos ou 'quem mais gastou a cota (CEAP/CEAPS)', utilize 'get_top_ceap_spender'.\n"
     "- Se a alegação questiona se um tipo de gasto é permitido ou elegível (ex: consultoria, combustível), utilize 'list_expense_categories'.\n"
+    "- Se a alegação pergunta quanto um parlamentar ESPECÍFICO gastou ou teve reembolsado da cota (ex: combustível, passagens, \"vale-combustível\"), utilize 'get_member_expenses' com o nome em 'parlamentar', a sigla do estado em 'uf' quando citada e SEMPRE a 'categoria' quando a alegação citar um tipo de gasto (\"vale-combustível\", gasolina e combustível = 'Combustíveis'; passagem = 'Passagens Aéreas'). A cota reembolsa despesas, não paga salário nem vale em dinheiro.\n"
     "- Se a alegação cita limites monetários numéricos de gastos (ex: 'R$ 500 por mês'), utilize 'check_parliamentary_expenses'.\n"
     "- Se a alegação trata do que é PERMITIDO ou de COMO FUNCIONA um procedimento (regra, regimento, lei), utilize 'check_institutional_rule' com o tópico mais próximo. "
     "Regras e normas NÃO são resolvidas com tools de dados.\n"
