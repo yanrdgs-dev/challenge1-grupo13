@@ -108,6 +108,20 @@ class ResolvePropositionResponse(TypedDict):
     match_score: Optional[float]
 
 
+def _only_requested(items: List[Dict[str, Any]], sigla: Optional[str], numero: Optional[int]) -> List[Dict[str, Any]]:
+    """Mantém só os itens cuja sigla e número batem com o pedido (item sem o campo não é descartado)."""
+    def matches(item: Dict[str, Any]) -> bool:
+        item_sigla = item.get("siglaTipo") or item.get("sigla")
+        item_numero = item.get("numero")
+        if item_sigla and sigla and str(item_sigla).strip().upper() != str(sigla).strip().upper():
+            return False
+        if item_numero not in (None, "") and numero is not None and str(item_numero).strip() != str(numero):
+            return False
+        return True
+
+    return [item for item in items if matches(item)]
+
+
 def _empty_response(
     casa: str = "",
     ambiguous: bool = False,
@@ -192,10 +206,9 @@ def resolve_proposition(
                     ano=ano,
                 )
             elif casa_norm == "congresso":
-                raw_items = active_client.search_senado(
-                    sigla=sigla_norm,
-                    numero=numero,
-                    ano=ano,
+                raw_items = _only_requested(
+                    active_client.search_senado(sigla=sigla_norm, numero=numero, ano=ano),
+                    sigla_norm, numero,
                 )
                 if not raw_items:
                     raw_items = active_client.search_camara(
@@ -204,6 +217,8 @@ def resolve_proposition(
                         ano=ano,
                     )
 
+            # A API devolve vizinhos (ex.: o VET 51/2025 junto com o PLN 2/2025): só vale o que foi pedido.
+            raw_items = _only_requested(raw_items, sigla_norm, numero)
             if not raw_items:
                 return _empty_response(casa=casa_norm)
 
