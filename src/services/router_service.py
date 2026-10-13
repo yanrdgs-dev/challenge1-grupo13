@@ -489,6 +489,10 @@ def _cited_proposition(claim_text: str) -> Optional[tuple]:
     return sigla.upper(), int(numero.replace(".", "")), int(ano)
 
 
+NO_TOOL_JUSTIFICATION = (
+    "Não há uma fonte oficial de dados abertos aplicável a esta pergunta, então não há evidência para checá-la. "
+    "Para proposições, cite a sigla, o número e o ano (ex.: PEC 45/2019); para gastos, o parlamentar e o ano."
+)
 _CAMPAIGN_TOOLS = {"get_campaign_finances", "get_top_campaign_finances"}
 _QUOTA_TOOL_NAMES = {
     "get_top_ceap_spender", "list_expense_categories", "check_parliamentary_expenses", "get_member_expenses",
@@ -773,6 +777,24 @@ def _run_check(
             tempo_roteamento_ms=round(tempo_roteamento_ms, 2),
             ferramentas_usadas=outcome.tools_used,
             regra_acionada="dados_tse_nao_atualizados",
+        )
+
+    # 2c. Nenhuma tool aplicável: sem evidência não há o que julgar. O juiz receberia um prompt vazio e
+    # responderia da memória do modelo (regra 1), então a resposta é determinística.
+    if tool_name is None and not evidence:
+        return CheckClaimResponse(
+            claim=claim_text,
+            tool_usada=None,
+            parametros_tool=None,
+            evidencia_coletada=None,
+            veredito="INCONCLUSIVO",
+            confianca="ALTA",
+            justificativa=NO_TOOL_JUSTIFICATION,
+            fontes_primarias=[],
+            tempo_total_ms=round((time.perf_counter() - start_total) * 1000, 2),
+            tempo_roteamento_ms=round(tempo_roteamento_ms, 2),
+            ferramentas_usadas=[],
+            regra_acionada="sem_ferramenta_aplicavel",
         )
 
     # 3. Comunicação com o Agente Julgador no Kubernetes
