@@ -112,7 +112,7 @@ def test_cli_dry_run_validates_without_creating_a_client(capsys):
     from scripts.langfuse_sync_dataset import main
 
     factory = MagicMock()
-    assert main(["--dry-run"], client_factory=factory) == 0
+    assert main(["--path", str(GOLDEN), "--dry-run"], client_factory=factory) == 0
     factory.assert_not_called()
     assert "30 itens" in capsys.readouterr().out
 
@@ -121,7 +121,7 @@ def test_cli_syncs_with_the_provided_client():
     from scripts.langfuse_sync_dataset import main
 
     client = MagicMock()
-    assert main([], client_factory=lambda: client) == 0
+    assert main(["--path", str(GOLDEN)], client_factory=lambda: client) == 0
     assert client.create_dataset_item.call_count == 30
 
 

@@ -50,6 +50,8 @@ data/processed/*
 !data/processed/.gitkeep
 *.parquet
 *.csv
+# amostras pequenas e sanitizadas dos testes de integração do ETL
+!tests/fixtures/**/*.csv
 datasets/camara/
 datasets/senado/
 datasets/tse/

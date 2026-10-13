@@ -1,0 +1,84 @@
+{
+  "descricao": "Baseline do golden_dataset_v2 (30 claims do v1 + 20 do TSE + 11 de comparação entre candidatos), 17 tools do TSE e compare_candidates. Duas rodadas seguidas (golden-v2-compare-e e -f) deram o mesmo resultado.",
+  "data": "2026-10-10",
+  "modelos": {
+    "router": "openai/gpt-oss-20b (Groq)",
+    "judge": "openai/gpt-oss-120b (Groq)"
+  },
+  "observacao": "As 11 claims de comparação (ids 51 a 61, espelhadas em VERDADEIRO/FALSO) acertaram nas duas rodadas. Rodadas anteriores (sem compare_candidates) reprovaram e acharam defeitos reais, corrigidos: cargo/UF errados do LLM resolvendo outra candidatura, resolve_candidate escolhida sozinha, resolve_politician para candidato de eleição.",
+  "erros_conhecidos": [
+    {
+      "id": 5,
+      "obtido": "INCONCLUSIVO",
+      "origem": "v1, PEC da Reforma Tributária no Senado"
+    },
+    {
+      "id": 15,
+      "obtido": "INCONCLUSIVO",
+      "origem": "v1, Marco Temporal na Câmara"
+    }
+  ],
+  "summary": {
+    "run_name": "golden-v2-compare-f",
+    "dataset_run_url": "https://us.cloud.langfuse.com/project/cmuzl8l7g001oad0jlo3svylo/datasets/cmv2nlagi064cad0ehzisdff9/runs/010f6b1e-edef-4202-b8f4-05e1f71626a8",
+    "total": 61,
+    "scores": {
+      "verdict_match": {
+        "mean": 0.9672131147540983,
+        "n": 61
+      },
+      "no_wrong_definitive": {
+        "mean": 1.0,
+        "n": 61
+      },
+      "has_traceable_evidence": {
+        "mean": 1.0,
+        "n": 61
+      },
+      "inconclusive_without_tool": {
+        "mean": 1.0,
+        "n": 15
+      },
+      "tool_category_match": {
+        "mean": 1.0,
+        "n": 46
+      }
+    },
+    "matrix": {
+      "VERDADEIRO": {
+        "VERDADEIRO": 23,
+        "FALSO": 0,
+        "INCONCLUSIVO": 1,
+        "ERRO": 0
+      },
+      "FALSO": {
+        "VERDADEIRO": 0,
+        "FALSO": 21,
+        "INCONCLUSIVO": 1,
+        "ERRO": 0
+      },
+      "INCONCLUSIVO": {
+        "VERDADEIRO": 0,
+        "FALSO": 0,
+        "INCONCLUSIVO": 15,
+        "ERRO": 0
+      }
+    },
+    "failures": [
+      {
+        "golden_id": 15,
+        "expected": "FALSO",
+        "got": "INCONCLUSIVO",
+        "trace_id": "81facab777a962700b5707b6fb617421",
+        "erro": null
+      },
+      {
+        "golden_id": 5,
+        "expected": "VERDADEIRO",
+        "got": "INCONCLUSIVO",
+        "trace_id": "42e591f81b5369c63f3668dd4bb00ae2",
+        "erro": null
+      }
+    ]
+  }
+}

@@ -37,7 +37,7 @@ app = FastAPI(
 
 JUDGE_MODEL = os.getenv("JUDGE_MODEL", "qwen2.5:14b")
 # Timeout maior que o padrão: o julgamento com modelo 14b é mais lento que o roteamento.
-llm_client = LLMClient(timeout=float(os.getenv("JUDGE_LLM_TIMEOUT", "60.0")))
+llm_client = LLMClient(timeout=float(os.getenv("JUDGE_LLM_TIMEOUT", "60.0")), role="judge")
 
 
 class JudgeRequest(BaseModel):

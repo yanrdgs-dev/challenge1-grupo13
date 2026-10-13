@@ -41,8 +41,7 @@ services:
     depends_on:
       router-service:
         condition: service_healthy
-    ports:
-      - "80:80"
+    # Sem `ports`: quem aparece na internet é o Caddy, que termina o HTTPS e encaminha para cá.
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/api/health"]
@@ -50,6 +49,32 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  caddy:
+    # HTTPS de polis.software (DNS no name.com apontando para o IP da VM; NSG com 80 e 443 abertas).
+    image: caddy:2.8.4
+    depends_on:
+      frontend:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /srv/factcheck/Caddyfile.site:/etc/caddy/Caddyfile:ro
+      # Certificados e conta ACME: sem este volume, cada deploy pediria um certificado novo.
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  caddy_data:
+  caddy_config:
 
 # Rede criada uma vez na VM, com sub-rede fixa:
 #   docker network create --subnet 172.28.0.0/24 --gateway 172.28.0.1 factcheck

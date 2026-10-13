@@ -142,10 +142,14 @@ def build_dim_politicos_df(
             if uf and (nome_norm, uf) in tse_map:
                 sq_cand = tse_map[(nome_norm, uf)].get("sq_candidato")
 
+            # código oficial do Senado: é a chave que a tool de gastos do Senado (COD_SENADOR) usa
+            cod_raw = str(row.get("Codigo Parlamentar") or "").strip()
+            cod_senador = int(cod_raw) if cod_raw.isdigit() else None
+
             records.append({
                 "sq_candidato": int(sq_cand) if sq_cand is not None else None,
                 "ideCadastro": None,
-                "cod_senador": None,
+                "cod_senador": cod_senador,
                 "nome_civil": nome_parlamentar.upper(),
                 "nome_urna": nome_parlamentar,
                 "nome_normalizado": nome_norm,

@@ -84,11 +84,11 @@ Em qualquer caminho a máquina precisa ficar ligada e acordada (o script mantém
 ## Frontend (Pólis)
 
 ```
-navegador ──HTTP :80──► nginx (container frontend) ──► /api/*  ──► router-service ──► judge-service
-                                   └─► /, /assets/*  (build estático do Vite)
+navegador ──HTTPS :443──► Caddy ──► nginx (container frontend) ──► /api/*  ──► router-service ──► judge-service
+ (HTTP :80 → redirect)                         └─► /, /assets/*  (build estático do Vite)
 ```
 
-O container `frontend` é o **único publicado** na VM (porta 80). Router e judge ficam internos, só na rede do compose. O router passa a expor, além do `/check`, as rotas que o frontend usa (`src/services/frontend_api.py`), todas sobre o mesmo pipeline (guardrails → router → tool → judge → guardrails):
+O **Caddy** é o único publicado na VM (portas 80 e 443). Frontend, router e judge ficam internos, só na rede do compose. O router passa a expor, além do `/check`, as rotas que o frontend usa (`src/services/frontend_api.py`), todas sobre o mesmo pipeline (guardrails → router → tool → judge → guardrails):
 
 | Rota | O que faz |
 |---|---|
@@ -103,7 +103,8 @@ O container `frontend` é o **único publicado** na VM (porta 80). Router e judg
 - Se o pipeline falhar no meio do stream (por exemplo, Ollama fora do ar), o stream termina com um `done` `INCONCLUSIVO`, `rule_matched: servico_indisponivel` e um texto de indisponibilidade, sem o erro técnico. Já `POST /api/check` devolve 503.
 - O nginx limita as rotas de checagem a **20 requisições por minuto por IP** (rajada de 5) e devolve 429 acima disso: cada checagem ocupa o Ollama local por ~40 s. Atrás de um NAT compartilhado (rede de campus), vários usuários dividem esse limite. O frontend mostra a mensagem genérica "não foi possível conectar" em um 429.
 - O frontend envia o `session_id` da conversa (`session-<timestamp>`, sem dado pessoal), que o Langfuse usa para agrupar as mensagens de um mesmo chat.
-- Sem domínio, o acesso é por `http://<ip-da-vm>`: **o tráfego não é cifrado**. HTTPS exige um nome de domínio (certificado) e uma mudança no nginx.
+- **HTTPS (`polis.software`):** o Caddy (`deploy/Caddyfile.site`, enviado pelo CD para `/srv/factcheck/Caddyfile.site`) emite e renova sozinho o certificado Let's Encrypt, redireciona HTTP→HTTPS e o `www` para o domínio raiz. Os certificados ficam no volume `caddy_data`. O nginx confia no `X-Forwarded-For` só da rede do compose (`172.28.0.0/24`), para o limite de 429 continuar por cliente. O health check do CD segue em `http://localhost/api/health`, por um bloco `http://localhost` do Caddyfile, sem certificado.
+- **Pré-requisitos do certificado:** registro `A` de `polis.software` e de `www` para o IP estático da VM (name.com) e NSG com 80 e 443 abertas (a 80 é necessária para o desafio do Let's Encrypt). Sem o DNS apontando, o Caddy sobe e fica tentando; o site em HTTPS só funciona depois que o DNS propagar.
 
 **Para o site ficar acessível, falta abrir a porta 80 no NSG** (hoje só a 22 está aberta):
 ```
@@ -126,7 +127,20 @@ Para fechar: `az network nsg rule delete -g polis-rg --nsg-name polis-vmNSG -n h
 - Nenhum dos workflows rodou no GitHub ainda; a estrutura é validada por `tests/test_ci_workflow.py` e `tests/test_cd.py`, e os scripts de shell tiveram a sintaxe conferida com `bash -n`. O primeiro deploy real vai exigir ajustes.
 - O rollback só desfaz a imagem; mudança incompatível nos parquets não é revertida.
 - O `cd.yml` ainda não rodou: faltam o environment `production`, o secret `AZURE_VM_SSH_KEY` e as variables `AZURE_VM_HOST` e `AZURE_VM_KNOWN_HOSTS`, e a porta 22 aberta à internet é superfície de ataque (varredura constante).
-- O frontend tem imagem (`docker/Dockerfile.frontend`) e entra no compose de produção e no CI (build + `nginx -t`), mas só fica visível na internet depois de abrir a porta 80 no NSG.
+- O frontend tem imagem (`docker/Dockerfile.frontend`) e entra no compose de produção e no CI (build + `nginx -t`), e fica visível na internet pelo Caddy (portas 80 e 443 abertas no NSG).
 - A VM é um ponto único de falha; vale um backup do `data/processed` (a ingestão regenera os parquets, mas o tempo ainda não foi medido).
 - As actions estão fixadas por versão maior (`@v4`, `@v6`), não por SHA.
 - O achado 3 do plano segue aberto: sem fallback, um timeout do Ollama vira 503.
+
+## Provedores de LLM (cadeia com disjuntor e teto diário)
+
+O `LLMClient` percorre uma cadeia ordenada, definida em `LLM_PROVIDERS` (padrão recomendado: `ollama,groq,deepseek`). A lógica é custo zero primeiro: o Ollama local, depois a Groq gratuita, e o DeepSeek pago só se os dois falharem. Sem `LLM_PROVIDERS`, valem `LLM_PROVIDER` e `FALLBACK_PROVIDER` como antes.
+
+- **Disjuntor** (`src/core/provider_guard.py`): depois de `LLM_BREAKER_FAILURES` falhas seguidas (3), o provedor é pulado por `LLM_BREAKER_COOLDOWN` segundos (120), sem esperar o timeout a cada checagem. Passado o tempo, uma única requisição testa o provedor; se der certo, ele volta a ser o primeiro (é assim que o Mac reassume o Ollama). Se todos os disjuntores estiverem abertos, a cadeia tenta mesmo assim.
+- **Teto diário:** por padrão só o DeepSeek, com 200 chamadas por dia UTC (`DEEPSEEK_DAILY_CAP`; `0` desliga). Tentativas que falham também contam. Acima do teto, nenhuma chamada paga é feita e o agente devolve a mensagem de indisponibilidade, nunca um palpite.
+- **Erro de configuração** (chave ausente) passa ao próximo provedor e não abre o disjuntor.
+- **Limitações:** o estado fica na memória de cada processo. O roteador e o juiz são serviços separados, então cada um tem o seu contador (o teto efetivo pode chegar ao dobro), e um reinício zera as contagens. O saldo real continua sendo o do painel do DeepSeek.
+- **Modelos:** o roteador pede `qwen2.5:7b` e o juiz `qwen2.5:14b` ao Ollama (`ROUTER_MODEL`, `JUDGE_MODEL`). Na nuvem (Groq, OpenAI, DeepSeek) o modelo vem do ambiente, nesta ordem: `<PAPEL>_<PROVEDOR>_MODEL` (ex.: `ROUTER_GROQ_MODEL`, `JUDGE_GROQ_MODEL`), depois `<PROVEDOR>_MODEL` (`GROQ_MODEL`), depois o padrão. A Groq limita o uso **por modelo**: com modelos diferentes para o roteador e o juiz, cada um tem a sua cota diária. Nem todo modelo da página pública da Groq aparece em todas as contas (confira em console.groq.com/settings/limits); o padrão `llama-3.1-8b-instant` pode não existir na sua, então defina `GROQ_MODEL`. Rode o golden dataset antes de confiar nos vereditos com outro modelo.
+- **Privacidade:** com a Groq e o DeepSeek, o texto da alegação e a evidência saem da infraestrutura do projeto.
+- **Timeouts em cascata:** o roteador espera o juiz por `JUDGE_LLM_TIMEOUT` (60 s) + `FALLBACK_TIMEOUT` (10 s) por provedor de contingência + 15 s de folga, ou por `JUDGE_SERVICE_TIMEOUT` se definido. Antes esse valor era fixo em 60 s, igual ao timeout do Ollama no juiz: com o Ollama fora, o roteador desistia no mesmo instante em que o juiz ia para a Groq, e a resposta (que chegava ao Langfuse) nunca era renderizada. Antes de cada tentativa no Ollama, o cliente faz um **teste de vida** (`GET /api/tags`, `OLLAMA_PROBE_TIMEOUT`, padrão 3 s, `0` desliga): como o Ollama chega por um túnel SSH reverso, que com o Mac fora aceita a conexão e não responde, sem o teste a falha só aparecia no timeout cheio (cerca de 100 s na primeira checagem: 30 s no roteador + 60 s no juiz + a nuvem). Com o teste, o Ollama morto é descartado em segundos, a falha conta no disjuntor e a cadeia segue para a Groq. O teste não pega um Ollama que lista os modelos mas trava na geração, nem o carregamento de um modelo frio: para esses vale o timeout longo. Modelos de raciocínio da Groq com evidência longa podem passar dos 10 s do `FALLBACK_TIMEOUT` padrão; `30` é mais seguro.
+

@@ -1,0 +1,19 @@
+# Porta de entrada pública da VM: termina o HTTPS de polis.software (certificado Let's Encrypt emitido e
+# renovado pelo próprio Caddy) e encaminha tudo para o nginx do frontend, dentro da rede do compose.
+# Enviado pelo CD para /srv/factcheck/Caddyfile.site. Não confundir com deploy/Caddyfile (porteiro do Ollama).
+
+polis.software {
+	reverse_proxy frontend:80 {
+		# Streaming SSE do veredito: nada de buffer entre o nginx e o navegador.
+		flush_interval -1
+	}
+}
+
+www.polis.software {
+	redir https://polis.software{uri} permanent
+}
+
+# Só para o health check do CD (curl http://localhost/api/health na VM): sem certificado e sem redirect.
+http://localhost {
+	reverse_proxy frontend:80
+}

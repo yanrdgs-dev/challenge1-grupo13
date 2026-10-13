@@ -5,10 +5,11 @@ import logging
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 import httpx
 from dotenv import load_dotenv
 
+from src.core import provider_guard
 from src.observability import tracing
 
 # Carrega as variáveis do arquivo .env caso exista
@@ -35,38 +36,89 @@ class ChatResult:
     used_fallback: bool = False
 
 
-class LLMClient:
-    """Cliente desacoplado para inferência LLM com fallback automático.
+class ProviderConfigError(ValueError):
+    """Provedor mal configurado (chave ausente, nome desconhecido): não é indisponibilidade do serviço."""
 
-    Permite chaveamento transparente entre inferência local (Ollama)
-    e provedores em nuvem (Groq ou OpenAI).
+
+# Provedores de nuvem no formato da OpenAI: URL, variável da chave, valor de exemplo do .env, modelo.
+OPENAI_COMPATIBLE: Dict[str, Dict[str, str]] = {
+    "groq": {
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "key_env": "GROQ_API_KEY",
+        "placeholder": "sua_chave_groq_aqui",
+        "model_env": "GROQ_MODEL",
+        "default_model": "llama-3.1-8b-instant",
+    },
+    "openai": {
+        "url": "https://api.openai.com/v1/chat/completions",
+        "key_env": "OPENAI_API_KEY",
+        "placeholder": "sua_chave_openai_aqui",
+        "model_env": "OPENAI_MODEL",
+        "default_model": "gpt-4o-mini",
+    },
+    "deepseek": {
+        "url": "https://api.deepseek.com/chat/completions",
+        "key_env": "DEEPSEEK_API_KEY",
+        "placeholder": "sua_chave_deepseek_aqui",
+        "model_env": "DEEPSEEK_MODEL",
+        "default_model": "deepseek-flash",
+    },
+}
+
+
+class LLMClient:
+    """Cliente desacoplado para inferência LLM com cadeia ordenada de provedores.
+
+    A cadeia (``LLM_PROVIDERS``, ex.: ``ollama,groq,deepseek``) é percorrida em ordem: o primeiro que
+    responder vence. Cada provedor tem um disjuntor (para de ser tentado depois de falhas seguidas) e
+    pode ter um teto diário de chamadas (por padrão, só o DeepSeek, que é pago). Ver ``provider_guard``.
     """
 
-    SUPPORTED_PROVIDERS: Set[str] = {"ollama", "groq", "openai"}
+    SUPPORTED_PROVIDERS: Set[str] = {"ollama", "groq", "openai", "deepseek"}
 
     def __init__(
         self,
         primary_provider: Optional[str] = None,
         fallback_provider: Optional[str] = None,
         timeout: Optional[float] = None,
+        providers: Optional[List[str]] = None,
+        role: Optional[str] = None,
     ):
         """Inicializa o cliente com base em parâmetros ou variáveis de ambiente.
 
         Args:
-            primary_provider: Provedor principal ('ollama', 'groq' ou 'openai').
+            primary_provider: Provedor principal. Se informado, a cadeia é só ele e o fallback.
             fallback_provider: Provedor de contingência (ou None/'' para desabilitar).
-            timeout: Tempo limite para requisições em segundos.
-        """
-        self.primary_provider = (
-            primary_provider or os.getenv("LLM_PROVIDER", "ollama")
-        ).strip().lower()
+            timeout: Tempo limite do primeiro provedor, em segundos.
+            providers: Cadeia ordenada completa (tem precedência sobre os demais).
+            role: Papel do cliente ('router' ou 'judge'). Nos provedores de nuvem, habilita
+                ``<PAPEL>_<PROVEDOR>_MODEL`` (ex.: ``JUDGE_GROQ_MODEL``) antes de ``<PROVEDOR>_MODEL``.
 
-        raw_fallback = (
-            fallback_provider
-            if fallback_provider is not None
-            else os.getenv("FALLBACK_PROVIDER", "groq")
-        )
-        self.fallback_provider = raw_fallback.strip().lower() if raw_fallback else None
+        Sem nenhum argumento, vale ``LLM_PROVIDERS``; se ela não existir, ``LLM_PROVIDER`` + ``FALLBACK_PROVIDER``.
+        """
+        if providers is not None:
+            chain = list(providers)
+        elif primary_provider is None and fallback_provider is None and os.getenv("LLM_PROVIDERS", "").strip():
+            chain = os.getenv("LLM_PROVIDERS", "").split(",")
+        else:
+            raw_fallback = (
+                fallback_provider
+                if fallback_provider is not None
+                else os.getenv("FALLBACK_PROVIDER", "groq")
+            )
+            chain = [primary_provider or os.getenv("LLM_PROVIDER", "ollama"), raw_fallback or ""]
+
+        self.providers: List[str] = []
+        for name in chain:
+            name = (name or "").strip().lower()
+            if name and name not in self.providers:
+                self.providers.append(name)
+        if not self.providers:
+            self.providers = ["ollama"]
+
+        self.role = (role or "").strip().lower() or None
+        self.primary_provider = self.providers[0]
+        self.fallback_provider = self.providers[1] if len(self.providers) > 1 else None
 
         env_timeout = os.getenv("LLM_TIMEOUT", "3.0")
         try:
@@ -97,43 +149,13 @@ class LLMClient:
         if not prompt or not isinstance(prompt, str):
             raise ValueError("O prompt deve ser uma string não vazia.")
 
-        try:
-            logger.info("Executando inferência via: %s", self.primary_provider.upper())
-            return self._call_provider(self.primary_provider, prompt, timeout=self.timeout)
-        except Exception as e:
-            logger.warning(
-                "Falha no provedor '%s': %s",
-                self.primary_provider,
-                e,
+        def attempt(provider: str, index: int) -> str:
+            logger.info("Executando inferência via: %s", provider.upper())
+            return self._call_provider(
+                provider, prompt, timeout=self.timeout if index == 0 else self.fallback_timeout
             )
 
-            # Se houver fallback configurado e for diferente do primário, tenta contingência
-            if self.fallback_provider and self.fallback_provider != self.primary_provider:
-                logger.info(
-                    "Ativando contingência nuvem via: %s",
-                    self.fallback_provider.upper(),
-                )
-                try:
-                    return self._call_provider(
-                        self.fallback_provider,
-                        prompt,
-                        timeout=self.fallback_timeout,
-                    )
-                except Exception as fallback_err:
-                    logger.error(
-                        "Erro crítico em ambos os provedores (primário: %s, fallback: %s): %s",
-                        self.primary_provider,
-                        self.fallback_provider,
-                        fallback_err,
-                    )
-                    raise RuntimeError(
-                        f"Falha total nos serviços de LLM: provedor '{self.primary_provider}' "
-                        f"({e}) e fallback '{self.fallback_provider}' ({fallback_err}) falharam."
-                    ) from fallback_err
-            else:
-                raise RuntimeError(
-                    f"Falha no provedor '{self.primary_provider}' e nenhum fallback disponível: {e}"
-                ) from e
+        return self._run_chain(attempt)
 
     def chat(
         self,
@@ -162,37 +184,97 @@ class LLMClient:
         if not messages or not isinstance(messages, list):
             raise ValueError("messages deve ser uma lista não vazia.")
 
-        try:
-            return self._chat_provider(
-                self.primary_provider, messages, tools, model, json_mode, self.timeout,
-                prompt=prompt,
+        def attempt(provider: str, index: int) -> ChatResult:
+            result = self._chat_provider(
+                provider, messages, tools, model if index == 0 else None, json_mode,
+                self.timeout if index == 0 else self.fallback_timeout,
+                is_fallback=index > 0, prompt=prompt,
             )
-        except Exception as e:
-            logger.warning("Falha no provedor '%s' (chat): %s", self.primary_provider, e)
-            if self.fallback_provider and self.fallback_provider != self.primary_provider:
-                try:
-                    result = self._chat_provider(
-                        self.fallback_provider, messages, tools, None, json_mode,
-                        self.fallback_timeout, is_fallback=True, prompt=prompt,
-                    )
-                    result.used_fallback = True
+            result.used_fallback = index > 0
+            return result
+
+        return self._run_chain(attempt)
+
+    def _run_chain(self, attempt: Callable[[str, int], Any]) -> Any:
+        """Percorre a cadeia em ordem, respeitando o teto diário e o disjuntor de cada provedor.
+
+        Se todos os disjuntores estiverem abertos, tenta mesmo assim (falhar sem tentar é pior). Erro de
+        configuração (chave ausente) passa ao próximo provedor sem contar como falha do serviço.
+        """
+        guards = provider_guard.guards
+        errors: Dict[str, str] = {}
+        skipped: List[str] = []
+        attempted = False
+
+        def call(provider: str) -> Tuple[bool, Any]:
+            nonlocal attempted
+            attempted = True
+            breaker = guards.breaker(provider)
+            guards.cap(provider).acquire()
+            try:
+                result = attempt(provider, self.providers.index(provider))
+            except ProviderConfigError as exc:
+                breaker.release_trial()
+                errors[provider] = str(exc)
+            except Exception as exc:
+                breaker.record_failure()
+                errors[provider] = str(exc)
+                logger.warning("Falha no provedor '%s': %s", provider, exc)
+            else:
+                breaker.record_success()
+                return True, result
+            return False, None
+
+        for provider in self.providers:
+            if guards.cap(provider).exhausted():
+                errors[provider] = "limite diário de chamadas atingido"
+            elif not guards.breaker(provider).allow():
+                skipped.append(provider)
+                errors[provider] = "disjuntor aberto (falhas seguidas recentes)"
+            else:
+                ok, result = call(provider)
+                if ok:
                     return result
-                except Exception as fallback_err:
-                    raise RuntimeError(
-                        f"Falha total nos serviços de LLM: provedor '{self.primary_provider}' "
-                        f"({e}) e fallback '{self.fallback_provider}' ({fallback_err}) falharam."
-                    ) from fallback_err
-            raise RuntimeError(
-                f"Falha no provedor '{self.primary_provider}' e nenhum fallback disponível: {e}"
-            ) from e
+
+        if not attempted:
+            for provider in skipped:
+                ok, result = call(provider)
+                if ok:
+                    return result
+
+        raise RuntimeError(self._failure_message(errors))
+
+    def _failure_message(self, errors: Dict[str, str]) -> str:
+        if len(self.providers) == 1:
+            only = self.providers[0]
+            return f"Falha no provedor '{only}' e nenhum fallback disponível: {errors.get(only, 'sem detalhe')}"
+        parts = [
+            f"{'provedor' if i == 0 else 'fallback'} '{name}' ({errors.get(name, 'não tentado')})"
+            for i, name in enumerate(self.providers)
+        ]
+        joined = parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " e " + parts[-1]
+        return f"Falha total nos serviços de LLM: {joined} falharam."
 
     def _default_model(self, provider: str) -> str:
         """Modelo configurado no ambiente para o provedor."""
         if provider == "ollama":
             return os.getenv("OLLAMA_MODEL", "llama3.1:8b")
-        if provider == "groq":
-            return os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+        if provider in OPENAI_COMPATIBLE:
+            return self._cloud_model(provider)
         return os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+
+    def _cloud_model(self, provider: str) -> str:
+        """Modelo de um provedor de nuvem: ``<PAPEL>_<PROVEDOR>_MODEL``, depois ``<PROVEDOR>_MODEL``, depois o padrão.
+
+        A Groq limita o uso por modelo: papéis com modelos diferentes têm cotas separadas.
+        """
+        spec = OPENAI_COMPATIBLE[provider]
+        if self.role:
+            by_role = (os.getenv(f"{self.role.upper()}_{provider.upper()}_MODEL") or "").strip()
+            if by_role:
+                return by_role
+        shared = (os.getenv(spec["model_env"]) or "").strip()
+        return shared or spec["default_model"]
 
     def _chat_provider(
         self,
@@ -206,11 +288,11 @@ class LLMClient:
         prompt: Any = None,
     ) -> ChatResult:
         if provider not in self.SUPPORTED_PROVIDERS:
-            raise ValueError(
+            raise ProviderConfigError(
                 f"Provedor desconhecido: '{provider}'. Provedores suportados: {sorted(self.SUPPORTED_PROVIDERS)}"
             )
 
-        # Só o Ollama aceita o modelo informado; Groq/OpenAI usam o modelo do ambiente.
+        # Só o Ollama aceita o modelo informado; Groq, OpenAI e DeepSeek usam o modelo do ambiente.
         planned_model = (model if provider == "ollama" and model else None) or self._default_model(provider)
         base_metadata = {
             "provider": provider,
@@ -267,6 +349,32 @@ class LLMClient:
         api_key = (os.getenv("OLLAMA_API_KEY") or "").strip()
         return {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
+    @staticmethod
+    def _probe_timeout() -> float:
+        """Timeout do teste de vida do Ollama (``OLLAMA_PROBE_TIMEOUT``, padrão 3 s). ``0`` desliga."""
+        raw = os.getenv("OLLAMA_PROBE_TIMEOUT", "3")
+        try:
+            value = float(raw)
+        except ValueError:
+            return 3.0
+        if value == 0:
+            return 0.0
+        return value if value > 0 else 3.0
+
+    def _probe_ollama(self, base_url: str) -> None:
+        """Confere em segundos se o Ollama responde, antes de esperar o timeout longo do chat.
+
+        O Ollama chega pelo túnel SSH reverso: com o Mac fora, o túnel aceita a conexão e não responde.
+        ``GET /api/tags`` só lista os modelos instalados (não gera nada). Falha ao responder levanta
+        exceção, e a cadeia trata como falha do Ollama (conta no disjuntor) e segue para o próximo.
+        """
+        probe_timeout = self._probe_timeout()
+        if probe_timeout <= 0:
+            return
+        with httpx.Client(timeout=probe_timeout) as client:
+            resp = client.get(f"{base_url}/api/tags", headers=self._ollama_headers())
+            resp.raise_for_status()
+
     def _chat_ollama(
         self,
         messages: List[Dict[str, Any]],
@@ -277,6 +385,7 @@ class LLMClient:
     ) -> ChatResult:
         """Chat via API do Ollama (/api/chat)."""
         base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+        self._probe_ollama(base_url)
         body: Dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -311,19 +420,13 @@ class LLMClient:
         json_mode: bool,
         timeout: float,
     ) -> ChatResult:
-        """Chat via APIs compatíveis com OpenAI (Groq e OpenAI)."""
-        if provider == "groq":
-            api_key = os.getenv("GROQ_API_KEY")
-            if not api_key or api_key == "sua_chave_groq_aqui":
-                raise ValueError("GROQ_API_KEY não configurada ou inválida no arquivo .env")
-            url = "https://api.groq.com/openai/v1/chat/completions"
-            used_model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
-        else:
-            api_key = os.getenv("OPENAI_API_KEY")
-            if not api_key or api_key == "sua_chave_openai_aqui":
-                raise ValueError("OPENAI_API_KEY não configurada ou inválida no arquivo .env")
-            url = "https://api.openai.com/v1/chat/completions"
-            used_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        """Chat via APIs compatíveis com OpenAI (Groq, OpenAI e DeepSeek)."""
+        spec = OPENAI_COMPATIBLE[provider]
+        api_key = os.getenv(spec["key_env"])
+        if not api_key or api_key == spec["placeholder"]:
+            raise ProviderConfigError(f"{spec['key_env']} não configurada ou inválida no arquivo .env")
+        url = spec["url"]
+        used_model = self._cloud_model(provider)
 
         body: Dict[str, Any] = {
             "model": used_model,
@@ -389,7 +492,7 @@ class LLMClient:
             Resposta textual da LLM.
         """
         if provider not in self.SUPPORTED_PROVIDERS:
-            raise ValueError(
+            raise ProviderConfigError(
                 f"Provedor desconhecido: '{provider}'. Provedores suportados: {sorted(self.SUPPORTED_PROVIDERS)}"
             )
 
@@ -399,13 +502,16 @@ class LLMClient:
             return self._call_groq(prompt, timeout)
         elif provider == "openai":
             return self._call_openai(prompt, timeout)
+        elif provider == "deepseek":
+            return self._call_deepseek(prompt, timeout)
 
-        raise ValueError(f"Provedor não implementado: '{provider}'")
+        raise ProviderConfigError(f"Provedor não implementado: '{provider}'")
 
     def _call_ollama(self, prompt: str, timeout: float) -> str:
         """Executa inferência local via API do Ollama."""
         base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
         model = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
+        self._probe_ollama(base_url)
 
         payload = {
             "model": model,
@@ -425,9 +531,9 @@ class LLMClient:
         """Executa inferência em nuvem via API do Groq."""
         api_key = os.getenv("GROQ_API_KEY")
         if not api_key or api_key == "sua_chave_groq_aqui":
-            raise ValueError("GROQ_API_KEY não configurada ou inválida no arquivo .env")
+            raise ProviderConfigError("GROQ_API_KEY não configurada ou inválida no arquivo .env")
 
-        model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+        model = self._cloud_model("groq")
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -451,9 +557,9 @@ class LLMClient:
         """Executa inferência em nuvem via API da OpenAI."""
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key or api_key == "sua_chave_openai_aqui":
-            raise ValueError("OPENAI_API_KEY não configurada ou inválida no arquivo .env")
+            raise ProviderConfigError("OPENAI_API_KEY não configurada ou inválida no arquivo .env")
 
-        model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        model = self._cloud_model("openai")
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -472,3 +578,10 @@ class LLMClient:
             response.raise_for_status()
             data = response.json()
             return data["choices"][0]["message"]["content"]
+
+    def _call_deepseek(self, prompt: str, timeout: float) -> str:
+        """Executa inferência em nuvem via API do DeepSeek (formato OpenAI)."""
+        result = self._chat_openai_compatible(
+            "deepseek", [{"role": "user", "content": prompt}], None, False, timeout
+        )
+        return result.content

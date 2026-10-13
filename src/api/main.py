@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.routes.factcheck import router as factcheck_router
+from src.api.routes.ingestion import router as ingestion_router
 
 app = FastAPI(
     title="Pólis Fact-Checking API",
@@ -21,6 +22,7 @@ app.add_middleware(
 )
 
 app.include_router(factcheck_router)
+app.include_router(ingestion_router)
 
 
 @app.get("/api/health")

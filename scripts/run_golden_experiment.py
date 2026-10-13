@@ -83,7 +83,8 @@ def main(
     parser.add_argument("--dataset", choices=["langfuse", "local"], default="langfuse",
                         help="Origem das claims: dataset no Langfuse (vincula a execução) ou arquivo local.")
     parser.add_argument("--local", action="store_true", help="Atalho para --dataset local.")
-    parser.add_argument("--golden-path", default=str(ROOT / "golden_dataset_v1.json"))
+    parser.add_argument("--golden-path", default=str(ROOT / "golden_dataset_v2.json"),
+                        help="Arquivo do golden; o nome do dataset no Langfuse é o do arquivo (golden_dataset_v1/v2).")
     parser.add_argument("--threshold", action="append", default=[], metavar="NOME=VALOR",
                         help="Limiar mínimo (0 a 1) de um score. Pode repetir.")
     parser.add_argument("--thresholds-file", default=str(DEFAULT_THRESHOLDS_FILE))
@@ -100,7 +101,8 @@ def main(
         client = client_factory()
         check_fn = check_fn_factory(args.router_url, f"golden-{run_name}")
         summary, problems = run_golden_experiment(
-            client, claims, check_fn, run_name, thresholds, use_langfuse_dataset=use_dataset
+            client, claims, check_fn, run_name, thresholds, use_langfuse_dataset=use_dataset,
+            dataset_name=Path(args.golden_path).stem,
         )
     except ValueError as exc:
         print(f"ERRO: {exc}", file=sys.stderr)

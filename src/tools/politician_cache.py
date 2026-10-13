@@ -4,12 +4,16 @@ Otimizado para atender a requisitos de latência inferior a 50ms (SC-005)
 e suportar matching exato O(1) e fuzzy matching via RapidFuzz.
 """
 
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import polars as pl
 
 from src.tools.normalizer import normalize_text
+
+
+logger = logging.getLogger(__name__)
 
 
 class PoliticianCache:
@@ -19,6 +23,7 @@ class PoliticianCache:
 
     def __init__(self, parquet_path: str = "data/processed/dim_politicos.parquet"):
         self.parquet_path = parquet_path
+        self._signature: Optional[Tuple[int, int]] = None  # (mtime_ns, tamanho) do parquet carregado
         self.records: List[Dict[str, Any]] = []
         # Índices exatos para busca O(1)
         self.civil_index: Dict[str, List[Dict[str, Any]]] = {}
@@ -27,13 +32,41 @@ class PoliticianCache:
         self.fuzzy_corpus: List[Tuple[str, str, Dict[str, Any]]] = []
         self._load()
 
+    def _file_signature(self) -> Optional[Tuple[int, int]]:
+        try:
+            st = Path(self.parquet_path).stat()
+        except OSError:
+            return None
+        return (st.st_mtime_ns, st.st_size)
+
     def _load(self) -> None:
         path = Path(self.parquet_path)
         if not path.exists():
             return
 
+        signature = self._file_signature()
         df = pl.read_parquet(path)
         self.load_from_dataframe(df)
+        self._signature = signature
+
+    def reload_if_changed(self) -> bool:
+        """Recarrega se a ingestão publicou uma versão nova do parquet.
+
+        Um arquivo ilegível ou ausente mantém o catálogo anterior: melhor dado antigo e consistente do que
+        nenhum. A publicação da ingestão troca o arquivo por renomeação, então a leitura nunca vê meio arquivo.
+        """
+        signature = self._file_signature()
+        if signature is None or signature == self._signature:
+            return False
+        try:
+            df = pl.read_parquet(self.parquet_path)
+        except Exception as e:  # noqa: BLE001 - arquivo corrompido ou em troca: mantém o catálogo atual
+            logger.warning("dim_politicos.parquet ilegível (%s); mantendo o catálogo anterior", e)
+            return False
+        self.load_from_dataframe(df)
+        self._signature = signature
+        logger.info("dim_politicos recarregado: %d registros", len(self.records))
+        return True
 
     def load_from_dataframe(self, df: pl.DataFrame) -> None:
         """Carrega e indexa registros a partir de um DataFrame do Polars."""
@@ -60,6 +93,8 @@ class PoliticianCache:
     def get_instance(cls, parquet_path: str = "data/processed/dim_politicos.parquet") -> "PoliticianCache":
         if cls._instance is None:
             cls._instance = cls(parquet_path)
+        else:
+            cls._instance.reload_if_changed()
         return cls._instance
 
     @classmethod

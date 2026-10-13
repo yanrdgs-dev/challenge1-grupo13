@@ -81,3 +81,28 @@ def trace_recorder():
     with patch("src.observability.tracing.observation", recorder.observation), \
          patch("src.observability.tracing.trace_attributes", recorder.trace_attributes):
         yield recorder
+
+
+@pytest.fixture(autouse=True)
+def _reset_llm_provider_guards():
+    """Disjuntor e teto diário guardam estado no processo: cada teste começa com tudo zerado."""
+    from src.core import provider_guard
+
+    provider_guard.reset()
+    yield
+    provider_guard.reset()
+
+
+# O teste de vida do Ollama faria um GET real em localhost:11434 em todo teste que simula só o `post`.
+# Os testes dele (tests/test_ollama_probe.py) ligam o teste explicitamente.
+os.environ["OLLAMA_PROBE_TIMEOUT"] = "0"
+
+
+@pytest.fixture(autouse=True)
+def _no_download_backoff(monkeypatch):
+    """Os testes de download nunca esperam o backoff de retentativa de verdade."""
+    from src.etl import download_datasets
+
+    waits = []
+    monkeypatch.setattr(download_datasets, "_sleep", waits.append)
+    return waits

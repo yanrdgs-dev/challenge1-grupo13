@@ -53,10 +53,12 @@ jobs:
           printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
-      - name: Envia o compose de produção
+      - name: Envia o compose de produção e o Caddyfile do site
         run: |
           scp -i ~/.ssh/deploy_key -o UserKnownHostsFile=~/.ssh/known_hosts \
             docker-compose.prod.yml "${VM_USER}@${VM_HOST}:/srv/factcheck/docker-compose.prod.yml"
+          scp -i ~/.ssh/deploy_key -o UserKnownHostsFile=~/.ssh/known_hosts \
+            deploy/Caddyfile.site "${VM_USER}@${VM_HOST}:/srv/factcheck/Caddyfile.site"
       - name: Deploy com health check e rollback
         run: |
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')

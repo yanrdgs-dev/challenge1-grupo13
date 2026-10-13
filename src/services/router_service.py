@@ -25,11 +25,13 @@ from src.guardrails.actions import (
     check_input_specificity,
 )
 from src.observability import tracing
+from src.api.routes.ingestion import router as ingestion_router
 from src.services import frontend_api
 from src.observability.prompts import get_prompt
 from src.prompts.defaults import PROMPT_ROUTER_SYSTEM
-from src.services.tool_args import validate_tool_args
-from src.services.sources import derive_sources, ensure_source_cited, evidence_failed, merge_sources
+from src.services.tool_args import ground_candidate_args, validate_tool_args
+from src.services.data_freshness import data_date, ensure_data_date_cited, load_ingestion_info
+from src.services.sources import TSE as TSE_SOURCE, derive_sources, ensure_source_cited, evidence_failed, merge_sources
 from src.tools.gastos_tools import (
     check_parliamentary_expenses,
     get_member_expenses,
@@ -39,6 +41,23 @@ from src.tools.gastos_tools import (
 from src.tools.knowledge_tools import check_data_source_coverage, check_institutional_rule
 from src.tools.resolve_politician import resolve_politician
 from src.tools.resolve_proposition import resolve_proposition
+from src.tools.tse_comparison_tools import compare_candidates, comparison_spec_problem
+from src.tools.tse_financas_tools import get_campaign_finances, get_top_campaign_finances
+from src.tools.tse_perfil_tools import (
+    check_cash_and_special_assets,
+    check_candidate_profile,
+    get_candidate_assets,
+    verify_official_social_media,
+)
+from src.tools.tse_tools import (
+    check_candidate_status,
+    check_disqualification_motive,
+    election_results_available,
+    get_candidate_votes,
+    get_election_result,
+    resolve_candidate,
+    results_unavailable,
+)
 from src.tools.votacoes_api import get_proposition_vote_breakdown, get_proposition_vote_result
 from src.services.tool_catalog import ROUTER_SYSTEM_PROMPT, TOOLS_CATALOG
 
@@ -60,7 +79,7 @@ app = FastAPI(
 )
 
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
-llm_client = LLMClient(timeout=float(os.getenv("ROUTER_LLM_TIMEOUT", "30.0")))
+llm_client = LLMClient(timeout=float(os.getenv("ROUTER_LLM_TIMEOUT", "30.0")), role="router")
 ROUTER_MODEL = os.getenv("ROUTER_MODEL", "qwen2.5:7b")
 JUDGE_SERVICE_URL = os.getenv("JUDGE_SERVICE_URL", "http://judge-service:8000").rstrip("/")
 
@@ -86,6 +105,11 @@ class CheckClaimResponse(BaseModel):
     confianca: str
     justificativa: str
     fontes_primarias: List[str]
+    dados_atualizados_em: Optional[str] = Field(
+        default=None,
+        description="Quando a base de dados consultada foi atualizada pela última vez (ISO 8601, UTC). "
+                    "Nulo quando a tool não leu dados ingeridos.",
+    )
     tempo_total_ms: float
     tempo_roteamento_ms: float
     tempo_julgamento_ms: Optional[float] = None
@@ -165,6 +189,61 @@ def _resolve_parlamentar_id(casa: str, valor: str, uf: Optional[str] = None) -> 
     return {"id": str(canonical)}
 
 
+def _with_resolved_candidate(args: Dict[str, Any], run: Callable[[int], Dict[str, Any]]) -> Dict[str, Any]:
+    """Resolve o candidato (regra 2) e só então chama a tool de dado com o SQ_CANDIDATO canônico."""
+    nome = str(args["nome_candidato"]).strip()
+    with tracing.observation(
+        "resolve_candidate", input={"nome_busca": nome, "ano": args["ano"], "cargo": args.get("cargo")}
+    ) as span:
+        res = resolve_candidate(
+            nome_busca=nome, ano=args["ano"], cargo=args.get("cargo"), uf=args.get("uf"), numero=args.get("numero")
+        )
+        span.update(output=res)
+    if res.get("ambiguous") or res.get("sq_candidato") is None:
+        return _unresolved(
+            ambiguous=bool(res.get("ambiguous")), candidato_informado=nome, resolucao=res,
+            motivo=res.get("motivo"),
+        )
+    evidence = run(res["sq_candidato"])
+    resolution = {k: res.get(k) for k in ("sq_candidato", "nome_urna", "nome_civil", "partido", "cargo", "uf", "ano")}
+    return {**evidence, "entidade_resolvida": resolution}
+
+
+def _compare_candidates(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve cada nome (regra 2) e só então compara; um nome ambíguo ou desconhecido impede a comparação."""
+    ano, metrica, turno = args["ano"], args["metrica"], args.get("turno")
+    problem = comparison_spec_problem(metrica, turno, ano)
+    if problem:
+        return problem
+    if metrica == "votos_validos" and not election_results_available(ano):
+        return results_unavailable(ano)  # ex.: 2026, sem votação publicada: nem resolve os nomes
+
+    resolved, unresolved = [], []
+    for nome in args["candidatos"]:
+        with tracing.observation("resolve_candidate", input={"nome_busca": nome, "ano": ano, "cargo": args.get("cargo")}) as span:
+            res = resolve_candidate(nome_busca=nome, ano=ano, cargo=args.get("cargo"), uf=args.get("uf"))
+            span.update(output=res)
+        if res.get("ambiguous") or res.get("sq_candidato") is None:
+            unresolved.append({"candidato_informado": nome, "resolucao": res, "ambiguous": bool(res.get("ambiguous"))})
+        else:
+            resolved.append({k: res.get(k) for k in ("sq_candidato", "nome_urna", "nome_civil", "partido", "cargo", "uf", "ano")})
+    if unresolved:
+        return _unresolved(
+            ambiguous=any(u["ambiguous"] for u in unresolved), candidatos_nao_resolvidos=unresolved,
+            motivo="Nem todos os candidatos da comparação foram resolvidos de forma única.",
+        )
+    evidence = compare_candidates(sq_candidatos=[r["sq_candidato"] for r in resolved], ano=ano, metrica=metrica, turno=turno)
+    return {**evidence, "entidades_resolvidas": resolved}
+
+
+def _candidate_votes(args: Dict[str, Any]) -> Dict[str, Any]:
+    if not election_results_available(args["ano"]):
+        return results_unavailable(args["ano"])  # sem votação publicada (ex.: 2026): nem resolve o nome
+    return _with_resolved_candidate(
+        args, lambda sq: get_candidate_votes(sq_candidato=sq, ano=args["ano"], turno=args["turno"])
+    )
+
+
 def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Executa a tool Python real mapeada pelo Roteador.
 
@@ -237,6 +316,38 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
             )
         votacoes = get_proposition_vote_result(id_proposicao=prop_id, casa=casa)
         return {"casa": casa, "id_proposicao": prop_id, "votacoes": votacoes}
+    if tool_name == "resolve_candidate":
+        return resolve_candidate(
+            nome_busca=args["nome_busca"], ano=args["ano"], cargo=args.get("cargo"),
+            uf=args.get("uf"), numero=args.get("numero"),
+        )
+    if tool_name == "get_election_result":
+        return get_election_result(cargo=args["cargo"], ano=args["ano"], turno=args["turno"], uf=args.get("uf"))
+    if tool_name == "compare_candidates":
+        return _compare_candidates(args)
+    if tool_name == "get_candidate_votes":
+        return _candidate_votes(args)
+    if tool_name == "check_candidate_status":
+        return _with_resolved_candidate(args, lambda sq: check_candidate_status(sq_candidato=sq, ano=args["ano"]))
+    if tool_name == "get_campaign_finances":
+        return _with_resolved_candidate(args, lambda sq: get_campaign_finances(sq_candidato=sq, ano=args["ano"]))
+    if tool_name == "get_top_campaign_finances":
+        return get_top_campaign_finances(
+            cargo=args["cargo"], ano=args["ano"], metrica=args.get("metrica") or "despesas_contratadas",
+            uf=args.get("uf"), top_n=args.get("top_n") or 5,
+        )
+    if tool_name == "check_candidate_profile":
+        return _with_resolved_candidate(args, lambda sq: check_candidate_profile(sq_candidato=sq, ano=args["ano"]))
+    if tool_name == "get_candidate_assets":
+        return _with_resolved_candidate(args, lambda sq: get_candidate_assets(sq_candidato=sq, ano=args["ano"]))
+    if tool_name == "check_cash_and_special_assets":
+        return _with_resolved_candidate(args, lambda sq: check_cash_and_special_assets(sq_candidato=sq, ano=args["ano"]))
+    if tool_name == "verify_official_social_media":
+        return _with_resolved_candidate(
+            args, lambda sq: verify_official_social_media(sq_candidato=sq, ano=args["ano"], termo=args.get("termo"))
+        )
+    if tool_name == "check_disqualification_motive":
+        return _with_resolved_candidate(args, lambda sq: check_disqualification_motive(sq_candidato=sq, ano=args["ano"]))
     if tool_name == "check_institutional_rule":
         # Regra 4: base normativa curada; não consulta dado transacional nem resolve entidade.
         try:
@@ -253,11 +364,37 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
     return {"erro": f"Tool '{tool_name}' não implementada no roteador."}
 
 
+# Mesmo padrão do `JUDGE_LLM_TIMEOUT` em judge_service.py: o roteador precisa saber o quanto o juiz pode demorar.
+DEFAULT_JUDGE_LLM_TIMEOUT = 60.0
+JUDGE_CALL_MARGIN = 15.0
+
+
+def judge_call_timeout() -> float:
+    """Quanto o roteador espera o juiz: precisa ser MAIOR que a pior cadeia de LLM do juiz.
+
+    O juiz gasta o timeout do primeiro provedor (``JUDGE_LLM_TIMEOUT``) e, se ele falhar, um
+    ``FALLBACK_TIMEOUT`` por provedor seguinte. Esperar menos que isso descarta uma resposta que o
+    fallback ainda ia entregar. ``JUDGE_SERVICE_TIMEOUT`` (positivo) fixa o valor à mão.
+    """
+    try:
+        explicit = float(os.getenv("JUDGE_SERVICE_TIMEOUT", ""))
+    except ValueError:
+        explicit = 0.0
+    if explicit > 0:
+        return explicit
+    try:
+        judge_llm = float(os.getenv("JUDGE_LLM_TIMEOUT", DEFAULT_JUDGE_LLM_TIMEOUT))
+    except ValueError:
+        judge_llm = DEFAULT_JUDGE_LLM_TIMEOUT
+    fallbacks = max(len(llm_client.providers) - 1, 0)
+    return judge_llm + fallbacks * llm_client.fallback_timeout + JUDGE_CALL_MARGIN
+
+
 def _call_judge(
     endpoint: str, payload: Dict[str, Any], headers: Optional[Dict[str, str]] = None
 ) -> Dict[str, Any]:
     """Chama o Judge Service e devolve o JSON da resposta (levanta em erro HTTP ou de rede)."""
-    with httpx.Client(timeout=60.0) as client:
+    with httpx.Client(timeout=judge_call_timeout()) as client:
         resp = client.post(endpoint, json=payload, headers=headers or {})
         resp.raise_for_status()
         return resp.json()
@@ -423,6 +560,11 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
         inferred_uf = _uf_in_claim(claim_text)
         if inferred_uf:
             tool_args = {**tool_args, "uf": inferred_uf}
+    grounded_args = ground_candidate_args(tool_name, tool_args, claim_text)
+    if grounded_args != tool_args:
+        dropped = sorted(set(tool_args) - set(grounded_args))
+        logger.warning("Filtros %s de '%s' não estão na claim; descartados (regra 3).", dropped, tool_name)
+        tool_args = grounded_args
 
     routing_ms = (time.perf_counter() - start) * 1000
     if on_step:
@@ -525,6 +667,23 @@ def _run_check(
     tool_name, tool_args, evidence = outcome.tool_name, outcome.tool_args, outcome.evidence
     tempo_roteamento_ms = outcome.routing_ms
 
+    # 2b. Votação do ano ainda não publicada pelo TSE: resposta determinística, sem juiz (regra 3).
+    if (evidence or {}).get("status") == "resultado_indisponivel":
+        return CheckClaimResponse(
+            claim=claim_text,
+            tool_usada=tool_name,
+            parametros_tool=tool_args,
+            evidencia_coletada=evidence,
+            veredito="INCONCLUSIVO",
+            confianca="ALTA",
+            justificativa=evidence.get("motivo") or "Os dados abertos do TSE ainda não foram atualizados.",
+            fontes_primarias=[TSE_SOURCE],
+            tempo_total_ms=round((time.perf_counter() - start_total) * 1000, 2),
+            tempo_roteamento_ms=round(tempo_roteamento_ms, 2),
+            ferramentas_usadas=outcome.tools_used,
+            regra_acionada="dados_tse_nao_atualizados",
+        )
+
     # 3. Comunicação com o Agente Julgador no Kubernetes
     judge_endpoint = f"{JUDGE_SERVICE_URL}/judge"
     judge_payload = {
@@ -568,6 +727,11 @@ def _run_check(
         else []
     )
     justificativa = ensure_source_cited(justificativa, fontes)
+    # Data da base consultada: determinística, a partir da tool que executou (como a fonte), não do LLM.
+    dados_atualizados_em = (
+        data_date(tool_name, tool_args, evidence, load_ingestion_info()) if tool_executed else None
+    )
+    justificativa = ensure_data_date_cited(justificativa, dados_atualizados_em)
     with tracing.observation(
         "guardrails.output",
         input={"verdict": veredito, "tool_executed": tool_executed, "sources": fontes},
@@ -601,6 +765,7 @@ def _run_check(
         confianca=confianca,
         justificativa=justificativa,
         fontes_primarias=fontes,
+        dados_atualizados_em=dados_atualizados_em,
         tempo_total_ms=round(tempo_total_ms, 2),
         tempo_roteamento_ms=round(tempo_roteamento_ms, 2),
         tempo_julgamento_ms=tempo_julgamento_ms,
@@ -610,6 +775,7 @@ def _run_check(
 
 # Rotas do frontend (/api/*): traduzem o contrato do Pólis e reaproveitam o mesmo pipeline do /check.
 frontend_api.register(app, _traced_check)
+app.include_router(ingestion_router)  # GET /api/ingestion/status
 
 
 if __name__ == "__main__":

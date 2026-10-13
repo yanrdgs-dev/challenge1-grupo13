@@ -1,0 +1,13 @@
+[Unit]
+Description=Verifica novidades nas bases públicas a cada hora
+
+[Timer]
+# A verificação é barata (HEAD por fonte); o download e o build só acontecem se houver novidade.
+OnCalendar=*-*-* *:20:00
+RandomizedDelaySec=300
+# Se a VM estava desligada no horário, roda assim que voltar.
+Persistent=true
+Unit=factcheck-ingestion.service
+
+[Install]
+WantedBy=timers.target

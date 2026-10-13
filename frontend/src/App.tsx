@@ -438,6 +438,12 @@ function Sidebar({
           <p className="text-[0.68rem] font-medium text-slate-400">
             Pólis · Informação pública auditável
           </p>
+          <a
+            href="/status"
+            className="mt-1 inline-block text-[0.68rem] font-medium text-slate-400 underline-offset-2 hover:text-emerald-700 hover:underline"
+          >
+            Estado dos dados
+          </a>
         </div>
       </aside>
     </>

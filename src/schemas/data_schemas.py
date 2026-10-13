@@ -36,6 +36,18 @@ TSE_CANDIDATOS_COLUMNS: List[str] = [
     "NR_CANDIDATO",
     "NM_SOCIAL_CANDIDATO",
     "DS_SITUACAO_CANDIDATURA",
+    # Turno: o cadastro tem uma linha por candidatura e por turno (o mesmo SQ_CANDIDATO aparece nos dois
+    # turnos); sem esta coluna as linhas do 2º turno ficam duplicadas e indistinguíveis.
+    "NR_TURNO",
+    "DS_SIT_TOT_TURNO",
+    # Perfil público do candidato (check_candidate_profile). CPF, título de eleitor, e-mail e data de
+    # nascimento continuam de fora de propósito.
+    "DS_GENERO",
+    "DS_GRAU_INSTRUCAO",
+    "DS_ESTADO_CIVIL",
+    "DS_COR_RACA",
+    "DS_OCUPACAO",
+    "SG_UF_NASCIMENTO",
 ]
 
 # 3. Esquema TSE - Declaração de Bens dos Candidatos
@@ -47,6 +59,9 @@ TSE_BENS_COLUMNS: List[str] = [
     "DS_BEM_CANDIDATO",
     "VR_BEM_CANDIDATO",
 ]
+
+# Colunas de valor que só existem em tabelas de fatos (receitas e despesas), nunca no cadastro.
+FACT_VALUE_COLUMNS: Set[str] = {"VR_RECEITA", "VR_DESPESA_CONTRATADA", "VR_PAGTO_DESPESA"}
 
 # 4. Esquema Câmara dos Deputados - Votações Nominais e Proposições
 CAMARA_VOTACOES_COLUMNS: List[str] = [
@@ -86,6 +101,7 @@ CAMARA_VOTACOES_RENAME: Dict[str, str] = {
 
 # 5. Esquema Câmara dos Deputados - Cota Parlamentar (CEAP)
 CAMARA_CEAP_COLUMNS: List[str] = [
+    "ideCadastro",  # chave de junção com o cadastro de deputados (usada por build_dim_politicos)
     "idDeputado",
     "nuDeputadoId",
     "txNomeParlamentar",
@@ -135,13 +151,23 @@ def detect_schema_by_columns(columns: List[str]) -> Optional[str]:
     """
     cols_set: Set[str] = {c.strip() for c in columns}
 
-    if "VR_PAGTO_DESPESA" in cols_set or "vr_pagto_despesa" in cols_set:
+    # Despesas só são podadas pelo schema quando trazem a chave do candidato. As despesas pagas de 2022
+    # vêm por prestador de contas (SQ_PRESTADOR_CONTAS), sem coluna de candidato: podar apagaria a chave.
+    if ("VR_PAGTO_DESPESA" in cols_set or "vr_pagto_despesa" in cols_set) and "SQ_CANDIDATO" in cols_set:
         return "tse_despesas"
 
     if "VR_BEM_CANDIDATO" in cols_set or "DS_TIPO_BEM_CANDIDATO" in cols_set:
         return "tse_bens"
 
-    if "SQ_CANDIDATO" in cols_set and ("NM_URNA_CANDIDATO" in cols_set or "CD_CARGO" in cols_set):
+    # Cadastro de candidatos = identidade sem medidas. Tabelas com votos (QT_*) ou valores de receita e
+    # despesa (resultados, receitas, despesas) também têm SQ_CANDIDATO, mas o schema de cadastro as destruiria.
+    # NR_TURNO e VR_DESPESA_MAX_CAMPANHA (teto de gastos) existem no cadastro oficial: não são medidas de fato.
+    has_measures = any(c.startswith("QT_") for c in cols_set) or bool(cols_set & FACT_VALUE_COLUMNS)
+    if (
+        "SQ_CANDIDATO" in cols_set
+        and ("NM_URNA_CANDIDATO" in cols_set or "CD_CARGO" in cols_set)
+        and not has_measures
+    ):
         return "tse_candidatos"
 
     if "idVotacao" in cols_set or "deputado_nome" in cols_set or "dataHoraVoto" in cols_set:

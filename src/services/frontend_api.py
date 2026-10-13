@@ -24,6 +24,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from src.observability import tracing
+from src.services.data_freshness import format_data_date
 
 logger = logging.getLogger("FrontendApi")
 
@@ -96,6 +97,9 @@ def to_frontend_response(response: Any, message_id: Optional[str] = None) -> Che
         f"Ferramentas consultadas: {tools}" if tools else "Nenhuma ferramenta de dados foi consultada.",
         f"Confiança do veredito: {response.confianca}",
     ]
+    updated = format_data_date(getattr(response, "dados_atualizados_em", None))
+    if updated:
+        subdetails.append(f"Base de dados atualizada em {updated}")
     return CheckResponse(
         id=message_id or response.trace_id or uuid.uuid4().hex,
         query=response.claim,

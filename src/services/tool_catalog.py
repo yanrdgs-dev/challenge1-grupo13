@@ -281,6 +281,230 @@ TOOLS_CATALOG.extend([
     },
 ])
 
+_CARGOS_ELEITORAIS = ["Presidente", "Governador", "Senador", "Deputado Federal", "Deputado Estadual", "Deputado Distrital"]
+
+TOOLS_CATALOG.extend([
+    {
+        "type": "function",
+        "function": {
+            "name": "resolve_candidate",
+            "description": "Identifica um CANDIDATO de uma eleição (TSE): devolve número na urna, partido, cargo, UF e SQ_CANDIDATO. Usar SOMENTE quando a claim é sobre QUEM é o candidato (número, partido, cargo). NÃO use para resultado, votos, situação, patrimônio, redes sociais ou campanha: as tools de candidato já resolvem o nome sozinhas.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nome_busca": {"type": "string", "description": "Nome de urna ou civil do candidato (ex: 'Lula', 'Jair Bolsonaro')."},
+                    "ano": {"type": "integer", "description": "Ano da eleição citado na claim (ex: 2022). NÃO invente: só se a claim disser."},
+                    "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado, se a claim disser."},
+                    "uf": {"type": "string", "description": "UF da disputa (2 letras), para desambiguar homônimos."},
+                    "numero": {"type": "integer", "description": "Número do candidato na urna, se citado."},
+                },
+                "required": ["nome_busca", "ano"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_election_result",
+            "description": "Resultado oficial de uma eleição (TSE): ranking de votos válidos de um cargo em um ano e turno, e quem foi eleito. Usar para 'quem ganhou', 'quem ficou em segundo', 'total de votos do cargo'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado."},
+                    "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
+                    "turno": {"type": "integer", "description": "1 ou 2. NÃO invente: se a claim não diz o turno, deixe vazio."},
+                    "uf": {"type": "string", "description": "UF da disputa (obrigatória para Governador, Senador e Deputados)."},
+                    "top_n": {"type": "integer", "description": "Quantos candidatos listar (padrão 10)."},
+                },
+                "required": ["cargo", "ano", "turno"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_candidate_votes",
+            "description": "Votos de um CANDIDATO específico (TSE) em um ano e turno: votos válidos, percentual, posição e situação (eleito ou não). Usar para 'fulano teve X votos', 'fulano foi eleito'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nome_candidato": {"type": "string", "description": "Nome de urna ou civil do candidato (resolvido pelo sistema antes da consulta)."},
+                    "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
+                    "turno": {"type": "integer", "description": "1 ou 2. NÃO invente."},
+                    "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado, se a claim disser."},
+                    "uf": {"type": "string", "description": "UF da disputa, para desambiguar homônimos."},
+                    "numero": {"type": "integer", "description": "Número do candidato na urna, se citado."},
+                },
+                "required": ["nome_candidato", "ano", "turno"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_candidate_status",
+            "description": "Situação da candidatura de um CANDIDATO no TSE (deferida, indeferida, renúncia, cancelada, cassada) e se foi eleito em cada turno. Usar para 'fulano teve a candidatura indeferida', 'fulano foi eleito'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nome_candidato": {"type": "string", "description": "Nome de urna ou civil do candidato (resolvido pelo sistema antes da consulta)."},
+                    "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
+                    "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado, se a claim disser."},
+                    "uf": {"type": "string", "description": "UF da disputa, para desambiguar homônimos."},
+                    "numero": {"type": "integer", "description": "Número do candidato na urna, se citado."},
+                },
+                "required": ["nome_candidato", "ano"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_disqualification_motive",
+            "description": "Motivos de indeferimento ou cassação da candidatura de um CANDIDATO registrados no TSE (ex.: Ficha Limpa, ausência de requisito). Usar para 'por que fulano foi barrado/inelegível'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nome_candidato": {"type": "string", "description": "Nome de urna ou civil do candidato (resolvido pelo sistema antes da consulta)."},
+                    "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
+                    "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado, se a claim disser."},
+                    "uf": {"type": "string", "description": "UF da disputa, para desambiguar homônimos."},
+                    "numero": {"type": "integer", "description": "Número do candidato na urna, se citado."},
+                },
+                "required": ["nome_candidato", "ano"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_candidate_profile",
+            "description": "Perfil declarado de um CANDIDATO ao TSE: gênero, grau de instrução, estado civil, cor/raça, ocupação, naturalidade, idade na posse, reeleição. Usar para claims sobre escolaridade, profissão ou perfil do candidato.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nome_candidato": {"type": "string", "description": "Nome de urna ou civil do candidato (resolvido pelo sistema antes da consulta)."},
+                    "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
+                    "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado, se a claim disser."},
+                    "uf": {"type": "string", "description": "UF da disputa, para desambiguar homônimos."},
+                    "numero": {"type": "integer", "description": "Número do candidato na urna, se citado."},
+                },
+                "required": ["nome_candidato", "ano"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_candidate_assets",
+            "description": "Bens declarados por um CANDIDATO ao TSE: total, quantidade, composição por tipo e maior bem. Usar para claims sobre patrimônio ('declarou R$ X em bens').",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nome_candidato": {"type": "string", "description": "Nome de urna ou civil do candidato (resolvido pelo sistema antes da consulta)."},
+                    "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
+                    "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado, se a claim disser."},
+                    "uf": {"type": "string", "description": "UF da disputa, para desambiguar homônimos."},
+                    "numero": {"type": "integer", "description": "Número do candidato na urna, se citado."},
+                },
+                "required": ["nome_candidato", "ano"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_cash_and_special_assets",
+            "description": "Dinheiro em espécie e bens especiais (aeronave, embarcação, joias, ouro) declarados por um CANDIDATO ao TSE. Usar para claims sobre dinheiro vivo, avião, barco ou joias declarados.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nome_candidato": {"type": "string", "description": "Nome de urna ou civil do candidato (resolvido pelo sistema antes da consulta)."},
+                    "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
+                    "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado, se a claim disser."},
+                    "uf": {"type": "string", "description": "UF da disputa, para desambiguar homônimos."},
+                    "numero": {"type": "integer", "description": "Número do candidato na urna, se citado."},
+                },
+                "required": ["nome_candidato", "ano"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "verify_official_social_media",
+            "description": "Links de redes sociais que um CANDIDATO registrou no TSE. Usar para claims sobre perfil oficial; informe 'termo' (perfil ou URL) para checar se foi registrado.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nome_candidato": {"type": "string", "description": "Nome de urna ou civil do candidato (resolvido pelo sistema antes da consulta)."},
+                    "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
+                    "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado, se a claim disser."},
+                    "uf": {"type": "string", "description": "UF da disputa, para desambiguar homônimos."},
+                    "numero": {"type": "integer", "description": "Número do candidato na urna, se citado."},
+                    "termo": {"type": "string", "description": "Perfil ou endereço citado na claim (ex: '@lulaoficial'), para checar se o candidato o registrou."},
+                },
+                "required": ["nome_candidato", "ano"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_campaign_finances",
+            "description": "Prestação de contas de campanha de um CANDIDATO no TSE: total de receitas, despesas contratadas e despesas pagas, com composição por origem. Usar para 'fulano gastou/arrecadou R$ X na campanha'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nome_candidato": {"type": "string", "description": "Nome de urna ou civil do candidato (resolvido pelo sistema antes da consulta)."},
+                    "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
+                    "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado, se a claim disser."},
+                    "uf": {"type": "string", "description": "UF da disputa, para desambiguar homônimos."},
+                    "numero": {"type": "integer", "description": "Número do candidato na urna, se citado."},
+                },
+                "required": ["nome_candidato", "ano"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_top_campaign_finances",
+            "description": "Ranking de candidatos de um cargo por gasto ou arrecadação de campanha (TSE). Usar para 'quem mais gastou/arrecadou na campanha para presidente/governador'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado."},
+                    "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
+                    "metrica": {"type": "string", "enum": ["receitas", "despesas_contratadas"], "description": "'despesas_contratadas' para gasto (padrão); 'receitas' para arrecadação."},
+                    "uf": {"type": "string", "description": "UF da disputa, se a claim restringir a um estado."},
+                    "top_n": {"type": "integer", "description": "Quantos candidatos listar (padrão 5)."},
+                },
+                "required": ["cargo", "ano"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "compare_candidates",
+            "description": "Compara DOIS A QUATRO candidatos do TSE numa mesma métrica: votos válidos (exige turno), patrimônio declarado, receitas ou despesas contratadas de campanha. Usar para 'fulano teve mais votos/gastou mais/declarou mais que sicrano'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "candidatos": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 4, "description": "Nomes de urna ou civis dos candidatos citados na claim (os nomes são resolvidos pelo sistema antes da consulta)."},
+                    "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
+                    "metrica": {"type": "string", "enum": ["votos_validos", "patrimonio", "receitas", "despesas_contratadas"], "description": "O que comparar. 'despesas_contratadas' é o gasto de campanha."},
+                    "turno": {"type": "integer", "description": "1 ou 2; obrigatório só para votos_validos. NÃO invente."},
+                    "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado, se a claim disser."},
+                    "uf": {"type": "string", "description": "UF da disputa, para desambiguar homônimos."},
+                },
+                "required": ["candidatos", "ano", "metrica"],
+            },
+        },
+    },
+])
+
 ROUTER_SYSTEM_PROMPT = (
     "Você é o Agente Roteador do sistema de fact-checking político brasileiro.\n"
     "Seu papel é analisar a alegação (claim) fornecida e escolher a ferramenta (tool) "
@@ -298,5 +522,18 @@ ROUTER_SYSTEM_PROMPT = (
     "- Se a alegação trata do que é PERMITIDO ou de COMO FUNCIONA um procedimento (regra, regimento, lei), utilize 'check_institutional_rule' com o tópico mais próximo. "
     "Regras e normas NÃO são resolvidas com tools de dados.\n"
     "- Se a alegação afirma que um dado público pode (ou não) ser consultado numa fonte oficial (Portal da Transparência, TSE, Câmara), utilize 'check_data_source_coverage'.\n"
+    "- Se a alegação trata do RESULTADO de uma eleição (quem ganhou, total de votos de um cargo, ranking), utilize 'get_election_result'; "
+    "se trata dos votos ou da eleição de um CANDIDATO específico, utilize 'get_candidate_votes' (o nome é resolvido pelo sistema; use 'resolve_candidate' só para identificar o candidato). "
+    "Para a SITUAÇÃO da candidatura (deferida, indeferida, renúncia, cassada) utilize 'check_candidate_status'; para o MOTIVO de um indeferimento ou cassação, 'check_disqualification_motive' (não precisam de turno). "
+    "Para PERFIL do candidato (escolaridade, profissão, naturalidade) utilize 'check_candidate_profile'; para PATRIMÔNIO declarado, 'get_candidate_assets'; "
+    "para dinheiro em espécie e bens como aeronave, embarcação ou joias, 'check_cash_and_special_assets'; para perfis de redes sociais registrados no TSE, 'verify_official_social_media' (com 'termo'). Nenhuma precisa de turno.\n"
+    "Para GASTO ou ARRECADAÇÃO de campanha de um candidato utilize 'get_campaign_finances'; para o ranking de quem mais gastou ou arrecadou num cargo, 'get_top_campaign_finances' (gasto = 'despesas_contratadas'). Não precisam de turno. "
+    "Gastos da cota parlamentar (CEAP) são outra coisa: usam as tools de cota.\n"
+    "Candidatos de ELEIÇÃO (resultado, votos, situação, patrimônio, campanha) usam as tools de candidato do TSE: NUNCA use 'resolve_politician' para candidato de eleição, "
+    "ela vale só para parlamentar em mandato (Câmara/Senado). Para 'quem mais gastou/arrecadou' num cargo use 'get_top_campaign_finances' (uma única tool por alegação).\n"
+    "Para COMPARAR candidatos nomeados (quem teve mais votos, gastou, arrecadou ou declarou mais patrimônio) utilize 'compare_candidates' com todos os nomes da alegação; "
+    "ela faz a comparação inteira numa só chamada.\n"
+    "NÃO invente ano nem turno: se a alegação não diz o ano ('na última eleição') ou o turno, deixe o parâmetro vazio, para que a evidência seja INCONCLUSIVO. "
+    "Se a alegação é sobre o resultado da eleição de 2026, chame mesmo assim a tool de resultado com ano 2026: o sistema informa que os dados abertos do TSE ainda não foram atualizados. Votos de eleição são do TSE; votos em plenário do Congresso são das tools de votação.\n"
     "Extraia todos os parâmetros possíveis (casa, número, ano, sigla, estado/UF) diretamente da frase."
 )

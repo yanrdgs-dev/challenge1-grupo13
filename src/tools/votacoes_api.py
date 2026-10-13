@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional
 import logging
 import re
 from src.tools.http_client import HttpClient, HttpNetworkError
+from src.tools.normalizer import strip_accents as _strip_accents
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,29 @@ _senado_votacao_para_materia: Dict[str, str] = {}
 # ============================================================================
 
 
+def _aprovado_camara(aprovacao: Any) -> Optional[bool]:
+    """Campo oficial `aprovacao` da Câmara: 1 aprovado, 0 rejeitado, nulo/ausente indeterminado.
+
+    O nulo aparece em votações de destaque ("Mantido o texto"): não é rejeição. O texto da descrição
+    não decide, porque frases como "Não aprovado" e "Aprovado o requerimento de retirada" enganam.
+    """
+    if aprovacao in (1, "1", True):
+        return True
+    if aprovacao in (0, "0", False):
+        return False
+    return None
+
+
+def _aprovado_senado(resultado: Any) -> Optional[bool]:
+    """Resultado textual do Senado ("Aprovado", "Rejeitado"...). Qualquer outro texto é indeterminado."""
+    texto = _strip_accents(str(resultado or "")).strip().lower()
+    if texto.startswith(("nao aprovad", "rejeitad")):
+        return False
+    if texto.startswith("aprovad"):
+        return True
+    return None
+
+
 def get_proposition_vote_result(
     id_proposicao: str,
     casa: str,
@@ -38,7 +62,7 @@ def get_proposition_vote_result(
 ) -> List[Dict[str, Any]]:
     """Consulta os eventos de votação de uma proposição na API da Câmara ou do Senado.
 
-    Retorna lista de votações com id, data, tipo e resultado (aprovado: bool).
+    Retorna lista de votações com id, data, tipo e resultado (aprovado: True, False ou None se indeterminado).
     Lista vazia indica ausência de votação (sinal para INCONCLUSIVO na claim 28).
 
     Args:
@@ -47,7 +71,7 @@ def get_proposition_vote_result(
         tipo_votacao: Filtro opcional por tipo/descrição de votação (ex.: 'urgência', 'texto-base').
 
     Returns:
-        Lista de dicionários: [{'id_votacao': str, 'data': str, 'tipo_votacao': str, 'aprovado': bool}]
+        Lista de dicionários: [{'id_votacao': str, 'data': str, 'tipo_votacao': str, 'aprovado': Optional[bool]}]
     """
     casa_norm = casa.lower().strip()
     if casa_norm not in ("camara", "senado"):
@@ -63,8 +87,7 @@ def get_proposition_vote_result(
 
             for item in itens:
                 desc = item.get("descricao") or ""
-                aprov_val = item.get("aprovacao")
-                aprovado = bool(aprov_val == 1 or "aprovad" in desc.lower())
+                aprovado = _aprovado_camara(item.get("aprovacao"))
 
                 results.append(
                     {
@@ -86,11 +109,7 @@ def get_proposition_vote_result(
 
             for item in votacoes_raw:
                 desc = item.get("DescricaoVotacao") or ""
-                res_desc = str(item.get("DescricaoResultado") or item.get("Resultado") or "")
-                aprovado = bool(
-                    res_desc.strip().lower() in ["aprovado", "a", "aprovada"]
-                    or "aprovad" in res_desc.lower()
-                )
+                aprovado = _aprovado_senado(item.get("DescricaoResultado") or item.get("Resultado"))
                 data_sessao = item.get("SessaoPlenaria", {}).get("DataSessao")
                 cod_sessao_vot = str(item.get("CodigoSessaoVotacao"))
 
@@ -124,7 +143,23 @@ def get_proposition_vote_result(
 # ============================================================================
 
 
-def get_proposition_vote_breakdown(id_votacao: str, casa: str) -> Dict[str, int]:
+def _classificar_voto(rotulo: str) -> str:
+    """Opção de voto a partir do rótulo da API. Rótulo desconhecido vira 'outros' (nunca some da contagem)."""
+    tipo = _strip_accents(rotulo).lower().strip()
+    if any(t in tipo for t in ["ausente", "faltou", "nao compareceu", "nao votou"]):
+        return "ausente"
+    if "sim" in tipo:
+        return "sim"
+    if "nao" in tipo:
+        return "nao"
+    if "absten" in tipo:
+        return "abstencao"
+    if "obstru" in tipo:
+        return "obstrucao"
+    return "outros"
+
+
+def get_proposition_vote_breakdown(id_votacao: str, casa: str) -> Dict[str, Any]:
     """Retorna a contagem de votos por opção para a votação nominal informada.
 
     Args:
@@ -133,17 +168,18 @@ def get_proposition_vote_breakdown(id_votacao: str, casa: str) -> Dict[str, int]
         casa: 'camara' ou 'senado'.
 
     Returns:
-        Dicionário: {'sim': int, 'nao': int, 'abstencao': int, 'obstrucao': int, 'ausente': int, 'total': int}
+        Dicionário: {'sim', 'nao', 'abstencao', 'obstrucao', 'ausente', 'outros': int,
+        'outros_detalhe': {rótulo: contagem}, 'total': int}. As opções somam sempre o total.
+        'outros' reúne o que a API registra fora dessas opções (ex.: voto do presidente "Artigo 17" na
+        Câmara; "AP", "P-NRV" e "Presidente (art. 51 RISF)" no Senado) sem reinterpretá-lo.
     """
     casa_norm = casa.lower().strip()
     if casa_norm not in ("camara", "senado"):
         raise ValueError(f"Casa inválida: '{casa}'. Valores permitidos: 'camara' ou 'senado'.")
 
-    sim = 0
-    nao = 0
-    abstencao = 0
-    obstrucao = 0
-    ausente = 0
+    contagem = {"sim": 0, "nao": 0, "abstencao": 0, "obstrucao": 0, "ausente": 0, "outros": 0}
+    outros_detalhe: Dict[str, int] = {}
+    rotulos: List[str] = []
 
     try:
         if casa_norm == "camara":
@@ -151,20 +187,7 @@ def get_proposition_vote_breakdown(id_votacao: str, casa: str) -> Dict[str, int]
             payload = http_client.get_json(url)
             votos = payload.get("dados", [])
 
-            for v in votos:
-                tipo = str(v.get("tipoVoto", "")).lower().strip()
-                if any(t in tipo for t in ["ausente", "faltou", "não compareceu", "nao compareceu", "não votou", "nao votou"]):
-                    ausente += 1
-                elif "sim" in tipo:
-                    sim += 1
-                elif "não" in tipo or "nao" in tipo:
-                    nao += 1
-                elif "absten" in tipo:
-                    abstencao += 1
-                elif "obstru" in tipo:
-                    obstrucao += 1
-
-            total = len(votos)
+            rotulos = [str(v.get("tipoVoto") or "").strip() for v in votos]
 
         elif casa_norm == "senado":
             # Se contiver underline, extrai id_materia
@@ -202,34 +225,21 @@ def get_proposition_vote_breakdown(id_votacao: str, casa: str) -> Dict[str, int]
                 elif isinstance(raw_votos, list):
                     votos_list = raw_votos
 
-            for v in votos_list:
-                sigla = str(v.get("SiglaVoto", "")).lower().strip()
-                if any(t in sigla for t in ["ausente", "não compareceu", "nao compareceu", "não votou", "nao votou"]):
-                    ausente += 1
-                elif "sim" in sigla:
-                    sim += 1
-                elif "não" in sigla or "nao" in sigla:
-                    nao += 1
-                elif "absten" in sigla:
-                    abstencao += 1
-                elif "obstru" in sigla:
-                    obstrucao += 1
-
-            total = len(votos_list)
+            rotulos = [str(v.get("SiglaVoto") or "").strip() for v in votos_list]
     except HttpNetworkError as exc:
         if "404" in str(exc):
             logger.info("Votação %s não encontrada (404). Retornando contagem zerada.", id_votacao)
-            return {"sim": 0, "nao": 0, "abstencao": 0, "obstrucao": 0, "ausente": 0, "total": 0}
+            return {**contagem, "outros_detalhe": {}, "total": 0}
         raise
 
-    return {
-        "sim": sim,
-        "nao": nao,
-        "abstencao": abstencao,
-        "obstrucao": obstrucao,
-        "ausente": ausente,
-        "total": total,
-    }
+    for rotulo in rotulos:
+        opcao = _classificar_voto(rotulo)
+        contagem[opcao] += 1
+        if opcao == "outros":
+            chave = rotulo or "(sem rótulo)"
+            outros_detalhe[chave] = outros_detalhe.get(chave, 0) + 1
+
+    return {**contagem, "outros_detalhe": outros_detalhe, "total": len(rotulos)}
 
 
 # ============================================================================
@@ -346,6 +356,13 @@ def get_congress_veto_sessions(
 # ============================================================================
 # 5.4 get_plenary_attendance
 # ============================================================================
+
+
+OBSERVACAO_AUSENCIA_INFERIDA = (
+    "Ausências inferidas, não registradas: são os deputados do quadro em exercício na data da consulta "
+    "que não aparecem na lista de presença da sessão. Suplentes e licenciados, ou quem tomou posse ou saiu "
+    "depois da sessão, podem distorcer o resultado; não é registro oficial de falta."
+)
 
 
 def get_plenary_attendance(
@@ -492,4 +509,5 @@ def get_plenary_attendance(
         "data": data_evento,
         "presentes": presentes,
         "ausentes_inferidos": ausentes_inferidos,
+        "observacao": OBSERVACAO_AUSENCIA_INFERIDA,
     }
