@@ -38,6 +38,7 @@ from src.tools.gastos_tools import (
     get_top_ceap_spender,
     list_expense_categories,
 )
+from src.tools.legislativo_tools import check_bill_apensamentos, get_proposition_tramitation_history
 from src.tools.knowledge_tools import check_data_source_coverage, check_institutional_rule
 from src.tools.resolve_politician import resolve_politician
 from src.tools.resolve_proposition import resolve_proposition
@@ -217,6 +218,36 @@ def _with_resolved_candidate(args: Dict[str, Any], run: Callable[..., Dict[str, 
     return {**evidence, "entidade_resolvida": resolution}
 
 
+def _with_resolved_proposition(args: Dict[str, Any], run: Callable[[str, str], Dict[str, Any]]) -> Dict[str, Any]:
+    """Resolve a proposição (regra 2) e só então consulta o dado com o ID canônico e a Casa onde ele foi achado."""
+    casa = str(args["casa"]).strip().lower()
+    houses = ["camara", "senado"] if casa == "congresso" else [casa]
+    res: Dict[str, Any] = {}
+    house = houses[0]
+    for house in houses:
+        with tracing.observation("resolve_proposition", input={**{k: args.get(k) for k in (
+            "sigla_tipo", "numero", "ano", "termo_busca")}, "casa": house}) as span:
+            res = resolve_proposition(
+                casa=house, sigla_tipo=args.get("sigla_tipo"), numero=args.get("numero"),
+                ano=args.get("ano"), termo_busca=args.get("termo_busca"),
+            )
+            span.update(output=res)
+        if res.get("ambiguous") or res.get("id_proposicao") is not None:
+            break
+    if res.get("ambiguous") or res.get("id_proposicao") is None:
+        return _unresolved(
+            ambiguous=bool(res.get("ambiguous")),
+            proposicao_informada={k: args.get(k) for k in ("sigla_tipo", "numero", "ano", "termo_busca")},
+            resolucao=res,
+        )
+    try:
+        evidence = run(house, str(res["id_proposicao"]))
+    except (ValueError, OSError) as exc:
+        evidence = {"encontrado": False, "erro": str(exc)}
+    resolution = {k: res.get(k) for k in ("id_proposicao", "sigla_tipo", "numero", "ano", "ementa")}
+    return {**evidence, "entidade_resolvida": {**resolution, "casa": house}}
+
+
 def _compare_candidates(args: Dict[str, Any]) -> Dict[str, Any]:
     """Resolve cada nome (regra 2) e só então compara; um nome ambíguo ou desconhecido impede a comparação."""
     ano, metrica, turno = args["ano"], args["metrica"], args.get("turno")
@@ -319,6 +350,14 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
             parlamentar_id=resolved["id"],
             categoria=args.get("categoria"),
         ).to_dict()
+    if tool_name == "get_proposition_tramitation_history":
+        return _with_resolved_proposition(
+            args, lambda house, pid: get_proposition_tramitation_history(casa=house, id_proposicao=pid)
+        )
+    if tool_name == "check_bill_apensamentos":
+        return _with_resolved_proposition(
+            args, lambda house, pid: check_bill_apensamentos(id_proposicao=pid, casa=house)
+        )
     if tool_name == "get_proposition_vote_result":
         casa = str(args["casa"]).strip().lower()
         prop_id = str(args.get("id_proposicao") or "").strip()
