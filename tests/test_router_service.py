@@ -202,6 +202,66 @@ def test_router_links_generation_to_prompt_version(mock_llm):
     assert mock_llm.chat.call_args.kwargs["prompt"] is prompt_client
 
 
+# ------------------- guarda: nome de parlamentar inventado pelo LLM (regras 2 e 3) ------------------- #
+
+def _route_member_expenses(mock_llm, claim, parlamentar):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "get_member_expenses",
+          "arguments": {"casa": "camara", "ano": 2023, "parlamentar": parlamentar, "categoria": "Combustíveis"}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"qtd_lancamentos": 3}) as execute:
+        outcome = router_service._route_and_execute(claim)
+    return outcome, execute
+
+
+def test_member_expenses_with_name_invented_by_llm_never_runs_the_tool(mock_llm):
+    """A alegação não cita ninguém: o LLM não pode soprar um nome (regra 3 → INCONCLUSIVO)."""
+    outcome, execute = _route_member_expenses(
+        mock_llm, "quanto ganha um deputado do DF em vale-combustível?", "Nikolas Ferreira"
+    )
+
+    execute.assert_not_called()
+    assert outcome.evidence["status"] == "entidade_nao_resolvida"
+    assert outcome.evidence["parlamentar_informado"] == "Nikolas Ferreira"
+    assert outcome.tools_used == []
+
+
+@pytest.mark.parametrize("claim, parlamentar", [
+    ("Quanto o deputado Fraga do DF ganha de vale-combustível?", "Fraga"),
+    ("Quanto o deputado ALBERTO FRAGA gastou com combustível?", "Alberto Fraga"),
+    ("quanto a senadora Simone Tébet gastou em combustível?", "Simone Tebet"),   # sem acento
+])
+def test_member_expenses_with_name_present_in_the_claim_runs_the_tool(mock_llm, claim, parlamentar):
+    outcome, execute = _route_member_expenses(mock_llm, claim, parlamentar)
+
+    execute.assert_called_once()
+    assert outcome.evidence == {"qtd_lancamentos": 3}
+    assert outcome.tools_used == ["get_member_expenses"]
+
+
+@pytest.mark.parametrize("claim, expected_uf", [
+    ("Quanto o deputado Fraga do DF gastou com combustível?", "DF"),
+    ("Quanto a senadora Fraga de SP gastou com combustível?", "SP"),
+    ("Quanto o deputado Fraga (DF) gastou com combustível?", "DF"),
+    ("Quanto o deputado Fraga gastou com combustível?", None),
+    ("Quanto o deputado Fraga do PL gastou com combustível?", None),   # PL é partido, não UF
+])
+def test_member_expenses_infers_uf_from_the_claim_when_llm_omits_it(mock_llm, claim, expected_uf):
+    _, execute = _route_member_expenses(mock_llm, claim, "Fraga")
+
+    assert execute.call_args.args[1].get("uf") == expected_uf
+
+
+def test_member_expenses_keeps_uf_chosen_by_llm(mock_llm):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "get_member_expenses",
+          "arguments": {"casa": "camara", "ano": 2023, "parlamentar": "Fraga", "uf": "ES"}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={}) as execute:
+        router_service._route_and_execute("Quanto o deputado Fraga do DF gastou?")
+
+    assert execute.call_args.args[1]["uf"] == "ES"
+
 # ------------------------------- data da base no veredito ------------------------------- #
 
 INFO_DATES = {"gerado_em": "2026-10-10T14:21:12+00:00", "fontes": {
@@ -259,3 +319,144 @@ def test_frontend_response_shows_the_date_as_a_detail_line():
         ferramentas_usadas=["check_parliamentary_expenses"], trace_id="abc", regra_acionada=None,
         dados_atualizados_em="2026-10-10T14:13:18+00:00")
     assert any("atualizad" in line.lower() and "10/10/2026" in line for line in to_frontend_response(response).subdetails)
+
+
+# ------------------- proposição citada formalmente ("PLN 2/2025") nunca fica sem o resolvedor ------------------- #
+
+PLN_CLAIM = "O PLN 2/2025 trata das diretrizes orçamentárias de 2026?"
+RESOLVER_CALL = {"name": "resolve_proposition",
+                 "arguments": {"casa": "congresso", "sigla_tipo": "PLN", "numero": 2, "ano": 2025}}
+
+
+@pytest.mark.parametrize("claim, expected", [
+    ("O PLN 2/2025 trata das diretrizes?", ("PLN", 2, 2025)),
+    ("A PEC 45/2019 foi aprovada?", ("PEC", 45, 2019)),
+    ("O PL nº 2630, de 2020, foi aprovado?", ("PL", 2630, 2020)),
+    ("O pl 2.630/2020 foi aprovado?", ("PL", 2630, 2020)),
+    ("A MPV 1.303 /2025 caducou?", ("MPV", 1303, 2025)),
+    ("Quanto o deputado Fraga gastou em 2023?", None),
+    ("O candidato de número 22/2024 foi eleito?", None),
+])
+def test_cited_proposition_is_extracted_from_the_claim(claim, expected):
+    assert router_service._cited_proposition(claim) == expected
+
+
+def test_claim_citing_a_proposition_retries_with_resolver_when_llm_picks_unrelated_tool(mock_llm):
+    mock_llm.chat.side_effect = [
+        _chat_result([{"name": "get_campaign_finances", "arguments": {"ano": 2026}}]),
+        _chat_result([RESOLVER_CALL]),
+    ]
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 168120}) as execute:
+        outcome = router_service._route_and_execute(PLN_CLAIM)
+
+    assert execute.call_args.args[0] == "resolve_proposition"
+    assert outcome.tool_name == "resolve_proposition"
+    assert mock_llm.chat.call_args_list[1].kwargs["tools"] == router_service._RESOLVER_ONLY_CATALOG
+
+
+def test_claim_citing_a_proposition_retries_when_llm_picks_no_tool(mock_llm):
+    mock_llm.chat.side_effect = [_chat_result([]), _chat_result([RESOLVER_CALL])]
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 168120}) as execute:
+        router_service._route_and_execute(PLN_CLAIM)
+
+    assert execute.call_args.args[0] == "resolve_proposition"
+
+
+def test_claim_citing_a_proposition_falls_back_to_the_cited_numbers_when_retry_also_fails(mock_llm):
+    """O resolvedor roda com sigla/número/ano da própria alegação, nunca com ID soprado pelo LLM."""
+    mock_llm.chat.side_effect = [_chat_result([]), _chat_result([])]
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 168120}) as execute:
+        router_service._route_and_execute(PLN_CLAIM)
+
+    assert execute.call_args.args == (
+        "resolve_proposition", {"casa": "congresso", "sigla_tipo": "PLN", "numero": 2, "ano": 2025}
+    )
+
+
+def test_claim_citing_a_proposition_keeps_the_llm_choice_when_it_is_already_proposition_related(mock_llm):
+    mock_llm.chat.return_value = _chat_result([RESOLVER_CALL])
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 1}):
+        router_service._route_and_execute(PLN_CLAIM)
+
+    mock_llm.chat.assert_called_once()
+
+
+def test_claim_without_proposition_citation_never_forces_the_resolver(mock_llm):
+    mock_llm.chat.return_value = _chat_result([])
+    outcome = router_service._route_and_execute("O céu é azul?")
+
+    assert outcome.tool_name is None
+    mock_llm.chat.assert_called_once()
+
+
+def test_claim_citing_a_proposition_falls_back_to_cited_numbers_when_retry_call_fails(mock_llm):
+    """Se a segunda chamada ao LLM falhar (timeout), a alegação ainda é resolvida pelos números citados."""
+    mock_llm.chat.side_effect = [_chat_result([]), RuntimeError("timed out"), RuntimeError("timed out")]
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 168120}) as execute:
+        router_service._route_and_execute(PLN_CLAIM)
+
+    assert execute.call_args.args[0] == "resolve_proposition"
+    assert execute.call_args.args[1]["numero"] == 2
+
+
+def test_resolver_call_from_retry_without_casa_gets_the_default_casa(mock_llm):
+    """O LLM às vezes omite 'casa' no resolvedor; a busca formal vale para as duas Casas (congresso)."""
+    mock_llm.chat.side_effect = [
+        _chat_result([]),
+        _chat_result([{"name": "resolve_proposition", "arguments": {"sigla_tipo": "PLN", "numero": 2, "ano": 2025}}]),
+    ]
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 168120}) as execute:
+        router_service._route_and_execute(PLN_CLAIM)
+
+    assert execute.call_args.args[1] == {"casa": "congresso", "sigla_tipo": "PLN", "numero": 2, "ano": 2025}
+
+
+# ------------------- "quem mais gastou" sem campanha/eleição não é gasto de campanha ------------------- #
+
+COTA_CLAIM = "Quem mais gastou em 2022?"
+CAMPAIGN_CALL = {"name": "get_top_campaign_finances",
+                 "arguments": {"cargo": "Deputado Federal", "ano": 2022, "metrica": "despesas_contratadas"}}
+CEAP_CALL = {"name": "get_top_ceap_spender", "arguments": {"casa": "camara", "ano": 2022}}
+
+
+@pytest.mark.parametrize("claim", [
+    "Quem mais gastou em 2022?",
+    "Quem mais gastou a cota parlamentar em 2022?",
+    "Quanto o deputado Fraga gastou com combustível em 2022?",
+])
+def test_campaign_tool_without_electoral_cue_in_the_claim_is_rerouted_to_the_quota_tools(mock_llm, claim):
+    mock_llm.chat.side_effect = [_chat_result([CAMPAIGN_CALL]), _chat_result([CEAP_CALL])]
+    with patch.object(router_service, "execute_tool", return_value={"gastadores": []}) as execute:
+        outcome = router_service._route_and_execute(claim)
+
+    retry_tools = {t["function"]["name"] for t in mock_llm.chat.call_args_list[1].kwargs["tools"]}
+    # só tools de cota: o modelo, sem a de campanha, escolhe outra do TSE e inventa candidatos
+    assert not retry_tools & {"get_campaign_finances", "get_top_campaign_finances", "compare_candidates",
+                              "get_election_result", "resolve_candidate"}
+    assert "get_top_ceap_spender" in retry_tools
+    assert outcome.tool_name == "get_top_ceap_spender"
+    assert execute.call_args.args[0] == "get_top_ceap_spender"
+
+
+@pytest.mark.parametrize("claim", [
+    "Quem mais gastou na campanha para presidente em 2022?",
+    "Qual candidato a governador mais arrecadou em 2022?",
+    "O candidato Fulano declarou gastos de campanha de R$ 1 milhão em 2022?",
+    "Quanto a eleição de 2022 custou aos candidatos ao Senado?",
+])
+def test_campaign_tool_with_electoral_cue_is_kept(mock_llm, claim):
+    mock_llm.chat.return_value = _chat_result([CAMPAIGN_CALL])
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        router_service._route_and_execute(claim)
+
+    mock_llm.chat.assert_called_once()
+    assert execute.call_args.args[0] == "get_top_campaign_finances"
+
+
+def test_rerouted_claim_that_gets_no_tool_stays_without_evidence(mock_llm):
+    mock_llm.chat.side_effect = [_chat_result([CAMPAIGN_CALL]), _chat_result([])]
+    with patch.object(router_service, "execute_tool") as execute:
+        outcome = router_service._route_and_execute(COTA_CLAIM)
+
+    execute.assert_not_called()
+    assert outcome.tool_name is None

@@ -140,3 +140,9 @@ def test_load_does_not_reread_an_unchanged_file(tmp_path, monkeypatch):
     for _ in range(5):
         load_ingestion_info()
     assert reads == []
+
+
+def test_member_expenses_has_the_same_data_date_as_the_other_quota_tools():
+    assert data_date("get_member_expenses", {"casa": "camara", "ano": 2023}, {"qtd_lancamentos": 3}, INFO) \
+        == data_date("check_parliamentary_expenses", {"casa": "camara", "ano": 2023}, {"qtd_lancamentos": 3}, INFO)
+    assert data_date("get_member_expenses", {"casa": "camara", "ano": 2023}, {"qtd_lancamentos": 3}, INFO) is not None

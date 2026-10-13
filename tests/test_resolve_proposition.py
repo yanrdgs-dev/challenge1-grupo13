@@ -472,3 +472,44 @@ def test_accents_and_case_do_not_hide_a_content_term():
     result = resolve_proposition(casa="camara", termo_busca="reforma tributaria", client=client)
 
     assert result["id_proposicao"] == 45
+
+
+# ------------------- busca formal: a API devolve vizinhos além da matéria pedida ------------------- #
+
+_EMENTA_LDO = "Dispõe sobre as diretrizes para a elaboração e a execução da Lei Orçamentária de 2026."
+
+
+def test_formal_search_ignores_items_of_another_type_or_number():
+    """PLN 2/2025 vem junto com o VET 51/2025 (que cita o PLN na ementa): só o PLN 2/2025 é a matéria pedida."""
+    client = _client_with([
+        _item(168120, "PLN", 2, 2025, _EMENTA_LDO),
+        _item(172335, "VET", 51, 2025, "Veto parcial aposto ao Projeto de Lei do Congresso Nacional nº 2, de 2025."),
+        _item(999, "PLN", 20, 2025, "Outro projeto do Congresso."),
+    ])
+
+    result = resolve_proposition(casa="camara", sigla_tipo="PLN", numero=2, ano=2025, client=client)
+
+    assert result["ambiguous"] is False
+    assert result["id_proposicao"] == 168120
+    assert (result["sigla_tipo"], result["numero"], result["ano"]) == ("PLN", 2, 2025)
+
+
+def test_formal_search_without_exact_match_is_not_found_instead_of_ambiguous():
+    client = _client_with([_item(172335, "VET", 51, 2025, "Veto ao PLN 2/2025.")])
+
+    result = resolve_proposition(casa="camara", sigla_tipo="PLN", numero=2, ano=2025, client=client)
+
+    assert result["id_proposicao"] is None
+    assert result["ambiguous"] is False
+
+
+def test_formal_search_keeps_ambiguity_when_same_type_and_number_exist_in_different_years():
+    client = _client_with([
+        _item(1, "PL", 100, 2019, "Ementa A."),
+        _item(2, "PL", 100, 2021, "Ementa B."),
+    ])
+
+    result = resolve_proposition(casa="camara", sigla_tipo="PL", numero=100, client=client)
+
+    assert result["ambiguous"] is True
+    assert len(result["candidatos"]) == 2

@@ -8,7 +8,9 @@ coletar a evidência factual e acionar o microsserviço Julgador.
 import json
 import logging
 import os
+import re
 import time
+import unicodedata
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
@@ -32,6 +34,7 @@ from src.services.data_freshness import data_date, ensure_data_date_cited, load_
 from src.services.sources import TSE as TSE_SOURCE, derive_sources, ensure_source_cited, evidence_failed, merge_sources
 from src.tools.gastos_tools import (
     check_parliamentary_expenses,
+    get_member_expenses,
     get_top_ceap_spender,
     list_expense_categories,
 )
@@ -161,7 +164,7 @@ def _unresolved(**extra: Any) -> Dict[str, Any]:
     return {"status": "entidade_nao_resolvida", "ambiguous": False, **extra}
 
 
-def _resolve_parlamentar_id(casa: str, valor: str) -> Dict[str, Any]:
+def _resolve_parlamentar_id(casa: str, valor: str, uf: Optional[str] = None) -> Dict[str, Any]:
     """Converte nome de parlamentar em ID canônico (regra 2). Se já for ID numérico, repassa."""
     valor = str(valor).strip()
     if valor.isdigit():
@@ -170,9 +173,10 @@ def _resolve_parlamentar_id(casa: str, valor: str) -> Dict[str, Any]:
     with tracing.observation(
         "resolve_politician", input={"nome_busca": valor, "casa": casa}
     ) as span:
-        res = _resolve_politician_with_fallback(
-            {"nome_busca": valor, "cargo": _CARGO_POR_CASA.get(casa)}
-        )
+        resolve_args: Dict[str, Any] = {"nome_busca": valor, "cargo": _CARGO_POR_CASA.get(casa)}
+        if uf:
+            resolve_args["uf"] = uf
+        res = _resolve_politician_with_fallback(resolve_args)
         span.update(output=res)
 
     canonical = res.get("ideCadastro") if casa == "camara" else res.get("cod_senador")
@@ -290,6 +294,17 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
             ano=args["ano"],
             categoria=args.get("categoria"),
             parlamentar_id=parlamentar_id,
+        ).to_dict()
+    if tool_name == "get_member_expenses":
+        casa = str(args["casa"]).strip().lower()
+        resolved = _resolve_parlamentar_id(casa, args["parlamentar"], args.get("uf"))
+        if "unresolved" in resolved:
+            return resolved["unresolved"]
+        return get_member_expenses(
+            casa=casa,
+            ano=args["ano"],
+            parlamentar_id=resolved["id"],
+            categoria=args.get("categoria"),
         ).to_dict()
     if tool_name == "get_proposition_vote_result":
         casa = str(args["casa"]).strip().lower()
@@ -439,6 +454,45 @@ _RESOLVE_FIRST_HINT = (
 )
 
 
+_CITED_PROPOSITION_RE = re.compile(
+    r"\b(PLP|PLN|PLV|PL|PEC|MPV|PDL|PDC)\b\s*(?:n[º°o]?\.?\s*)?(\d{1,3}(?:\.\d{3})+|\d+)\s*(?:/|,\s*de\s+|\s+de\s+)\s*(\d{4})\b",
+    re.IGNORECASE,
+)
+# Tools com que uma proposição citada convive sem ser desviada para o resolvedor.
+_PROPOSITION_COMPATIBLE_TOOLS = {
+    "resolve_proposition", "get_proposition_vote_result", "check_institutional_rule", "check_data_source_coverage",
+}
+
+
+def _cited_proposition(claim_text: str) -> Optional[tuple]:
+    """(sigla, número, ano) da proposição citada na forma 'PLN 2/2025'; None se a alegação não cita nenhuma."""
+    match = _CITED_PROPOSITION_RE.search(claim_text)
+    if not match:
+        return None
+    sigla, numero, ano = match.groups()
+    return sigla.upper(), int(numero.replace(".", "")), int(ano)
+
+
+_CAMPAIGN_TOOLS = {"get_campaign_finances", "get_top_campaign_finances"}
+_QUOTA_TOOL_NAMES = {
+    "get_top_ceap_spender", "list_expense_categories", "check_parliamentary_expenses", "get_member_expenses",
+    "check_institutional_rule", "check_data_source_coverage",
+}
+# Sem menção a campanha/eleição o modelo pequeno insiste nas tools do TSE (e inventa candidatos): o retry
+# só enxerga as tools de cota parlamentar e as normativas.
+_NO_CAMPAIGN_CATALOG = [t for t in TOOLS_CATALOG if t["function"]["name"] in _QUOTA_TOOL_NAMES]
+_NO_CAMPAIGN_HINT = (
+    "\n\nA alegação NÃO menciona campanha nem eleição. Gastos de parlamentares são da cota parlamentar "
+    "(CEAP/CEAPS): para 'quem mais gastou' use 'get_top_ceap_spender'; para o gasto de um parlamentar citado "
+    "use 'get_member_expenses'. Se nenhuma se aplica, não chame tool."
+)
+_ELECTORAL_CUE_RE = re.compile(
+    r"campanh|elei[cç]|eleitor|candidat|arrecad|doa[cç]|\btse\b|presta[cç][aã]o de contas|pleito|"
+    r"fundo (?:partid|eleitoral)|\bfefc\b",
+    re.IGNORECASE,
+)
+
+
 def _run_tool(
     tool_name: str, tool_args: Dict[str, Any], runner: Optional[Callable[..., Any]] = None
 ) -> Optional[Dict[str, Any]]:
@@ -477,6 +531,30 @@ def _chat_for_routing(claim_text: str, tools: List[Dict[str, Any]], hint: str = 
         )
 
 
+_UFS = frozenset(
+    "AC AL AP AM BA CE DF ES GO MA MT MS MG PA PB PR PE PI RJ RN RS RO RR SC SP SE TO".split()
+)
+_UF_IN_CLAIM_RE = re.compile(r"(?:\b(?:do|da|de|pelo|pela)\s+|\()([A-Z]{2})\b")
+
+
+def _uf_in_claim(claim_text: str) -> Optional[str]:
+    """Sigla de UF escrita na alegação ('Fraga do DF', 'Fulano (SP)'); partido como 'PL' não conta."""
+    for match in _UF_IN_CLAIM_RE.finditer(claim_text):
+        if match.group(1) in _UFS:
+            return match.group(1)
+    return None
+
+
+def _name_in_claim(name: Any, claim_text: str) -> bool:
+    """True se ao menos um termo do nome (3+ letras, sem acento/caixa) aparece na alegação."""
+    def words(text: str) -> set:
+        folded = unicodedata.normalize("NFKD", str(text).lower())
+        plain = "".join(ch for ch in folded if not unicodedata.combining(ch))
+        return {w for w in "".join(c if c.isalnum() else " " for c in plain).split() if len(w) >= 3}
+
+    return bool(name) and bool(words(name) & words(claim_text))
+
+
 def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]] = None) -> RoutingOutcome:
     """Escolhe a tool com o LLM e a executa. Para votações, encadeia resolver → dado (regra 2).
 
@@ -484,6 +562,42 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
     """
     start = time.perf_counter()
     chat = _chat_for_routing(claim_text, TOOLS_CATALOG)
+    cited = _cited_proposition(claim_text)
+
+    if cited and (not chat.tool_calls or chat.tool_calls[0]["name"] not in _PROPOSITION_COMPATIBLE_TOOLS):
+        # Com o catálogo inteiro o modelo pequeno desvia "PLN 2/2025" (ex.: para campanha). A alegação
+        # cita a matéria, então ela passa pelo resolvedor: com o catálogo restrito ou, no limite, com os
+        # números da própria alegação (nunca um ID do LLM).
+        logger.warning("Alegação cita %s mas o LLM escolheu %s; roteando pelo resolvedor.", cited,
+                       chat.tool_calls[0]["name"] if chat.tool_calls else "nenhuma tool")
+        try:
+            retry = _chat_for_routing(claim_text, _RESOLVER_ONLY_CATALOG, _RESOLVE_FIRST_HINT)
+            resolver_call = next((c for c in retry.tool_calls if c["name"] == "resolve_proposition"), None)
+        except HTTPException:
+            resolver_call = None
+        if resolver_call is not None and not resolver_call["arguments"].get("casa"):
+            resolver_call = {**resolver_call, "arguments": {"casa": "congresso", **resolver_call["arguments"]}}
+        if resolver_call is None:
+            sigla, numero, ano = cited
+            resolver_call = {
+                "name": "resolve_proposition",
+                "arguments": {"casa": "congresso", "sigla_tipo": sigla, "numero": numero, "ano": ano},
+            }
+        chat.tool_calls = [resolver_call]
+
+    if (
+        chat.tool_calls
+        and chat.tool_calls[0]["name"] in _CAMPAIGN_TOOLS
+        and not _ELECTORAL_CUE_RE.search(claim_text)
+    ):
+        # "Quem mais gastou em 2022?" não diz campanha nem eleição: não vira consulta ao TSE (regra 3).
+        logger.warning("LLM escolheu %s mas a alegação não cita campanha/eleição; refazendo sem as tools do TSE.",
+                       chat.tool_calls[0]["name"])
+        try:
+            chat = _chat_for_routing(claim_text, _NO_CAMPAIGN_CATALOG, _NO_CAMPAIGN_HINT)
+        except HTTPException:
+            chat.tool_calls = []
+        chat.tool_calls = [c for c in chat.tool_calls if c["name"] in _QUOTA_TOOL_NAMES]
 
     if not chat.tool_calls:
         return RoutingOutcome(routing_ms=(time.perf_counter() - start) * 1000)
@@ -508,6 +622,19 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
                                   (time.perf_counter() - start) * 1000)
         tool_name, tool_args = "resolve_proposition", resolver_call["arguments"]
 
+    # Guarda das regras 2 e 3: o nome do parlamentar vem da alegação, nunca do "conhecimento" do LLM.
+    if tool_name == "get_member_expenses" and not _name_in_claim(tool_args.get("parlamentar"), claim_text):
+        logger.warning("LLM usou o parlamentar %r, que não consta na alegação; consulta descartada.", tool_args.get("parlamentar"))
+        evidence = _unresolved(
+            parlamentar_informado=tool_args.get("parlamentar"),
+            motivo="A alegação não cita o parlamentar informado pelo roteador; a consulta foi descartada.",
+        )
+        return RoutingOutcome(tool_name, tool_args, evidence, [], (time.perf_counter() - start) * 1000)
+
+    if tool_name == "get_member_expenses" and not tool_args.get("uf"):
+        inferred_uf = _uf_in_claim(claim_text)
+        if inferred_uf:
+            tool_args = {**tool_args, "uf": inferred_uf}
     grounded_args = ground_candidate_args(tool_name, tool_args, claim_text)
     if grounded_args != tool_args:
         dropped = sorted(set(tool_args) - set(grounded_args))

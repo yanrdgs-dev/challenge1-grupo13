@@ -54,3 +54,27 @@ def test_normative_tools_are_described_as_rules_not_transactional_data():
 def test_router_prompt_explains_when_to_use_each_normative_tool():
     assert "check_institutional_rule" in ROUTER_SYSTEM_PROMPT
     assert "check_data_source_coverage" in ROUTER_SYSTEM_PROMPT
+
+
+def test_member_expenses_tool_requires_the_parliamentarian_and_takes_uf_and_category():
+    tool = _tool("get_member_expenses")
+    params = tool["parameters"]
+    assert set(params["required"]) == {"casa", "ano", "parlamentar"}
+    assert {"uf", "categoria"} <= set(params["properties"])
+    assert params["properties"]["casa"]["enum"] == ["camara", "senado"]
+    desc = tool["description"].lower()
+    assert "reembols" in desc  # cota é ressarcimento de despesa, não remuneração
+
+
+def test_router_prompt_routes_individual_expenses_to_member_tool():
+    assert "get_member_expenses" in ROUTER_SYSTEM_PROMPT
+
+
+def test_proposition_resolver_covers_congress_bills_such_as_pln():
+    """PLN (LDO/LOA/créditos) é matéria do Congresso Nacional: o roteador precisa saber mandá-la ao resolver."""
+    tool = _tool("resolve_proposition")
+    assert "PLN" in tool["description"]
+    assert "PLN" in tool["parameters"]["properties"]["sigla_tipo"]["description"]
+    assert "PLN" in ROUTER_SYSTEM_PROMPT and "resolve_proposition" in ROUTER_SYSTEM_PROMPT
+    # numeração com ano ("2/2025") separa número e ano; não é pedido de campanha eleitoral
+    assert "2/2025" in ROUTER_SYSTEM_PROMPT

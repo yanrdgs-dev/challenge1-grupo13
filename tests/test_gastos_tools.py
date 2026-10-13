@@ -27,6 +27,8 @@ from src.tools.gastos_tools import (
     get_top_ceap_spender,
     list_expense_categories,
     check_parliamentary_expenses,
+    get_member_expenses,
+    MemberExpensesResult,
 )
 
 
@@ -483,3 +485,94 @@ def test_expenses_senado_filters_by_cod_senador_with_real_schema(real_schema_cea
     assert resultado.qtd_lancamentos == 2
     assert resultado.valor_total == 1000.0
     assert resultado.amostra[0]["fornecedor"] in {"GOL", "IMOBILIARIA"}
+
+
+# ==============================================================================
+# get_member_expenses: gastos da cota de um parlamentar já resolvido
+# ==============================================================================
+
+def test_member_expenses_camara_total_e_categorias(mock_ceap_data_dir: Path):
+    """Caminho feliz: total, quantidade e detalhamento por categoria de um deputado."""
+    res = get_member_expenses(casa="camara", ano=2023, parlamentar_id="101", base_dir=mock_ceap_data_dir)
+    assert isinstance(res, MemberExpensesResult)
+    assert res.nome_parlamentar == "Pompeo de Mattos"
+    assert res.uf == "RS" and res.partido == "PDT"
+    assert res.qtd_lancamentos == 2
+    assert res.valor_total == 5500.0
+    por_cat = {c.categoria: c for c in res.por_categoria}
+    assert por_cat["COMBUSTÍVEIS E LUBRIFICANTES."].valor_total == 2500.0
+    assert por_cat["PASSAGEM AÉREA - SIGEPA"].valor_total == 3000.0
+    # ordenadas da maior para a menor
+    assert [c.valor_total for c in res.por_categoria] == [3000.0, 2500.0]
+
+
+def test_member_expenses_filtra_categoria_com_plural_e_acento(mock_ceap_data_dir: Path):
+    """'combustível' (singular, acentuado) casa com 'COMBUSTÍVEIS E LUBRIFICANTES.'"""
+    res = get_member_expenses(
+        casa="camara", ano=2023, parlamentar_id="101", categoria="combustível", base_dir=mock_ceap_data_dir
+    )
+    assert res.qtd_lancamentos == 1
+    assert res.valor_total == 2500.0
+    assert res.filtros_aplicados["categoria"] == "combustível"
+    assert len(res.por_categoria) == 1
+
+
+def test_member_expenses_lista_maiores_lancamentos_com_fornecedor(mock_ceap_data_dir: Path):
+    res = get_member_expenses(casa="camara", ano=2023, parlamentar_id="101", base_dir=mock_ceap_data_dir)
+    assert res.maiores_lancamentos[0]["valor"] == 3000.0
+    assert res.maiores_lancamentos[0]["fornecedor"] == "GOL LINHAS AEREAS"
+    assert res.maiores_lancamentos[0]["categoria"] == "PASSAGEM AÉREA - SIGEPA"
+
+
+def test_member_expenses_senado(mock_ceap_data_dir: Path):
+    res = get_member_expenses(
+        casa="senado", ano=2023, parlamentar_id="201", categoria="consultoria", base_dir=mock_ceap_data_dir
+    )
+    assert res.nome_parlamentar == "Senador Almeida"
+    assert res.qtd_lancamentos == 2
+    assert res.valor_total == 25000.0
+
+
+def test_member_expenses_parlamentar_sem_lancamentos(mock_ceap_data_dir: Path):
+    """ID inexistente: resposta vazia explícita, sem nome inventado."""
+    res = get_member_expenses(casa="camara", ano=2023, parlamentar_id="999", base_dir=mock_ceap_data_dir)
+    assert res.qtd_lancamentos == 0
+    assert res.valor_total == 0.0
+    assert res.nome_parlamentar is None
+    assert res.por_categoria == [] and res.maiores_lancamentos == []
+
+
+def test_member_expenses_categoria_sem_lancamentos(mock_ceap_data_dir: Path):
+    res = get_member_expenses(
+        casa="camara", ano=2023, parlamentar_id="101", categoria="helicóptero", base_dir=mock_ceap_data_dir
+    )
+    assert res.qtd_lancamentos == 0
+    assert res.valor_total == 0.0
+    # o parlamentar existe, só não tem gasto nessa categoria
+    assert res.nome_parlamentar == "Pompeo de Mattos"
+
+
+def test_member_expenses_ano_sem_dados(mock_ceap_data_dir: Path):
+    res = get_member_expenses(casa="camara", ano=1999, parlamentar_id="101", base_dir=mock_ceap_data_dir)
+    assert res.qtd_lancamentos == 0
+
+
+def test_member_expenses_casa_invalida(mock_ceap_data_dir: Path):
+    with pytest.raises(ValueError):
+        get_member_expenses(casa="prefeitura", ano=2023, parlamentar_id="101", base_dir=mock_ceap_data_dir)
+
+
+def test_member_expenses_exige_id_do_parlamentar(mock_ceap_data_dir: Path):
+    """Regra 2: sem ID canônico a tool não consulta (nada de nome em texto livre)."""
+    with pytest.raises(ValueError):
+        get_member_expenses(casa="camara", ano=2023, parlamentar_id="", base_dir=mock_ceap_data_dir)
+    with pytest.raises(ValueError):
+        get_member_expenses(casa="camara", ano=2023, parlamentar_id="Fraga", base_dir=mock_ceap_data_dir)
+
+
+def test_member_expenses_to_dict_e_serializavel(mock_ceap_data_dir: Path):
+    import json
+
+    res = get_member_expenses(casa="camara", ano=2023, parlamentar_id="101", base_dir=mock_ceap_data_dir)
+    data = json.loads(json.dumps(res.to_dict()))
+    assert data["por_categoria"][0]["categoria"] == "PASSAGEM AÉREA - SIGEPA"

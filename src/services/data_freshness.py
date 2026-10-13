@@ -17,7 +17,9 @@ INFO_FILE = "ingestion_info.json"
 # Brasil não tem horário de verão desde 2019: UTC-3 fixo dispensa o banco de fusos (ausente na imagem slim).
 BRASILIA = timezone(timedelta(hours=-3))
 
-_EXPENSE_TOOLS = {"get_top_ceap_spender", "list_expense_categories", "check_parliamentary_expenses"}
+_EXPENSE_TOOLS = {
+    "get_top_ceap_spender", "list_expense_categories", "check_parliamentary_expenses", "get_member_expenses",
+}
 _PARQUET_PROPOSITION_TOOLS = {"get_proposition_tramitation_history", "check_bill_apensamentos"}
 
 _TSE_TABLES = {

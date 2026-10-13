@@ -9,6 +9,7 @@ candidato tem um único tipo de prestação e um único prestador no ano, então
 Doadores e fornecedores (pessoas físicas, CPF/CNPJ) nunca saem; só agregados.
 """
 
+from datetime import date
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -31,8 +32,23 @@ DEFAULT_TOP_N = 5
 _METRICS = {"receitas": ("receitas", "VR_RECEITA"),
             "despesas_contratadas": ("despesas_contratadas", "VR_DESPESA_CONTRATADA")}
 
+_CLOSED_NOTICE = ("A base do TSE traz apenas a prestação de contas parcial (tipo {tipo}) deste candidato; "
+                  "não há versão final nesta base.")
+_CLOSED_RANKING_NOTICE = ("A base do TSE traz só a prestação de contas parcial de alguns candidatos deste ranking; "
+                          "não há versão final nesta base.")
 _PARTIAL_NOTICE = ("A prestação de contas deste candidato ainda não é a final (tipo {tipo}): os valores são parciais "
                    "e podem mudar.")
+
+
+def _current_year() -> int:
+    return date.today().year
+
+
+def _partial_notice(tipo: Optional[str], ano: Optional[int]) -> str:
+    """Eleição em andamento: os valores podem mudar. Eleição encerrada: só se declara o que a base tem."""
+    if ano is not None and ano < _current_year():
+        return _CLOSED_NOTICE.format(tipo=tipo or "não informado")
+    return _PARTIAL_NOTICE.format(tipo=tipo or "não informado")
 
 
 def _table(base_dir: Optional[Path], name: str, ano: int) -> Optional[pl.LazyFrame]:
@@ -101,7 +117,7 @@ def get_campaign_finances(sq_candidato: Any, ano: Optional[int], base_dir: Optio
         "despesas_pagas": _total(pagas) if pagas is not None else {"quantidade": None, "total": None},
     }
     if tipo != "FINAL":
-        result["aviso"] = _PARTIAL_NOTICE.format(tipo=tipo or "não informado")
+        result["aviso"] = _partial_notice(tipo, ano)
     return result
 
 
@@ -154,6 +170,9 @@ def get_top_campaign_finances(
         "candidatos": entries[: max(1, min(int(top_n), MAX_TOP_N))],
     }
     if any(e["tipo_prestacao"] != "FINAL" for e in entries):
-        result["aviso"] = ("Há candidatos cuja prestação de contas ainda não é a final (parcial): os valores podem "
-                           "mudar.")
+        if ano is not None and ano < _current_year():
+            result["aviso"] = _CLOSED_RANKING_NOTICE
+        else:
+            result["aviso"] = ("Há candidatos cuja prestação de contas ainda não é a final (parcial): os valores "
+                               "podem mudar.")
     return result

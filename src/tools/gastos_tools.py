@@ -4,6 +4,7 @@ Implementa as ferramentas especificadas na Seção 3 de docs/tools_specification
 - 3.1 get_top_ceap_spender (Golden Dataset ID 1)
 - 3.2 list_expense_categories (Golden Dataset IDs 2, 11, 16, 17, 22)
 - 3.3 check_parliamentary_expenses (Golden Dataset ID 13)
+- get_member_expenses: gastos da cota de um parlamentar já resolvido (por categoria)
 
 Conformidade com a Constituição do Projeto (.specify/memory/constitution.md):
 - Princípio I: Evidência rastreável com agregados e contagens estruturadas
@@ -97,6 +98,35 @@ class ExpenseAuditResult:
     valor_medio: float
     valor_total: float
     amostra: List[Dict[str, Any]] = field(default_factory=list)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class MemberCategoryTotal:
+    """Total de uma categoria de despesa de um parlamentar."""
+    categoria: str
+    qtd_lancamentos: int
+    valor_total: float
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class MemberExpensesResult:
+    """Resposta estruturada da tool get_member_expenses."""
+    casa: str
+    ano: int
+    filtros_aplicados: Dict[str, Any]
+    nome_parlamentar: Optional[str]
+    uf: Optional[str]
+    partido: Optional[str]
+    qtd_lancamentos: int
+    valor_total: float
+    por_categoria: List[MemberCategoryTotal] = field(default_factory=list)
+    maiores_lancamentos: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -497,4 +527,92 @@ def check_parliamentary_expenses(
         valor_medio=round(v_mean, 2),
         valor_total=round(v_total, 2),
         amostra=amostra,
+    )
+
+
+def get_member_expenses(
+    casa: str,
+    ano: int,
+    parlamentar_id: str,
+    categoria: Optional[str] = None,
+    top_categorias: int = 10,
+    top_lancamentos: int = 5,
+    base_dir: Optional[Path] = None,
+) -> MemberExpensesResult:
+    """Total e detalhamento por categoria da cota parlamentar (CEAP/CEAPS) de UM parlamentar.
+
+    O valor é o reembolsado/líquido pela Casa: despesa ressarcida, não remuneração.
+    O ``parlamentar_id`` precisa ser o ID canônico devolvido por resolve_politician
+    (``ideCadastro`` na Câmara, ``cod_senador`` no Senado); nome em texto livre é recusado (regra 2).
+
+    Args:
+        casa: 'camara' ou 'senado'.
+        ano: Ano de referência.
+        parlamentar_id: ID canônico numérico do parlamentar.
+        categoria: Filtro opcional por categoria (insensível a acento, caixa e plural).
+        top_categorias: Máximo de categorias no detalhamento.
+        top_lancamentos: Máximo de lançamentos individuais devolvidos.
+        base_dir: Diretório base opcional dos dados.
+
+    Raises:
+        ValueError: casa inválida ou ``parlamentar_id`` vazio/não numérico.
+    """
+    clean_casa = casa.strip().lower()
+    clean_pid = str(parlamentar_id or "").strip()
+    if not clean_pid.isdigit():
+        raise ValueError(
+            "parlamentar_id deve ser o ID canônico numérico; resolva o nome com resolve_politician antes."
+        )
+
+    filtros: Dict[str, Any] = {"casa": clean_casa, "ano": ano, "parlamentar_id": clean_pid}
+    if categoria:
+        filtros["categoria"] = categoria
+
+    lf = _resolve_ceap_dataset(casa=clean_casa, ano=ano, base_dir=base_dir)
+    df_member = lf.filter((pl.col("ano") == ano) & (pl.col("id_parlamentar") == clean_pid)).collect()
+
+    if df_member.height == 0:
+        return MemberExpensesResult(
+            casa=clean_casa, ano=ano, filtros_aplicados=filtros,
+            nome_parlamentar=None, uf=None, partido=None, qtd_lancamentos=0, valor_total=0.0,
+        )
+
+    identity = df_member.row(0, named=True)
+    df = df_member
+    if categoria:
+        mask = [_matches_category(categoria, cat) for cat in df_member["categoria"].to_list()]
+        df = df_member.filter(pl.Series(mask, dtype=pl.Boolean))
+
+    base = dict(
+        casa=clean_casa, ano=ano, filtros_aplicados=filtros,
+        nome_parlamentar=identity["nome_parlamentar"],
+        uf=identity["uf"] or None, partido=identity["partido"] or None,
+    )
+    if df.height == 0:
+        return MemberExpensesResult(**base, qtd_lancamentos=0, valor_total=0.0)
+
+    grouped = (
+        df.group_by("categoria")
+        .agg(pl.len().alias("qtd"), pl.col("valor").sum().alias("total"))
+        .sort(["total", "categoria"], descending=[True, False])
+        .head(top_categorias)
+    )
+    por_categoria = [
+        MemberCategoryTotal(categoria=r["categoria"], qtd_lancamentos=int(r["qtd"]), valor_total=round(float(r["total"]), 2))
+        for r in grouped.iter_rows(named=True)
+    ]
+    maiores = [
+        {
+            "categoria": r["categoria"],
+            "fornecedor": r["fornecedor"],
+            "valor": round(float(r["valor"]), 2),
+        }
+        for r in df.sort("valor", descending=True).head(top_lancamentos).iter_rows(named=True)
+    ]
+    return MemberExpensesResult(
+        **base,
+        qtd_lancamentos=df.height,
+        valor_total=round(float(df["valor"].sum() or 0.0), 2),
+        por_categoria=por_categoria,
+        maiores_lancamentos=maiores,
     )
