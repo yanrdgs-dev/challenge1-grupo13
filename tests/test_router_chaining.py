@@ -47,8 +47,11 @@ class SimpleTools:
         self.resolver, self.votes, self.judge, self.llm, self.breakdown = resolver, votes, judge, llm, breakdown
 
 
-def post():
-    return client.post("/check", json={"claim": CLAIM}).json()
+NO_PROPOSITION_CLAIM = "Quem mais gastou a cota parlamentar da Câmara em 2023?"
+
+
+def post(claim=CLAIM):
+    return client.post("/check", json={"claim": claim}).json()
 
 
 # ------------------------------ encadeamento normal ------------------------------ #
@@ -160,14 +163,14 @@ def test_single_step_tools_report_a_one_tool_chain(tools):
     tools.llm.chat.return_value = chat({"name": "get_top_ceap_spender", "arguments": {"casa": "camara", "ano": 2023}})
     with patch.object(router_service, "get_top_ceap_spender") as spender:
         spender.return_value.to_dict.return_value = {"gastadores": []}
-        data = post()
+        data = post(NO_PROPOSITION_CLAIM)
     assert data["ferramentas_usadas"] == ["get_top_ceap_spender"]
     tools.votes.assert_not_called()
 
 
 def test_no_tool_means_empty_chain(tools):
     tools.llm.chat.return_value = chat()
-    assert post()["ferramentas_usadas"] == []
+    assert post(NO_PROPOSITION_CLAIM)["ferramentas_usadas"] == []
 
 
 def test_claim_blocked_by_input_rail_has_empty_chain():

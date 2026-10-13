@@ -44,7 +44,7 @@ TOOLS_CATALOG: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "resolve_proposition",
-            "description": "Identifica formalmente matérias legislativas (PL, PEC, MPV, PDL) ou busca por nome popular na Câmara, Senado ou Congresso.",
+            "description": "Identifica formalmente matérias legislativas (PL, PLP, PLN, PEC, MPV, PDL) ou busca por nome popular na Câmara, Senado ou Congresso.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -55,7 +55,7 @@ TOOLS_CATALOG: List[Dict[str, Any]] = [
                     },
                     "sigla_tipo": {
                         "type": "string",
-                        "description": "Sigla do tipo formal (ex: 'PL', 'PEC', 'MPV').",
+                        "description": "Sigla do tipo formal (ex: 'PL', 'PLN', 'PEC', 'MPV'). PLN é Projeto de Lei do Congresso Nacional (diretrizes orçamentárias, orçamento, créditos).",
                     },
                     "numero": {
                         "type": "integer",
@@ -511,8 +511,9 @@ ROUTER_SYSTEM_PROMPT = (
     "mais adequada do catálogo para iniciar a coleta de evidências primárias.\n\n"
     "⚠️ REGRA DE OURO (Princípio II da Constituição - Resolução Canônica Obrigatória):\n"
     "- NUNCA chame ferramentas de votações nominais diretamente com nomes em texto livre.\n"
-    "- Se a alegação cita uma proposição legislativa formal (PL, PEC, MPV) ou nome popular de matéria "
+    "- Se a alegação cita uma proposição legislativa formal (PL, PLP, PLN, PEC, MPV, PDL) ou nome popular de matéria "
     "(ex: 'PEC da Reforma Tributária', 'Marco Temporal', 'PL das Fake News'), você DEVE chamar OBRIGATORIAMENTE 'resolve_proposition' primeiro para obter o ID oficial.\n"
+    "  Numeração no formato 'número/ano' (ex: 'PLN 2/2025' = sigla 'PLN', numero 2, ano 2025) é proposição legislativa, não eleição nem campanha: use 'resolve_proposition' (casa 'congresso' para PLN, LDO e LOA).\n"
     "- Se a alegação cita o nome de um político/parlamentar para checar dados individuais, você DEVE chamar 'resolve_politician' primeiro para obter o identificador oficial.\n"
     "  ⚠️ ATENÇÃO PARA 'resolve_politician': Passe APENAS 'nome_busca' com o nome. NUNCA passe 'uf' ou 'cargo' se a alegação estiver justamente afirmando de qual estado ou cargo ele é (ex: 'Nikolas Ferreira é deputado de Distrito Federal'). Se passar 'uf': 'DF', a ferramenta buscará um Nikolas no DF, não achará e gerará um falso INCONCLUSIVO! Busque pelo nome para obter o estado real (MG) e permitir ao julgador cravar FALSO.\n"
     "- Se a alegação pergunta sobre ranking de gastos ou 'quem mais gastou a cota (CEAP/CEAPS)', utilize 'get_top_ceap_spender'.\n"

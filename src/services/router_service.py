@@ -454,6 +454,25 @@ _RESOLVE_FIRST_HINT = (
 )
 
 
+_CITED_PROPOSITION_RE = re.compile(
+    r"\b(PLP|PLN|PLV|PL|PEC|MPV|PDL|PDC)\b\s*(?:n[º°o]?\.?\s*)?(\d{1,3}(?:\.\d{3})+|\d+)\s*(?:/|,\s*de\s+|\s+de\s+)\s*(\d{4})\b",
+    re.IGNORECASE,
+)
+# Tools com que uma proposição citada convive sem ser desviada para o resolvedor.
+_PROPOSITION_COMPATIBLE_TOOLS = {
+    "resolve_proposition", "get_proposition_vote_result", "check_institutional_rule", "check_data_source_coverage",
+}
+
+
+def _cited_proposition(claim_text: str) -> Optional[tuple]:
+    """(sigla, número, ano) da proposição citada na forma 'PLN 2/2025'; None se a alegação não cita nenhuma."""
+    match = _CITED_PROPOSITION_RE.search(claim_text)
+    if not match:
+        return None
+    sigla, numero, ano = match.groups()
+    return sigla.upper(), int(numero.replace(".", "")), int(ano)
+
+
 def _run_tool(
     tool_name: str, tool_args: Dict[str, Any], runner: Optional[Callable[..., Any]] = None
 ) -> Optional[Dict[str, Any]]:
@@ -523,6 +542,23 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
     """
     start = time.perf_counter()
     chat = _chat_for_routing(claim_text, TOOLS_CATALOG)
+    cited = _cited_proposition(claim_text)
+
+    if cited and (not chat.tool_calls or chat.tool_calls[0]["name"] not in _PROPOSITION_COMPATIBLE_TOOLS):
+        # Com o catálogo inteiro o modelo pequeno desvia "PLN 2/2025" (ex.: para campanha). A alegação
+        # cita a matéria, então ela passa pelo resolvedor: com o catálogo restrito ou, no limite, com os
+        # números da própria alegação (nunca um ID do LLM).
+        logger.warning("Alegação cita %s mas o LLM escolheu %s; roteando pelo resolvedor.", cited,
+                       chat.tool_calls[0]["name"] if chat.tool_calls else "nenhuma tool")
+        retry = _chat_for_routing(claim_text, _RESOLVER_ONLY_CATALOG, _RESOLVE_FIRST_HINT)
+        resolver_call = next((c for c in retry.tool_calls if c["name"] == "resolve_proposition"), None)
+        if resolver_call is None:
+            sigla, numero, ano = cited
+            resolver_call = {
+                "name": "resolve_proposition",
+                "arguments": {"casa": "congresso", "sigla_tipo": sigla, "numero": numero, "ano": ano},
+            }
+        chat.tool_calls = [resolver_call]
 
     if not chat.tool_calls:
         return RoutingOutcome(routing_ms=(time.perf_counter() - start) * 1000)
