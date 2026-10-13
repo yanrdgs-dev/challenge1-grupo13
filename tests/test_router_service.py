@@ -498,3 +498,52 @@ def test_chosen_tool_with_failed_evidence_still_goes_to_the_judge(mock_llm):
         client.post("/check", json={"claim": CLAIM_ESPECIFICA})
 
     judge.assert_called_once()
+
+
+# ------------------- tramitação/apensamento: o LLM para no resolvedor, o roteador completa ------------------- #
+
+@pytest.mark.parametrize("claim, expected_tool", [
+    ("Em que comissões já tramitou o PL 2630/2020?", "get_proposition_tramitation_history"),
+    ("O PL 2630/2020 passou por alguma comissão temática?", "get_proposition_tramitation_history"),
+    ("Em que fase está a tramitação da PEC 45/2019?", "get_proposition_tramitation_history"),
+    ("A PEC 45/2019 está apensada a outra proposição?", "check_bill_apensamentos"),
+    ("O PL 2630/2020 foi anexado a outro projeto?", "check_bill_apensamentos"),
+])
+def test_resolver_choice_is_upgraded_to_tramitation_tool_when_claim_asks_about_it(mock_llm, claim, expected_tool):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "resolve_proposition",
+          "arguments": {"casa": "congresso", "sigla_tipo": "PL", "numero": 2630, "ano": 2020}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        outcome = router_service._route_and_execute(claim)
+
+    assert execute.call_args.args[0] == expected_tool
+    assert execute.call_args.args[1] == {"casa": "congresso", "sigla_tipo": "PL", "numero": 2630, "ano": 2020}
+    assert outcome.tool_name == expected_tool and outcome.tools_used == [expected_tool]
+
+
+@pytest.mark.parametrize("claim", [
+    "O PL 2630/2020 foi aprovado pelo Plenário?",
+    "A PEC 45/2019 é da Reforma Tributária?",
+])
+def test_resolver_choice_is_kept_when_claim_is_not_about_tramitation(mock_llm, claim):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "resolve_proposition",
+          "arguments": {"casa": "congresso", "sigla_tipo": "PL", "numero": 2630, "ano": 2020}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 1, "casa": "camara"}) as execute:
+        router_service._route_and_execute(claim)
+
+    assert execute.call_args_list[0].args[0] == "resolve_proposition"
+
+
+def test_tramitation_tool_chosen_by_llm_is_kept_and_not_redirected_to_resolver(mock_llm):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "get_proposition_tramitation_history",
+          "arguments": {"casa": "camara", "sigla_tipo": "PEC", "numero": 45, "ano": 2019}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        router_service._route_and_execute("Em que fase está a tramitação da PEC 45/2019?")
+
+    mock_llm.chat.assert_called_once()
+    assert execute.call_args.args[0] == "get_proposition_tramitation_history"
