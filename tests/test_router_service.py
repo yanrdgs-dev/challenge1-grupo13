@@ -387,3 +387,13 @@ def test_claim_without_proposition_citation_never_forces_the_resolver(mock_llm):
 
     assert outcome.tool_name is None
     mock_llm.chat.assert_called_once()
+
+
+def test_claim_citing_a_proposition_falls_back_to_cited_numbers_when_retry_call_fails(mock_llm):
+    """Se a segunda chamada ao LLM falhar (timeout), a alegação ainda é resolvida pelos números citados."""
+    mock_llm.chat.side_effect = [_chat_result([]), RuntimeError("timed out"), RuntimeError("timed out")]
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 168120}) as execute:
+        router_service._route_and_execute(PLN_CLAIM)
+
+    assert execute.call_args.args[0] == "resolve_proposition"
+    assert execute.call_args.args[1]["numero"] == 2
