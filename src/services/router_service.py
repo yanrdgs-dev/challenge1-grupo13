@@ -473,6 +473,19 @@ def _cited_proposition(claim_text: str) -> Optional[tuple]:
     return sigla.upper(), int(numero.replace(".", "")), int(ano)
 
 
+_CAMPAIGN_TOOLS = {"get_campaign_finances", "get_top_campaign_finances"}
+_NO_CAMPAIGN_CATALOG = [t for t in TOOLS_CATALOG if t["function"]["name"] not in _CAMPAIGN_TOOLS]
+_NO_CAMPAIGN_HINT = (
+    "\n\nA alegação NÃO menciona campanha nem eleição, então não é gasto de campanha eleitoral. Gastos de "
+    "parlamentares são da cota parlamentar (CEAP/CEAPS): escolha a tool de cota adequada, ou nenhuma tool."
+)
+_ELECTORAL_CUE_RE = re.compile(
+    r"campanh|elei[cç]|eleitor|candidat|arrecad|doa[cç]|\btse\b|presta[cç][aã]o de contas|pleito|"
+    r"fundo (?:partid|eleitoral)|\bfefc\b",
+    re.IGNORECASE,
+)
+
+
 def _run_tool(
     tool_name: str, tool_args: Dict[str, Any], runner: Optional[Callable[..., Any]] = None
 ) -> Optional[Dict[str, Any]]:
@@ -564,6 +577,20 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
                 "arguments": {"casa": "congresso", "sigla_tipo": sigla, "numero": numero, "ano": ano},
             }
         chat.tool_calls = [resolver_call]
+
+    if (
+        chat.tool_calls
+        and chat.tool_calls[0]["name"] in _CAMPAIGN_TOOLS
+        and not _ELECTORAL_CUE_RE.search(claim_text)
+    ):
+        # "Quem mais gastou em 2022?" não diz campanha nem eleição: não vira consulta ao TSE (regra 3).
+        logger.warning("LLM escolheu %s mas a alegação não cita campanha/eleição; refazendo sem as tools do TSE.",
+                       chat.tool_calls[0]["name"])
+        try:
+            chat = _chat_for_routing(claim_text, _NO_CAMPAIGN_CATALOG, _NO_CAMPAIGN_HINT)
+        except HTTPException:
+            chat.tool_calls = []
+        chat.tool_calls = [c for c in chat.tool_calls if c["name"] not in _CAMPAIGN_TOOLS]
 
     if not chat.tool_calls:
         return RoutingOutcome(routing_ms=(time.perf_counter() - start) * 1000)
