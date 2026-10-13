@@ -200,3 +200,40 @@ def test_router_links_generation_to_prompt_version(mock_llm):
         router_service._chat_for_routing("claim qualquer", router_service.TOOLS_CATALOG)
 
     assert mock_llm.chat.call_args.kwargs["prompt"] is prompt_client
+
+
+# ------------------- guarda: nome de parlamentar inventado pelo LLM (regras 2 e 3) ------------------- #
+
+def _route_member_expenses(mock_llm, claim, parlamentar):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "get_member_expenses",
+          "arguments": {"casa": "camara", "ano": 2023, "parlamentar": parlamentar, "categoria": "Combustíveis"}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"qtd_lancamentos": 3}) as execute:
+        outcome = router_service._route_and_execute(claim)
+    return outcome, execute
+
+
+def test_member_expenses_with_name_invented_by_llm_never_runs_the_tool(mock_llm):
+    """A alegação não cita ninguém: o LLM não pode soprar um nome (regra 3 → INCONCLUSIVO)."""
+    outcome, execute = _route_member_expenses(
+        mock_llm, "quanto ganha um deputado do DF em vale-combustível?", "Nikolas Ferreira"
+    )
+
+    execute.assert_not_called()
+    assert outcome.evidence["status"] == "entidade_nao_resolvida"
+    assert outcome.evidence["parlamentar_informado"] == "Nikolas Ferreira"
+    assert outcome.tools_used == []
+
+
+@pytest.mark.parametrize("claim, parlamentar", [
+    ("Quanto o deputado Fraga do DF ganha de vale-combustível?", "Fraga"),
+    ("Quanto o deputado ALBERTO FRAGA gastou com combustível?", "Alberto Fraga"),
+    ("quanto a senadora Simone Tébet gastou em combustível?", "Simone Tebet"),   # sem acento
+])
+def test_member_expenses_with_name_present_in_the_claim_runs_the_tool(mock_llm, claim, parlamentar):
+    outcome, execute = _route_member_expenses(mock_llm, claim, parlamentar)
+
+    execute.assert_called_once()
+    assert outcome.evidence == {"qtd_lancamentos": 3}
+    assert outcome.tools_used == ["get_member_expenses"]

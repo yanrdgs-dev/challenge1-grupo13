@@ -43,7 +43,7 @@ def test_every_catalog_tool_is_dispatched_and_none_is_simulated():
          patch.object(router_service, "get_member_expenses", return_value=_dataclass_like({"ok": 4})), \
          patch.object(router_service, "get_proposition_vote_result", return_value=[]):
         args = {
-            "casa": "camara", "ano": 2023, "nome_busca": "Fulano", "id_proposicao": 10,
+            "casa": "camara", "ano": 2023, "nome_busca": "Fulano", "parlamentar": "Fulano", "id_proposicao": 10,
             "topico": "sabatina_stf",
             "fonte": "portal_transparencia", "tipo_dado": "licitacoes_dados_abertos",
         }
