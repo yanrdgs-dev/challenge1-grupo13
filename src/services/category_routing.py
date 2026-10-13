@@ -5,12 +5,11 @@ só 5 a 14 tools, e a decisão difícil (cota, proposição ou eleição) vira u
 As tools normativas (regra 4) ficam disponíveis em toda categoria, e uma categoria inválida cai no catálogo inteiro.
 """
 
+import json
 import logging
 from typing import Any, Callable, Dict, FrozenSet, List, Optional
 
 logger = logging.getLogger("CategoryRouting")
-
-CLASSIFICATION_TOOL_NAME = "escolher_categoria"
 
 # Tools de regra institucional/cobertura: valem em qualquer tema.
 _NORMATIVE: FrozenSet[str] = frozenset({"check_institutional_rule", "check_data_source_coverage"})
@@ -51,51 +50,31 @@ CATEGORIES: Dict[str, Dict[str, Any]] = {
 }
 
 _SYSTEM_PROMPT = (
-    "Você classifica alegações de um sistema de fact-checking político brasileiro. Escolha a categoria da "
-    "alegação chamando 'escolher_categoria'. Não responda à alegação.\n"
+    "Você classifica alegações de um sistema de fact-checking político brasileiro. Responda SOMENTE um JSON "
+    '{"categoria": "<NOME>"} com um dos nomes abaixo. Não responda à alegação.\n'
     + "\n".join(f"- {name}: {spec['description']}" for name, spec in CATEGORIES.items())
     + "\nGasto sem menção a campanha ou eleição é COTA_PARLAMENTAR. Perguntas sobre o que é permitido ou como "
     "funciona uma regra pertencem à categoria do tema citado."
 )
 
 
-def classification_tool() -> Dict[str, Any]:
-    return {
-        "type": "function",
-        "function": {
-            "name": CLASSIFICATION_TOOL_NAME,
-            "description": "Define a categoria da alegação.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "categoria": {
-                        "type": "string",
-                        "enum": list(CATEGORIES),
-                        "description": "Categoria da alegação.",
-                    },
-                },
-                "required": ["categoria"],
-            },
-        },
-    }
-
-
 def classify_claim(chat: Callable[..., Any], claim_text: str) -> Optional[str]:
-    """Categoria da alegação, ou None se o LLM falhar ou responder algo fora do enum."""
+    """Categoria da alegação, ou None se o LLM falhar ou responder algo fora das categorias.
+
+    ``chat(messages)`` deve devolver um objeto com ``content`` em JSON (modo JSON do provedor): o modelo
+    pequeno não chama de forma confiável uma função de uma única opção, mas responde JSON direito.
+    """
     messages = [
         {"role": "system", "content": _SYSTEM_PROMPT},
         {"role": "user", "content": claim_text},
     ]
     try:
-        result = chat(messages, [classification_tool()])
+        content = getattr(chat(messages), "content", "") or ""
+        category = json.loads(content).get("categoria")
     except Exception as exc:
         logger.warning("Classificação da categoria falhou (%s); usando o catálogo inteiro.", exc)
         return None
-    for call in getattr(result, "tool_calls", None) or []:
-        if call.get("name") == CLASSIFICATION_TOOL_NAME:
-            category = (call.get("arguments") or {}).get("categoria")
-            return category if category in CATEGORIES else None
-    return None
+    return category if category in CATEGORIES else None
 
 
 def restrict_catalog(catalog: List[Dict[str, Any]], category: Optional[str]) -> List[Dict[str, Any]]:

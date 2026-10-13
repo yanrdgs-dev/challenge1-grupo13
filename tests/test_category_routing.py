@@ -9,7 +9,6 @@ import pytest
 
 from src.services.category_routing import (
     CATEGORIES,
-    classification_tool,
     classify_claim,
     restrict_catalog,
 )
@@ -64,34 +63,24 @@ def test_restricting_does_not_mutate_the_catalog():
     assert TOOLS_CATALOG == before
 
 
-def test_classification_tool_is_a_closed_enum_of_the_categories():
-    params = classification_tool()["function"]["parameters"]
-    assert set(params["properties"]["categoria"]["enum"]) == set(CATEGORIES)
-    assert params["required"] == ["categoria"]
-
-
-def _chat_returning(tool_calls):
+def _chat_returning(content):
     chat = MagicMock()
-    chat.return_value = MagicMock(tool_calls=tool_calls)
+    chat.return_value = MagicMock(content=content)
     return chat
 
 
 def test_classify_claim_returns_the_category_chosen_by_the_llm():
-    chat = _chat_returning([{"name": "escolher_categoria", "arguments": {"categoria": "ELEICOES"}}])
+    chat = _chat_returning('{"categoria": "ELEICOES"}')
     assert classify_claim(chat, "Lula teve quantos votos em 2022?") == "ELEICOES"
-    messages, tools = chat.call_args.args[0], chat.call_args.args[1]
-    assert messages[-1]["content"] == "Lula teve quantos votos em 2022?"
-    assert [t["function"]["name"] for t in tools] == ["escolher_categoria"]
+    messages = chat.call_args.args[0]
+    assert messages[-1] == {"role": "user", "content": "Lula teve quantos votos em 2022?"}
+    for name in CATEGORIES:                  # o prompt lista as categorias válidas
+        assert name in messages[0]["content"]
 
 
-@pytest.mark.parametrize("tool_calls", [
-    [],
-    [{"name": "outra_tool", "arguments": {"categoria": "ELEICOES"}}],
-    [{"name": "escolher_categoria", "arguments": {"categoria": "INVENTADA"}}],
-    [{"name": "escolher_categoria", "arguments": {}}],
-])
-def test_classify_claim_returns_none_when_the_answer_is_not_a_valid_category(tool_calls):
-    assert classify_claim(_chat_returning(tool_calls), "qualquer") is None
+@pytest.mark.parametrize("content", ["", "não sei", "{}", '{"categoria": "INVENTADA"}', '{"categoria": null}', "[1]"])
+def test_classify_claim_returns_none_when_the_answer_is_not_a_valid_category(content):
+    assert classify_claim(_chat_returning(content), "qualquer") is None
 
 
 def test_classify_claim_returns_none_when_the_llm_call_fails():
