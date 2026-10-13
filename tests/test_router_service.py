@@ -397,3 +397,15 @@ def test_claim_citing_a_proposition_falls_back_to_cited_numbers_when_retry_call_
 
     assert execute.call_args.args[0] == "resolve_proposition"
     assert execute.call_args.args[1]["numero"] == 2
+
+
+def test_resolver_call_from_retry_without_casa_gets_the_default_casa(mock_llm):
+    """O LLM às vezes omite 'casa' no resolvedor; a busca formal vale para as duas Casas (congresso)."""
+    mock_llm.chat.side_effect = [
+        _chat_result([]),
+        _chat_result([{"name": "resolve_proposition", "arguments": {"sigla_tipo": "PLN", "numero": 2, "ano": 2025}}]),
+    ]
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 168120}) as execute:
+        router_service._route_and_execute(PLN_CLAIM)
+
+    assert execute.call_args.args[1] == {"casa": "congresso", "sigla_tipo": "PLN", "numero": 2, "ano": 2025}
