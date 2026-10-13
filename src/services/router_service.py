@@ -555,6 +555,8 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
             resolver_call = next((c for c in retry.tool_calls if c["name"] == "resolve_proposition"), None)
         except HTTPException:
             resolver_call = None
+        if resolver_call is not None and not resolver_call["arguments"].get("casa"):
+            resolver_call = {**resolver_call, "arguments": {"casa": "congresso", **resolver_call["arguments"]}}
         if resolver_call is None:
             sigla, numero, ano = cited
             resolver_call = {
