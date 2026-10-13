@@ -166,3 +166,23 @@ class TestTopCampaignFinances:
     def test_ano_2026_avisa_que_e_parcial(self, base):
         res = get_top_campaign_finances("Governador", ano=2026, metrica="receitas", base_dir=base)
         assert res["encontrado"] is True and "parcia" in res["aviso"]
+
+
+class TestAvisoDePrestacaoParcial:
+    """Eleição já encerrada: dizer que os valores 'podem mudar' ou 'ainda' não é final induz a erro."""
+
+    def test_eleicao_em_andamento_avisa_que_pode_mudar(self, base, monkeypatch):
+        monkeypatch.setattr("src.tools.tse_financas_tools._current_year", lambda: 2026)
+        res = get_campaign_finances(900, ano=2026, base_dir=base)
+        assert "podem mudar" in res["aviso"]
+        top = get_top_campaign_finances("Governador", ano=2026, metrica="receitas", base_dir=base)
+        assert "podem mudar" in top["aviso"]
+
+    def test_eleicao_encerrada_nao_diz_que_pode_mudar(self, base, monkeypatch):
+        monkeypatch.setattr("src.tools.tse_financas_tools._current_year", lambda: 2030)
+        res = get_campaign_finances(900, ano=2026, base_dir=base)
+        top = get_top_campaign_finances("Governador", ano=2026, metrica="receitas", base_dir=base)
+        for aviso in (res["aviso"], top["aviso"]):
+            assert "parcia" in aviso            # a base só traz a versão parcial: isso continua dito
+            assert "podem mudar" not in aviso and "ainda" not in aviso
+            assert "base" in aviso

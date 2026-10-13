@@ -409,3 +409,52 @@ def test_resolver_call_from_retry_without_casa_gets_the_default_casa(mock_llm):
         router_service._route_and_execute(PLN_CLAIM)
 
     assert execute.call_args.args[1] == {"casa": "congresso", "sigla_tipo": "PLN", "numero": 2, "ano": 2025}
+
+
+# ------------------- "quem mais gastou" sem campanha/eleição não é gasto de campanha ------------------- #
+
+COTA_CLAIM = "Quem mais gastou em 2022?"
+CAMPAIGN_CALL = {"name": "get_top_campaign_finances",
+                 "arguments": {"cargo": "Deputado Federal", "ano": 2022, "metrica": "despesas_contratadas"}}
+CEAP_CALL = {"name": "get_top_ceap_spender", "arguments": {"casa": "camara", "ano": 2022}}
+
+
+@pytest.mark.parametrize("claim", [
+    "Quem mais gastou em 2022?",
+    "Quem mais gastou a cota parlamentar em 2022?",
+    "Quanto o deputado Fraga gastou com combustível em 2022?",
+])
+def test_campaign_tool_without_electoral_cue_in_the_claim_is_rerouted_to_the_quota_tools(mock_llm, claim):
+    mock_llm.chat.side_effect = [_chat_result([CAMPAIGN_CALL]), _chat_result([CEAP_CALL])]
+    with patch.object(router_service, "execute_tool", return_value={"gastadores": []}) as execute:
+        outcome = router_service._route_and_execute(claim)
+
+    retry_tools = {t["function"]["name"] for t in mock_llm.chat.call_args_list[1].kwargs["tools"]}
+    assert not retry_tools & {"get_campaign_finances", "get_top_campaign_finances"}
+    assert "get_top_ceap_spender" in retry_tools
+    assert outcome.tool_name == "get_top_ceap_spender"
+    assert execute.call_args.args[0] == "get_top_ceap_spender"
+
+
+@pytest.mark.parametrize("claim", [
+    "Quem mais gastou na campanha para presidente em 2022?",
+    "Qual candidato a governador mais arrecadou em 2022?",
+    "O candidato Fulano declarou gastos de campanha de R$ 1 milhão em 2022?",
+    "Quanto a eleição de 2022 custou aos candidatos ao Senado?",
+])
+def test_campaign_tool_with_electoral_cue_is_kept(mock_llm, claim):
+    mock_llm.chat.return_value = _chat_result([CAMPAIGN_CALL])
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        router_service._route_and_execute(claim)
+
+    mock_llm.chat.assert_called_once()
+    assert execute.call_args.args[0] == "get_top_campaign_finances"
+
+
+def test_rerouted_claim_that_gets_no_tool_stays_without_evidence(mock_llm):
+    mock_llm.chat.side_effect = [_chat_result([CAMPAIGN_CALL]), _chat_result([])]
+    with patch.object(router_service, "execute_tool") as execute:
+        outcome = router_service._route_and_execute(COTA_CLAIM)
+
+    execute.assert_not_called()
+    assert outcome.tool_name is None
