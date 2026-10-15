@@ -722,3 +722,13 @@ def test_no_tool_with_a_hint_is_retried_with_the_hinted_tool(mock_llm):
         router_service._route_and_execute(ASSETS_CLAIM)
 
     assert execute.call_args.args[0] == "get_candidate_assets"
+
+
+def test_comparison_between_candidates_is_never_replaced_by_the_hinted_single_candidate_tool(mock_llm):
+    mock_llm.chat.return_value = _chat_result([{"name": "compare_candidates", "arguments": {
+        "candidatos": ["Lula", "Simone Tebet"], "ano": 2022, "metrica": "patrimonio"}}])
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        router_service._route_and_execute("Em 2022, Lula declarou mais patrimônio do que Simone Tebet.")
+
+    mock_llm.chat.assert_called_once()
+    assert execute.call_args.args[0] == "compare_candidates"
