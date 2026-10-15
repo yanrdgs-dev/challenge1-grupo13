@@ -500,3 +500,15 @@ def test_compare_filters_are_grounded_in_the_claim():
     args = ground_candidate_args("compare_candidates", _args(cargo="Deputado Federal", uf="SP"),
                                  "Em 2022, Lula teve mais patrimônio declarado que Jair Bolsonaro.")
     assert "cargo" not in args and "uf" not in args and args["candidatos"] == ["Lula", "Jair Bolsonaro"]
+
+
+@pytest.mark.parametrize("given, expected", [(None, 5), (1, 3), (2, 3), (3, 3), (10, 10)])
+def test_top_campaign_finances_always_shows_at_least_the_top_three(given, expected):
+    """'X foi o que mais gastou' precisa do 2º e do 3º na evidência para o juiz poder dizer FALSO."""
+    args = {"cargo": "Presidente", "ano": 2022, "metrica": "despesas_contratadas"}
+    if given is not None:
+        args["top_n"] = given
+    with patch.object(router_service, "get_top_campaign_finances", return_value={"encontrado": True}) as tool:
+        execute_tool("get_top_campaign_finances", args)
+
+    assert tool.call_args.kwargs["top_n"] == expected

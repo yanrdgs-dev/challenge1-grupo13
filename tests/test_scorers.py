@@ -165,3 +165,10 @@ def test_scorers_never_mutate_their_inputs():
     before = (dict(output), dict(expected))
     run_all_scorers(output, expected)
     assert (output, expected) == before
+
+
+def test_new_tools_count_as_the_right_category():
+    from src.evaluation.scorers import ALLOWED_TOOLS
+
+    assert "get_member_expenses" in ALLOWED_TOOLS["GASTOS"]
+    assert {"get_proposition_tramitation_history", "check_bill_apensamentos"} <= ALLOWED_TOOLS["VOTACOES"]

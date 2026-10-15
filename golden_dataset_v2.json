@@ -528,5 +528,92 @@
     "target_entity": "Tribunal Superior Eleitoral (TSE)",
     "expected_tools": [],
     "inconclusive_reason": "subespecificada"
+  },
+  {
+    "id": 62,
+    "claim": "Em 2022, o deputado que mais gastou a cota parlamentar (CEAP) foi Shéridan (PSDB-RR).",
+    "expected_verdict": "VERDADEIRO",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados",
+    "expected_tools": [
+      "get_top_ceap_spender"
+    ]
+  },
+  {
+    "id": 63,
+    "claim": "Em 2022, o deputado que mais gastou a cota parlamentar (CEAP) foi Jéssica Sales (MDB-AC).",
+    "expected_verdict": "FALSO",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados",
+    "expected_tools": [
+      "get_top_ceap_spender"
+    ]
+  },
+  {
+    "id": 64,
+    "claim": "Em 2022, deputados federais candidatos à reeleição puderam pagar a propaganda de suas campanhas com a cota parlamentar.",
+    "expected_verdict": "FALSO",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados",
+    "expected_tools": [
+      "check_institutional_rule"
+    ]
+  },
+  {
+    "id": 65,
+    "claim": "A PEC é promulgada pelas Mesas da Câmara e do Senado, sem sanção presidencial, enquanto o PLN depende de sanção do Presidente da República.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "VOTACOES",
+    "target_entity": "Congresso Nacional",
+    "expected_tools": [
+      "check_institutional_rule"
+    ]
+  },
+  {
+    "id": 66,
+    "claim": "Uma PEC precisa de sanção do Presidente da República para entrar em vigor.",
+    "expected_verdict": "FALSO",
+    "category": "VOTACOES",
+    "target_entity": "Congresso Nacional",
+    "expected_tools": [
+      "check_institutional_rule"
+    ]
+  },
+  {
+    "id": 67,
+    "claim": "Existe ao menos um projeto de lei na Câmara dos Deputados que trata de isenção ou redução do imposto de renda.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "VOTACOES",
+    "target_entity": "Câmara dos Deputados",
+    "expected_tools": [
+      "resolve_proposition"
+    ]
+  },
+  {
+    "id": 68,
+    "claim": "Os atuais membros titulares da CCJ da Câmara dos Deputados são todos do mesmo partido.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "VOTACOES",
+    "target_entity": "Câmara dos Deputados",
+    "expected_tools": [],
+    "inconclusive_reason": "subespecificada"
+  },
+  {
+    "id": 69,
+    "claim": "Senadores votaram contra o indicado ao Supremo Tribunal Federal na última sabatina.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "VOTACOES",
+    "target_entity": "Senado Federal",
+    "expected_tools": [],
+    "inconclusive_reason": "subespecificada"
+  },
+  {
+    "id": 70,
+    "claim": "O atual presidente da Câmara dos Deputados é do PL.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "VOTACOES",
+    "target_entity": "Câmara dos Deputados",
+    "expected_tools": [],
+    "inconclusive_reason": "subespecificada"
   }
 ]

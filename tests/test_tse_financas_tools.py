@@ -186,3 +186,60 @@ class TestAvisoDePrestacaoParcial:
             assert "parcia" in aviso            # a base só traz a versão parcial: isso continua dito
             assert "podem mudar" not in aviso and "ainda" not in aviso
             assert "base" in aviso
+
+
+class TestAvisoDoRankingSoDosExibidos:
+    """O aviso de 'prestação parcial' vale para os candidatos que o ranking mostra, não para qualquer outro do cargo."""
+
+    @pytest.fixture
+    def ranking_base(self, tmp_path: Path) -> Path:
+        t = tmp_path / "tse"
+        _write(t / "candidatos" / "ano=2022", [_cand(1, "A"), _cand(2, "B"), _cand(3, "C")])
+        pc = t / "prestacao_contas"
+        _write(pc / "despesas_contratadas" / "ano=2022", [
+            _desp(1, 11, 5000.0, nome="A"),
+            _desp(2, 22, 4000.0, nome="B"),
+            _desp(3, 33, 10.0, nome="C", tipo="PARCIAL"),     # último colocado, prestação parcial
+        ])
+        return t.parent
+
+    def test_sem_aviso_quando_os_exibidos_sao_finais(self, ranking_base, monkeypatch):
+        monkeypatch.setattr("src.tools.tse_financas_tools._current_year", lambda: 2030)
+        res = get_top_campaign_finances("Presidente", ano=2022, metrica="despesas_contratadas", top_n=2, base_dir=ranking_base)
+        assert [c["nome"] for c in res["candidatos"]] == ["A", "B"]
+        assert "aviso" not in res
+
+    def test_com_aviso_quando_um_exibido_e_parcial(self, ranking_base, monkeypatch):
+        monkeypatch.setattr("src.tools.tse_financas_tools._current_year", lambda: 2030)
+        res = get_top_campaign_finances("Presidente", ano=2022, metrica="despesas_contratadas", top_n=3, base_dir=ranking_base)
+        assert "parcia" in res["aviso"]
+
+
+class TestTipoDePrestacaoComCaixaDoTSE:
+    """O TSE grava 'Final' (não 'FINAL') nas prestações de 2022: a comparação não pode depender da caixa."""
+
+    @pytest.fixture
+    def mixed_case_base(self, tmp_path: Path) -> Path:
+        t = tmp_path / "tse"
+        _write(t / "candidatos" / "ano=2022", [_cand(1, "A"), _cand(2, "B")])
+        pc = t / "prestacao_contas"
+        _write(pc / "receitas" / "ano=2022", [_rec(1, 11, 100.0, tipo="Final", nome="A"),
+                                              _rec(2, 22, 50.0, tipo="Parcial", nome="B")])
+        _write(pc / "despesas_contratadas" / "ano=2022", [_desp(1, 11, 9.0, tipo="Final", nome="A"),
+                                                          _desp(2, 22, 5.0, tipo="Final", nome="B")])
+        return t.parent
+
+    def test_prestacao_final_em_caixa_mista_nao_e_parcial(self, mixed_case_base, monkeypatch):
+        monkeypatch.setattr("src.tools.tse_financas_tools._current_year", lambda: 2030)
+        res = get_campaign_finances(1, ano=2022, base_dir=mixed_case_base)
+        assert res["prestacao_final"] is True
+        assert "aviso" not in res
+
+    def test_prestacao_parcial_em_caixa_mista_continua_parcial(self, mixed_case_base):
+        res = get_campaign_finances(2, ano=2022, base_dir=mixed_case_base)
+        assert res["prestacao_final"] is False and "parcia" in res["aviso"]
+
+    def test_ranking_com_todos_finais_em_caixa_mista_nao_avisa(self, mixed_case_base, monkeypatch):
+        monkeypatch.setattr("src.tools.tse_financas_tools._current_year", lambda: 2030)
+        res = get_top_campaign_finances("Presidente", ano=2022, metrica="despesas_contratadas", top_n=2, base_dir=mixed_case_base)
+        assert "aviso" not in res

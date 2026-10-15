@@ -58,6 +58,7 @@ class TopSpenderResponse:
     top_n: int
     gastadores: List[TopSpenderItem]
     total_parlamentares_analisados: int
+    ordem: str = "maior"
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -88,9 +89,9 @@ class ExpenseCategoriesResponse:
 
 @dataclass
 class ExpenseAuditResult:
-    """Resposta estruturada da tool check_parliamentary_expenses."""
+    """Resposta estruturada da tool check_parliamentary_expenses (``ano`` nulo = todos os anos da base)."""
     casa: str
-    ano: int
+    ano: Optional[int]
     filtros_aplicados: Dict[str, Any]
     qtd_lancamentos: int
     valor_min: float
@@ -288,6 +289,7 @@ def get_top_ceap_spender(
     ano: int,
     top_n: int = 1,
     base_dir: Optional[Path] = None,
+    ordem: str = "maior",
 ) -> TopSpenderResponse:
     """Identifica os parlamentares com maiores gastos na Cota Parlamentar (CEAP/CEAPS).
 
@@ -298,22 +300,35 @@ def get_top_ceap_spender(
         ano: Ano de exercício fiscal a analisar (ex: 2023).
         top_n: Quantidade de posições do ranking a retornar (padrão: 1).
         base_dir: Diretório base opcional dos dados processados (para injeção em testes).
+        ordem: 'maior' (padrão, do maior para o menor gasto) ou 'menor' (do menor para o maior). Em 'menor',
+            totais zerados ou negativos (só estornos) não contam: não houve gasto.
 
     Returns:
-        TopSpenderResponse contendo a lista dos maiores gastadores ordenados decrescentemente.
+        TopSpenderResponse com o ranking na ordem pedida.
+
+    Raises:
+        ValueError: ordem diferente de 'maior' e 'menor'.
     """
+    clean_ordem = str(ordem).strip().lower()
+    if clean_ordem not in ("maior", "menor"):
+        raise ValueError(f"Ordem inválida: '{ordem}'. Valores aceitos: 'maior', 'menor'.")
     clean_casa = casa.strip().lower()
     lf = _resolve_ceap_dataset(casa=clean_casa, ano=ano, base_dir=base_dir)
 
     # Filtra por ano se a base contiver múltiplos anos
     lf_filtered = lf.filter(pl.col("ano") == ano)
 
+    # Verbas de liderança e de partido (ex.: 'PSL', 'LID.GOV-CD') não têm ID de parlamentar e não são ranqueadas
+    lf_filtered = lf_filtered.filter(pl.col("id_parlamentar") != "")
+
     # Agrupa por parlamentar e soma os reembolsos líquidos
     aggregated = (
         lf_filtered.group_by(["id_parlamentar", "nome_parlamentar", "uf", "partido"])
         .agg(pl.col("valor").sum().alias("valor_total"))
-        .sort(by="valor_total", descending=True)
     )
+    if clean_ordem == "menor":
+        aggregated = aggregated.filter(pl.col("valor_total") > 0)
+    aggregated = aggregated.sort(by="valor_total", descending=(clean_ordem == "maior"))
 
     df = aggregated.collect()
     total_parlamentares = df.height
@@ -325,6 +340,7 @@ def get_top_ceap_spender(
             top_n=top_n,
             gastadores=[],
             total_parlamentares_analisados=0,
+            ordem=clean_ordem,
         )
 
     top_df = df.head(top_n)
@@ -347,6 +363,7 @@ def get_top_ceap_spender(
         top_n=top_n,
         gastadores=items,
         total_parlamentares_analisados=total_parlamentares,
+        ordem=clean_ordem,
     )
 
 
@@ -436,7 +453,7 @@ def list_expense_categories(
 
 def check_parliamentary_expenses(
     casa: str,
-    ano: int,
+    ano: Optional[int] = None,
     categoria: Optional[str] = None,
     parlamentar_id: Optional[str] = None,
     limite_amostra: int = 5,
@@ -459,14 +476,17 @@ def check_parliamentary_expenses(
         ExpenseAuditResult com métricas calculadas e amostra dos registros.
     """
     clean_casa = casa.strip().lower()
-    filtros: Dict[str, Any] = {"casa": clean_casa, "ano": ano}
+    filtros: Dict[str, Any] = {"casa": clean_casa}
+    if ano is not None:
+        filtros["ano"] = ano
     if categoria:
         filtros["categoria"] = categoria
     if parlamentar_id:
         filtros["parlamentar_id"] = parlamentar_id
 
     lf = _resolve_ceap_dataset(casa=clean_casa, ano=ano, base_dir=base_dir)
-    lf = lf.filter(pl.col("ano") == ano)
+    if ano is not None:
+        lf = lf.filter(pl.col("ano") == ano)
 
     if parlamentar_id:
         clean_pid = str(parlamentar_id).strip()

@@ -73,14 +73,14 @@ def test_get_top_ceap_spender_dispatch():
                       return_value=_dataclass_like({"gastadores": [{"posicao": 1}]})) as tool:
         result = execute_tool("get_top_ceap_spender", {"casa": "camara", "ano": 2023, "top_n": 3})
 
-    tool.assert_called_once_with(casa="camara", ano=2023, top_n=3)
+    tool.assert_called_once_with(casa="camara", ano=2023, top_n=3, ordem="maior")
     assert result == {"gastadores": [{"posicao": 1}]}
 
 
 def test_get_top_ceap_spender_default_top_n_is_one():
     with patch.object(router_service, "get_top_ceap_spender", return_value=_dataclass_like({})) as tool:
         execute_tool("get_top_ceap_spender", {"casa": "senado", "ano": 2022})
-    tool.assert_called_once_with(casa="senado", ano=2022, top_n=1)
+    tool.assert_called_once_with(casa="senado", ano=2022, top_n=1, ordem="maior")
 
 
 # ----------------------------- list_expense_categories ----------------------------- #
@@ -324,19 +324,19 @@ def test_unknown_topic_is_rejected_not_invented():
 # --------------------- validação de parâmetros antes de executar (3.6) --------------------- #
 
 def test_missing_required_param_returns_clear_evidence_and_never_calls_the_tool():
-    with patch.object(router_service, "check_parliamentary_expenses") as tool:
-        result = execute_tool("check_parliamentary_expenses", {"casa": "camara", "categoria": "Alimentação"})
+    with patch.object(router_service, "get_top_ceap_spender") as tool:
+        result = execute_tool("get_top_ceap_spender", {"casa": "camara"})
 
     tool.assert_not_called()
     assert result["status"] == "parametros_invalidos"
     assert "ano" in result["erro"]
-    assert result["tool"] == "check_parliamentary_expenses"
+    assert result["tool"] == "get_top_ceap_spender"
 
 
 def test_arguments_are_normalized_before_dispatch():
     with patch.object(router_service, "get_top_ceap_spender", return_value=_dataclass_like({})) as tool:
         execute_tool("get_top_ceap_spender", {"casa": "Câmara", "ano": "2023"})
-    tool.assert_called_once_with(casa="camara", ano=2023, top_n=1)
+    tool.assert_called_once_with(casa="camara", ano=2023, top_n=1, ordem="maior")
 
 
 def test_invalid_enum_never_reaches_the_curated_base():
@@ -348,7 +348,7 @@ def test_invalid_enum_never_reaches_the_curated_base():
 
 def test_invalid_params_make_the_verdict_inconclusive_and_flag_the_tool_span(trace_recorder):
     chat = ChatResult(content="", tool_calls=[
-        {"name": "check_parliamentary_expenses", "arguments": {"casa": "camara", "categoria": "Alimentação"}}])
+        {"name": "get_top_ceap_spender", "arguments": {"casa": "camara"}}])
     judge = {"veredito": "VERDADEIRO", "confianca": "ALTA", "fontes_primarias": ["x"],
              "justificativa": "Confirmado.", "tempo_julgamento_ms": 1.0}
     with patch.object(router_service, "llm_client") as llm, \
@@ -357,7 +357,7 @@ def test_invalid_params_make_the_verdict_inconclusive_and_flag_the_tool_span(tra
         resp = TestClient(router_service.app).post("/check", json={"claim": "Deputados podem pedir reembolso de alimentação."})
 
     assert resp.json()["veredito"] == "INCONCLUSIVO"            # evidência inválida nunca sustenta veredito
-    update = trace_recorder.merged_updates("tool.check_parliamentary_expenses")
+    update = trace_recorder.merged_updates("tool.get_top_ceap_spender")
     assert update["level"] == "WARNING" and "ano" in update["status_message"]
 
 
@@ -418,3 +418,21 @@ def test_tramitation_data_missing_in_parquet_is_not_a_fake_result():
          patch.object(router_service, "get_proposition_tramitation_history", side_effect=ValueError("sem dados")):
         result = execute_tool("get_proposition_tramitation_history", PEC_ARGS)
     assert result.get("encontrado") is False and "erro" in result
+
+
+def test_expenses_without_year_is_dispatched_without_year():
+    with patch.object(router_service, "check_parliamentary_expenses", return_value=_dataclass_like({"ok": 1})) as tool:
+        result = execute_tool("check_parliamentary_expenses", {"casa": "camara", "categoria": "Combustíveis"})
+
+    assert result == {"ok": 1}
+    assert tool.call_args.kwargs["ano"] is None
+
+
+@pytest.mark.parametrize("given, expected", [(None, "maior"), ("menor", "menor"), ("Maior", "maior")])
+def test_top_spender_order_is_dispatched(given, expected):
+    args = {"casa": "camara", "ano": 2022}
+    if given:
+        args["ordem"] = given
+    with patch.object(router_service, "get_top_ceap_spender", return_value=_dataclass_like({"ok": 1})) as tool:
+        execute_tool("get_top_ceap_spender", args)
+    assert tool.call_args.kwargs["ordem"] == expected

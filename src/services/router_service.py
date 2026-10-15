@@ -12,6 +12,7 @@ import re
 import time
 import unicodedata
 from contextlib import asynccontextmanager
+from datetime import date
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 from fastapi import FastAPI, HTTPException
@@ -31,6 +32,7 @@ from src.observability.prompts import get_prompt
 from src.prompts.defaults import PROMPT_ROUTER_SYSTEM
 from src.services.tool_args import ground_candidate_args, validate_tool_args
 from src.services.data_freshness import data_date, ensure_data_date_cited, load_ingestion_info
+from src.services.category_routing import category_for, hinted_tool, restrict_catalog, tool_hint
 from src.services.sources import TSE as TSE_SOURCE, derive_sources, ensure_source_cited, evidence_failed, merge_sources
 from src.tools.gastos_tools import (
     check_parliamentary_expenses,
@@ -315,7 +317,8 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
         )
     if tool_name == "get_top_ceap_spender":
         return get_top_ceap_spender(
-            casa=args["casa"], ano=args["ano"], top_n=args.get("top_n", 1)
+            casa=args["casa"], ano=args["ano"], top_n=args.get("top_n", 1),
+            ordem=str(args.get("ordem") or "maior").lower(),
         ).to_dict()
     if tool_name == "list_expense_categories":
         return list_expense_categories(
@@ -335,7 +338,7 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
             parlamentar_id = None
         return check_parliamentary_expenses(
             casa=casa,
-            ano=args["ano"],
+            ano=args.get("ano"),
             categoria=args.get("categoria"),
             parlamentar_id=parlamentar_id,
         ).to_dict()
@@ -389,7 +392,7 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
     if tool_name == "get_top_campaign_finances":
         return get_top_campaign_finances(
             cargo=args["cargo"], ano=args["ano"], metrica=args.get("metrica") or "despesas_contratadas",
-            uf=args.get("uf"), top_n=args.get("top_n") or 5,
+            uf=args.get("uf"), top_n=max(int(args.get("top_n") or 5), MIN_RANKING_SHOWN),
         )
     if tool_name == "check_candidate_profile":
         return _with_resolved_candidate(args, lambda sq: check_candidate_profile(sq_candidato=sq, ano=args["ano"]))
@@ -463,7 +466,13 @@ def _traced_check(
 ) -> CheckClaimResponse:
     """Pipeline completo dentro do trace `check_claim` (usado por /check e pelos endpoints /api/*)."""
     start_total = time.perf_counter()
-    with tracing.trace_attributes(user_id=user_id, session_id=session_id), \
+    strategy, providers = getattr(llm_client, "strategy", None), getattr(llm_client, "providers", None)
+    trace_extras: Dict[str, Any] = {}
+    if isinstance(strategy, str):
+        trace_extras["tags"] = [f"llm_strategy:{strategy}"]
+    if isinstance(providers, list):
+        trace_extras["metadata"] = {"llm_providers": ",".join(providers)}
+    with tracing.trace_attributes(user_id=user_id, session_id=session_id, **trace_extras), \
          tracing.observation("check_claim", input=claim_text) as root:
         response = _run_check(claim_text, start_total, on_step=on_step)
         response.trace_id = root.trace_id
@@ -519,7 +528,7 @@ _PROPOSITION_COMPATIBLE_TOOLS = {
     "get_proposition_tramitation_history", "check_bill_apensamentos",
 }
 _APENSAMENTO_CUE_RE = re.compile(r"apens|anexad|apensad", re.IGNORECASE)
-_TRAMITACAO_CUE_RE = re.compile(r"tramit|comiss[aã]o|comiss[oõ]es|em que fase|situa[cç][aã]o atual|parad[ao]", re.IGNORECASE)
+_TRAMITACAO_CUE_RE = re.compile(r"tramit|comiss[aã]o|comiss[oõ]es|em que fase|em que p[eé]|situa[cç][aã]o atual|status|andamento|parad[ao]", re.IGNORECASE)
 
 
 def _cited_proposition(claim_text: str) -> Optional[tuple]:
@@ -535,6 +544,62 @@ NO_TOOL_JUSTIFICATION = (
     "Não há uma fonte oficial de dados abertos aplicável a esta pergunta, então não há evidência para checá-la. "
     "Para proposições, cite a sigla, o número e o ano (ex.: PEC 45/2019); para gastos, o parlamentar e o ano."
 )
+# compare_candidates exige 2 a 4 nomes; com um só ("Lula recebeu X votos") a tool de um candidato responde.
+_SINGLE_CANDIDATE_TOOL = {
+    "votos_validos": "get_candidate_votes",
+    "patrimonio": "get_candidate_assets",
+    "receitas": "get_campaign_finances",
+    "despesas_contratadas": "get_campaign_finances",
+}
+
+
+def _single_candidate_call(call: Dict[str, Any]) -> Dict[str, Any]:
+    """Troca compare_candidates de um candidato pela tool de um candidato, mantendo só os parâmetros dela."""
+    args = call["arguments"]
+    candidates = args.get("candidatos") or []
+    target = _SINGLE_CANDIDATE_TOOL.get(args.get("metrica"))
+    if call["name"] != "compare_candidates" or len(candidates) != 1 or not target:
+        return call
+    schema = next(t["function"]["parameters"]["properties"] for t in TOOLS_CATALOG if t["function"]["name"] == target)
+    new_args = {"nome_candidato": candidates[0], **{k: v for k, v in args.items() if k in schema and v not in (None, "")}}
+    return {**call, "name": target, "arguments": new_args}
+
+
+_TURNO_RE = re.compile(r"\b(primeiro|1|segundo|2)\s*(?:o|º|°)?\s*turno\b", re.IGNORECASE)
+
+
+def _turno_in_claim(claim_text: str) -> Optional[int]:
+    """Turno dito na alegação ('segundo turno', '2º turno'); None se ela não diz."""
+    match = _TURNO_RE.search(claim_text)
+    if not match:
+        return None
+    return 1 if match.group(1).lower() in ("primeiro", "1") else 2
+
+
+def _takes_turno(call: Dict[str, Any]) -> bool:
+    args = call["arguments"]
+    return call["name"] in ("get_election_result", "get_candidate_votes") or (
+        call["name"] == "compare_candidates" and args.get("metrica") == "votos_validos"
+    )
+
+
+# "X foi o que mais gastou" só se decide vendo também o 2º e o 3º colocados na evidência.
+MIN_RANKING_SHOWN = 3
+_SENADO_RE = re.compile(r"\bsenad", re.IGNORECASE)
+_CAMARA_RE = re.compile(r"camara|deputad", re.IGNORECASE)
+
+
+def _house_in_claim(claim_text: str) -> Optional[str]:
+    """Casa que a alegação nomeia sozinha ('Senado' ou 'Câmara/deputados'); None se cita as duas ou nenhuma."""
+    folded = unicodedata.normalize("NFKD", claim_text)
+    folded = "".join(ch for ch in folded if not unicodedata.combining(ch))
+    senado, camara = bool(_SENADO_RE.search(folded)), bool(_CAMARA_RE.search(folded))
+    if senado == camara:
+        return None
+    return "senado" if senado else "camara"
+
+
+_THIS_YEAR_RE = re.compile(r"\b(?:neste|este) ano\b|\bano atual\b|\bano corrente\b|\batualmente\b", re.IGNORECASE)
 _CAMPAIGN_TOOLS = {"get_campaign_finances", "get_top_campaign_finances"}
 _QUOTA_TOOL_NAMES = {
     "get_top_ceap_spender", "list_expense_categories", "check_parliamentary_expenses", "get_member_expenses",
@@ -573,12 +638,32 @@ def _run_tool(
         return evidence
 
 
+def _category_for_claim(claim_text: str) -> Optional[str]:
+    """Etapa 1 do roteamento: categoria por regra ou, se a regra não decide, pelo LLM (JSON). None = catálogo inteiro."""
+    if os.getenv("ROUTER_TWO_STAGE", "true").strip().lower() in ("0", "false", "no", "off"):
+        return None
+    return category_for(lambda messages: llm_client.chat(messages, model=ROUTER_MODEL, json_mode=True), claim_text)
+
+
+def _today() -> date:
+    return date.today()
+
+
+def _today_note() -> str:
+    """A data de hoje, para o modelo ancorar 'este ano' e 'atualmente' sem inventar o ano."""
+    today = _today()
+    return (
+        f"\n\nData de hoje: {today.isoformat()}. Se a alegação disser 'este ano', 'neste ano' ou 'atualmente' e a "
+        f"tool pedir um ano, use {today.year}. Nunca invente um ano que a alegação não permita deduzir."
+    )
+
+
 def _chat_for_routing(claim_text: str, tools: List[Dict[str, Any]], hint: str = "") -> Any:
     system_prompt = get_prompt(PROMPT_ROUTER_SYSTEM, ROUTER_SYSTEM_PROMPT)
     try:
         return llm_client.chat(
             [
-                {"role": "system", "content": system_prompt.text + hint},
+                {"role": "system", "content": system_prompt.text + hint + _today_note()},
                 {"role": "user", "content": claim_text},
             ],
             tools=tools,
@@ -623,7 +708,8 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
     O ``id_proposicao`` da tool de votação nunca vem do LLM: vem sempre do ``resolve_proposition``.
     """
     start = time.perf_counter()
-    chat = _chat_for_routing(claim_text, TOOLS_CATALOG)
+    category = _category_for_claim(claim_text)
+    chat = _chat_for_routing(claim_text, restrict_catalog(TOOLS_CATALOG, category), tool_hint(claim_text) or "")
     cited = _cited_proposition(claim_text)
 
     if cited and (not chat.tool_calls or chat.tool_calls[0]["name"] not in _PROPOSITION_COMPATIBLE_TOOLS):
@@ -671,6 +757,56 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
         )
         if wanted:
             chat.tool_calls = [{**chat.tool_calls[0], "name": wanted}]
+
+    if chat.tool_calls:
+        chat.tool_calls = [_single_candidate_call(chat.tool_calls[0])] + list(chat.tool_calls[1:])
+
+    wanted_tool = hinted_tool(claim_text)
+    is_comparison = bool(chat.tool_calls) and chat.tool_calls[0]["name"] == "compare_candidates"
+    if wanted_tool and not is_comparison and (not chat.tool_calls or chat.tool_calls[0]["name"] != wanted_tool):
+        # A redação aponta uma tool só e o modelo pequeno escolheu outra (ou nenhuma): refaz com ela sozinha no
+        # catálogo, deixando ao LLM só a extração dos parâmetros. Se falhar, vale a escolha original.
+        only = [t for t in TOOLS_CATALOG if t["function"]["name"] == wanted_tool]
+        try:
+            retry = _chat_for_routing(claim_text, only, tool_hint(claim_text) or "")
+            forced = next((c for c in retry.tool_calls if c["name"] == wanted_tool), None)
+        except HTTPException:
+            forced = None
+        if forced:
+            chat.tool_calls = [forced]
+
+    if category == "PROPOSICOES" and not chat.tool_calls:
+        # Nome popular sem número ("Marco Temporal"): o modelo pequeno às vezes não chama nada. O resolvedor é o
+        # primeiro passo de toda alegação de proposição, então a chamada é refeita só com ele.
+        try:
+            retry = _chat_for_routing(claim_text, _RESOLVER_ONLY_CATALOG, _RESOLVE_FIRST_HINT)
+            chat.tool_calls = [c for c in retry.tool_calls if c["name"] == "resolve_proposition"]
+        except HTTPException:
+            chat.tool_calls = []
+
+    if chat.tool_calls and chat.tool_calls[0]["name"] == "resolve_proposition":
+        # A Casa que a alegação nomeia ("o Senado aprovou") vale mais que "congresso": só assim a votação encadeia.
+        first = chat.tool_calls[0]
+        current = first["arguments"].get("casa")
+        if current in (None, "", "congresso"):
+            house = _house_in_claim(claim_text) or "congresso"
+            chat.tool_calls = [{**first, "arguments": {**first["arguments"], "casa": house}}] + list(chat.tool_calls[1:])
+
+    if chat.tool_calls and _THIS_YEAR_RE.search(claim_text):
+        first = chat.tool_calls[0]
+        takes_year = "ano" in next(
+            (t["function"]["parameters"]["properties"] for t in TOOLS_CATALOG if t["function"]["name"] == first["name"]),
+            {},
+        )
+        if takes_year and not first["arguments"].get("ano"):
+            # "Neste ano" / "atualmente": o ano é o de hoje, dito pela própria alegação (nunca adivinhado).
+            chat.tool_calls = [{**first, "arguments": {**first["arguments"], "ano": _today().year}}] + list(chat.tool_calls[1:])
+
+    if chat.tool_calls and _takes_turno(chat.tool_calls[0]) and not chat.tool_calls[0]["arguments"].get("turno"):
+        turno = _turno_in_claim(claim_text)   # só o que a alegação diz: o turno nunca é adivinhado
+        if turno:
+            first = chat.tool_calls[0]
+            chat.tool_calls = [{**first, "arguments": {**first["arguments"], "turno": turno}}] + list(chat.tool_calls[1:])
 
     if not chat.tool_calls:
         return RoutingOutcome(routing_ms=(time.perf_counter() - start) * 1000)

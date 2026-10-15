@@ -547,3 +547,360 @@ def test_tramitation_tool_chosen_by_llm_is_kept_and_not_redirected_to_resolver(m
 
     mock_llm.chat.assert_called_once()
     assert execute.call_args.args[0] == "get_proposition_tramitation_history"
+
+
+# ------------------- roteamento em duas etapas (categoria → tools da categoria) ------------------- #
+
+def _tool_names(call):
+    return {t["function"]["name"] for t in call.kwargs["tools"]}
+
+
+@pytest.fixture
+def two_stage(monkeypatch):
+    monkeypatch.setenv("ROUTER_TWO_STAGE", "true")
+
+
+def test_two_stage_rule_decided_category_restricts_the_catalog_with_a_single_llm_call(mock_llm, two_stage):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "resolve_proposition", "arguments": {"casa": "camara", "sigla_tipo": "PL", "numero": 2630, "ano": 2020}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 1, "casa": "camara"}):
+        router_service._route_and_execute("O PL 2630/2020 foi aprovado pelo Plenário?")
+
+    mock_llm.chat.assert_called_once()
+    names = _tool_names(mock_llm.chat.call_args)
+    assert "resolve_proposition" in names and "check_institutional_rule" in names
+    assert not names & {"get_election_result", "get_top_ceap_spender", "compare_candidates"}
+
+
+def test_two_stage_asks_the_llm_for_the_category_when_rules_do_not_decide(mock_llm, two_stage):
+    mock_llm.chat.side_effect = [
+        _chat_result_with_content('{"categoria": "COTA_PARLAMENTAR"}'),
+        _chat_result([{"name": "get_top_ceap_spender", "arguments": {"casa": "camara", "ano": 2022}}]),
+    ]
+    with patch.object(router_service, "execute_tool", return_value={"gastadores": []}) as execute:
+        router_service._route_and_execute("Quem mais gastou em 2022?")
+
+    classify_call, route_call = mock_llm.chat.call_args_list
+    assert classify_call.kwargs["json_mode"] is True and "tools" not in classify_call.kwargs
+    assert "get_top_ceap_spender" in _tool_names(route_call)
+    assert not _tool_names(route_call) & {"get_election_result", "resolve_proposition"}
+    assert execute.call_args.args[0] == "get_top_ceap_spender"
+
+
+def test_two_stage_keeps_the_full_catalog_when_the_classification_fails(mock_llm, two_stage):
+    mock_llm.chat.side_effect = [RuntimeError("timed out"), _chat_result([])]
+    router_service._route_and_execute("Quem mais gastou em 2022?")
+
+    assert _tool_names(mock_llm.chat.call_args_list[1]) == {t["function"]["name"] for t in router_service.TOOLS_CATALOG}
+
+
+def test_two_stage_can_be_turned_off(mock_llm, monkeypatch):
+    monkeypatch.setenv("ROUTER_TWO_STAGE", "false")
+    mock_llm.chat.return_value = _chat_result([])
+    router_service._route_and_execute("Quem mais gastou em 2022?")
+
+    mock_llm.chat.assert_called_once()
+    assert mock_llm.chat.call_args.kwargs["tools"] == router_service.TOOLS_CATALOG
+
+
+def _chat_result_with_content(content):
+    result = _chat_result([])
+    result.content = content
+    return result
+
+
+# ------------------- compare_candidates com um só candidato vira a tool de um candidato ------------------- #
+
+def _compare_call(**overrides):
+    args = {"ano": 2022, "candidatos": ["Lula"], "metrica": "votos_validos", "turno": 2, "cargo": "Presidente"}
+    args.update(overrides)
+    return {"name": "compare_candidates", "arguments": args}
+
+
+@pytest.mark.parametrize("metrica, expected_tool", [
+    ("votos_validos", "get_candidate_votes"),
+    ("patrimonio", "get_candidate_assets"),
+    ("receitas", "get_campaign_finances"),
+    ("despesas_contratadas", "get_campaign_finances"),
+])
+def test_compare_with_a_single_candidate_is_repaired_to_the_single_candidate_tool(mock_llm, metrica, expected_tool):
+    mock_llm.chat.return_value = _chat_result([_compare_call(metrica=metrica)])
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        outcome = router_service._route_and_execute(
+            "No segundo turno da eleição para Presidente de 2022, Lula recebeu 60.345.999 votos válidos."
+        )
+
+    assert execute.call_args.args[0] == expected_tool and outcome.tool_name == expected_tool
+    args = execute.call_args.args[1]
+    assert args["nome_candidato"] == "Lula" and args["ano"] == 2022 and args["cargo"] == "Presidente"
+    assert "candidatos" not in args and "metrica" not in args
+    if expected_tool == "get_candidate_votes":
+        assert args["turno"] == 2
+    else:
+        assert "turno" not in args
+
+
+def test_compare_with_two_candidates_is_left_alone(mock_llm):
+    mock_llm.chat.return_value = _chat_result([_compare_call(candidatos=["Lula", "Simone Tebet"])])
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        router_service._route_and_execute("Lula teve mais votos que Simone Tebet em 2022?")
+
+    assert execute.call_args.args[0] == "compare_candidates"
+
+
+def test_compare_with_a_single_candidate_keeps_uf_to_disambiguate(mock_llm):
+    mock_llm.chat.return_value = _chat_result(
+        [_compare_call(candidatos=["Tarcísio de Freitas"], turno=1, cargo="Governador", uf="SP")]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        router_service._route_and_execute("Tarcísio de Freitas foi o mais votado para governador de SP em 2022.")
+
+    assert execute.call_args.args[1]["uf"] == "SP"
+
+
+def test_routing_prompt_gets_the_tool_hint_for_clear_wording(mock_llm):
+    mock_llm.chat.return_value = _chat_result([])
+    router_service._route_and_execute("Em 2022, Lula declarou ao TSE bens que somam mais de 7 milhões de reais.")
+
+    system = mock_llm.chat.call_args.args[0][0]["content"]
+    assert "get_candidate_assets" in system.split("Dica de roteamento")[-1]
+
+
+def test_routing_prompt_has_no_hint_without_clear_wording(mock_llm):
+    mock_llm.chat.return_value = _chat_result([])
+    router_service._route_and_execute("Quem mais gastou em 2022?")
+
+    assert "Dica de roteamento" not in mock_llm.chat.call_args.args[0][0]["content"]
+
+
+# ------------------- tool dita pela redação: se o LLM escolhe outra, refaz só com ela ------------------- #
+
+ASSETS_CLAIM = "Em 2022, Lula declarou ao TSE bens que somam mais de 7 milhões de reais."
+
+
+def test_llm_choice_that_differs_from_the_hinted_tool_is_retried_with_only_the_hinted_tool(mock_llm):
+    mock_llm.chat.side_effect = [
+        _chat_result([{"name": "check_cash_and_special_assets", "arguments": {"nome_candidato": "Lula", "ano": 2022}}]),
+        _chat_result([{"name": "get_candidate_assets", "arguments": {"nome_candidato": "Lula", "ano": 2022}}]),
+    ]
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        outcome = router_service._route_and_execute(ASSETS_CLAIM)
+
+    retry = mock_llm.chat.call_args_list[1]
+    assert [t["function"]["name"] for t in retry.kwargs["tools"]] == ["get_candidate_assets"]
+    assert execute.call_args.args[0] == "get_candidate_assets" and outcome.tool_name == "get_candidate_assets"
+
+
+def test_llm_choice_equal_to_the_hinted_tool_is_not_retried(mock_llm):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "get_candidate_assets", "arguments": {"nome_candidato": "Lula", "ano": 2022}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}):
+        router_service._route_and_execute(ASSETS_CLAIM)
+
+    mock_llm.chat.assert_called_once()
+
+
+def test_hinted_retry_that_fails_keeps_the_original_choice(mock_llm):
+    mock_llm.chat.side_effect = [
+        _chat_result([{"name": "check_cash_and_special_assets", "arguments": {"nome_candidato": "Lula", "ano": 2022}}]),
+        _chat_result([]),
+    ]
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        router_service._route_and_execute(ASSETS_CLAIM)
+
+    assert execute.call_args.args[0] == "check_cash_and_special_assets"
+
+
+def test_no_tool_with_a_hint_is_retried_with_the_hinted_tool(mock_llm):
+    mock_llm.chat.side_effect = [
+        _chat_result([]),
+        _chat_result([{"name": "get_candidate_assets", "arguments": {"nome_candidato": "Lula", "ano": 2022}}]),
+    ]
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        router_service._route_and_execute(ASSETS_CLAIM)
+
+    assert execute.call_args.args[0] == "get_candidate_assets"
+
+
+def test_comparison_between_candidates_is_never_replaced_by_the_hinted_single_candidate_tool(mock_llm):
+    mock_llm.chat.return_value = _chat_result([{"name": "compare_candidates", "arguments": {
+        "candidatos": ["Lula", "Simone Tebet"], "ano": 2022, "metrica": "patrimonio"}}])
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        router_service._route_and_execute("Em 2022, Lula declarou mais patrimônio do que Simone Tebet.")
+
+    mock_llm.chat.assert_called_once()
+    assert execute.call_args.args[0] == "compare_candidates"
+
+
+# ------------------- turno dito na alegação, esquecido pelo LLM ------------------- #
+
+@pytest.mark.parametrize("claim, turno", [
+    ("Em 2022, Jair Bolsonaro venceu o segundo turno da eleição presidencial.", 2),
+    ("Lula foi o mais votado no 2º turno de 2022.", 2),
+    ("Lula foi o mais votado no 2o turno de 2022.", 2),
+    ("Lula foi o mais votado no primeiro turno de 2022.", 1),
+    ("Lula foi o mais votado no 1º turno de 2022.", 1),
+])
+@pytest.mark.parametrize("tool, base_args", [
+    ("get_election_result", {"cargo": "Presidente", "ano": 2022}),
+    ("get_candidate_votes", {"nome_candidato": "Lula", "ano": 2022}),
+    ("compare_candidates", {"candidatos": ["Lula", "Jair Bolsonaro"], "ano": 2022, "metrica": "votos_validos"}),
+])
+def test_turno_written_in_the_claim_is_filled_when_the_llm_forgets_it(mock_llm, claim, turno, tool, base_args):
+    mock_llm.chat.return_value = _chat_result([{"name": tool, "arguments": dict(base_args)}])
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        router_service._route_and_execute(claim)
+
+    assert execute.call_args.args[1]["turno"] == turno
+
+
+def test_turno_chosen_by_the_llm_is_never_overridden(mock_llm):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "get_election_result", "arguments": {"cargo": "Presidente", "ano": 2022, "turno": 1}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        router_service._route_and_execute("Em 2022, Jair Bolsonaro venceu o segundo turno.")
+
+    assert execute.call_args.args[1]["turno"] == 1
+
+
+def test_turno_is_not_invented_when_the_claim_does_not_say_it(mock_llm):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "get_election_result", "arguments": {"cargo": "Presidente", "ano": 2022}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        router_service._route_and_execute("Em 2022, Lula foi o mais votado para presidente.")
+
+    assert "turno" not in execute.call_args.args[1]
+
+
+def test_turno_is_not_added_to_tools_that_do_not_take_it(mock_llm):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "get_candidate_assets", "arguments": {"nome_candidato": "Lula", "ano": 2022}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        router_service._route_and_execute("No segundo turno de 2022, Lula declarou 7 milhões em bens.")
+
+    assert "turno" not in execute.call_args.args[1]
+
+
+# ------------------- proposição por nome popular: o resolvedor sempre roda, na Casa que a alegação cita ------------------- #
+
+SENADO_PEC_CLAIM = "O Senado aprovou, em votação nominal, o texto-base da PEC da Reforma Tributária em 2023."
+MARCO_CLAIM = "A votação do Marco Temporal na Câmara dos Deputados em 2023 foi unânime, sem nenhum deputado votando contra."
+
+
+def _resolver_call(**args):
+    return {"name": "resolve_proposition", "arguments": {"termo_busca": "PEC da Reforma Tributária", **args}}
+
+
+def test_proposition_claim_without_a_tool_is_retried_with_the_resolver_only(mock_llm, two_stage):
+    mock_llm.chat.side_effect = [_chat_result([]), _chat_result([_resolver_call(casa="senado")])]
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 1, "casa": "senado"}):
+        router_service._route_and_execute(SENADO_PEC_CLAIM)
+
+    retry = mock_llm.chat.call_args_list[1]
+    assert [t["function"]["name"] for t in retry.kwargs["tools"]] == ["resolve_proposition"]
+
+
+@pytest.mark.parametrize("claim, casa_from_llm, expected", [
+    (SENADO_PEC_CLAIM, "congresso", "senado"),
+    (MARCO_CLAIM, "congresso", "camara"),
+    (MARCO_CLAIM, None, "camara"),
+    ("O Senado e a Câmara aprovaram a PEC da Reforma Tributária em 2023.", "congresso", "congresso"),
+    ("A PEC da Reforma Tributária foi aprovada em 2023.", "congresso", "congresso"),
+    (SENADO_PEC_CLAIM, "camara", "camara"),                 # a escolha explícita do LLM nunca é trocada
+])
+def test_resolver_house_comes_from_the_house_named_in_the_claim(mock_llm, claim, casa_from_llm, expected):
+    args = {} if casa_from_llm is None else {"casa": casa_from_llm}
+    mock_llm.chat.return_value = _chat_result([_resolver_call(**args)])
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 1}) as execute:
+        router_service._route_and_execute(claim)
+
+    assert execute.call_args.args[1]["casa"] == expected
+
+
+def test_no_tool_outside_the_proposition_category_is_not_forced_to_the_resolver(mock_llm):
+    mock_llm.chat.return_value = _chat_result([])
+    outcome = router_service._route_and_execute("O céu é azul?")
+
+    mock_llm.chat.assert_called_once()
+    assert outcome.tool_name is None
+
+
+@pytest.mark.parametrize("claim", [
+    "Qual é o status atual da PEC da Dosimetria no Senado?",
+    "Em que pé está a PEC 45/2019?",
+    "Qual o andamento do PL 2630/2020?",
+])
+def test_status_and_progress_wording_upgrades_the_resolver_to_the_tramitation_tool(mock_llm, claim):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "resolve_proposition", "arguments": {"casa": "senado", "termo_busca": "PEC da Dosimetria"}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        router_service._route_and_execute(claim)
+
+    assert execute.call_args.args[0] == "get_proposition_tramitation_history"
+
+
+# ------------------- tempo relativo resolvido pela data de hoje ------------------- #
+
+from datetime import date  # noqa: E402
+
+
+@pytest.fixture
+def fixed_today(monkeypatch):
+    monkeypatch.setattr(router_service, "_today", lambda: date(2026, 10, 15))
+
+
+def test_routing_prompt_carries_todays_date(mock_llm, fixed_today):
+    mock_llm.chat.return_value = _chat_result([])
+    router_service._route_and_execute("Quem mais gastou a cota parlamentar da Câmara neste ano?")
+
+    system = mock_llm.chat.call_args.args[0][0]["content"]
+    assert "Data de hoje: 2026-10-15" in system
+    assert "2026" in system.split("Data de hoje")[-1]
+
+
+@pytest.mark.parametrize("claim", [
+    "Neste ano, o deputado que mais gastou a cota parlamentar foi Fulano.",
+    "Este ano o deputado que mais gastou a cota parlamentar foi Fulano.",
+    "No ano atual, o deputado que mais gastou a cota parlamentar foi Fulano.",
+    "Atualmente o deputado que mais gastou a cota parlamentar é Fulano.",
+])
+def test_missing_year_is_filled_with_the_current_year_when_the_claim_says_this_year(mock_llm, fixed_today, claim):
+    mock_llm.chat.return_value = _chat_result([{"name": "get_top_ceap_spender", "arguments": {"casa": "camara"}}])
+    with patch.object(router_service, "execute_tool", return_value={"gastadores": []}) as execute:
+        router_service._route_and_execute(claim)
+
+    assert execute.call_args.args[1]["ano"] == 2026
+
+
+def test_year_chosen_by_the_llm_is_never_overridden_by_the_current_year(mock_llm, fixed_today):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "get_top_ceap_spender", "arguments": {"casa": "camara", "ano": 2023}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"gastadores": []}) as execute:
+        router_service._route_and_execute("Neste ano, o deputado que mais gastou a cota foi Fulano.")
+
+    assert execute.call_args.args[1]["ano"] == 2023
+
+
+def test_year_is_not_invented_when_the_claim_does_not_say_this_year(mock_llm, fixed_today):
+    mock_llm.chat.return_value = _chat_result([{"name": "get_top_ceap_spender", "arguments": {"casa": "camara"}}])
+    with patch.object(router_service, "execute_tool", return_value={"gastadores": []}) as execute:
+        router_service._route_and_execute("O deputado que mais gastou a cota parlamentar foi Fulano.")
+
+    assert "ano" not in execute.call_args.args[1]
+
+
+def test_current_year_is_not_added_to_tools_without_a_year_parameter(mock_llm, fixed_today):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "check_institutional_rule", "arguments": {"topico": "veto_presidencial"}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        router_service._route_and_execute("Neste ano, o veto presidencial pode ser derrubado pelo Congresso.")
+
+    assert "ano" not in execute.call_args.args[1]

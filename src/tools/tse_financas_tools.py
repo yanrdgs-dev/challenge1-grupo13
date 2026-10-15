@@ -40,6 +40,11 @@ _PARTIAL_NOTICE = ("A prestação de contas deste candidato ainda não é a fina
                    "e podem mudar.")
 
 
+def _is_final(tipo: Optional[str]) -> bool:
+    """O TSE grava 'Final' em 2022 e 'FINAL' em outros anos."""
+    return str(tipo or "").strip().upper() == "FINAL"
+
+
 def _current_year() -> int:
     return date.today().year
 
@@ -108,7 +113,7 @@ def get_campaign_finances(sq_candidato: Any, ano: Optional[int], base_dir: Optio
         "status": "ok",
         **_identity(cadastro, ano),
         "tipo_prestacao": tipo,
-        "prestacao_final": tipo == "FINAL",
+        "prestacao_final": _is_final(tipo),
         "receitas": ({**_total(receitas), "por_origem": _breakdown(receitas, "DS_ORIGEM_RECEITA", "origem"),
                       "por_fonte": _breakdown(receitas, "DS_FONTE_RECEITA", "fonte")}
                      if receitas is not None else {"quantidade": None, "total": None, "por_origem": [], "por_fonte": []}),
@@ -116,7 +121,7 @@ def get_campaign_finances(sq_candidato: Any, ano: Optional[int], base_dir: Optio
                                  if despesas is not None else {"quantidade": None, "total": None, "por_categoria": []}),
         "despesas_pagas": _total(pagas) if pagas is not None else {"quantidade": None, "total": None},
     }
-    if tipo != "FINAL":
+    if not _is_final(tipo):
         result["aviso"] = _partial_notice(tipo, ano)
     return result
 
@@ -169,7 +174,8 @@ def get_top_campaign_finances(
         "total_candidatos": len(entries), "valor_total_cargo": round(float(ranking["valor"].sum()), 2),
         "candidatos": entries[: max(1, min(int(top_n), MAX_TOP_N))],
     }
-    if any(e["tipo_prestacao"] != "FINAL" for e in entries):
+    shown = entries[: max(1, min(int(top_n), MAX_TOP_N))]
+    if any(not _is_final(e["tipo_prestacao"]) for e in shown):   # só os candidatos exibidos importam para o aviso
         if ano is not None and ano < _current_year():
             result["aviso"] = _CLOSED_RANKING_NOTICE
         else:

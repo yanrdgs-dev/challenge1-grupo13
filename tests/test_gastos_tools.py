@@ -576,3 +576,61 @@ def test_member_expenses_to_dict_e_serializavel(mock_ceap_data_dir: Path):
     res = get_member_expenses(casa="camara", ano=2023, parlamentar_id="101", base_dir=mock_ceap_data_dir)
     data = json.loads(json.dumps(res.to_dict()))
     assert data["por_categoria"][0]["categoria"] == "PASSAGEM AÉREA - SIGEPA"
+
+
+def test_check_parliamentary_expenses_without_year_looks_at_all_available_years(mock_ceap_data_dir: Path):
+    """'Teto fixo de R$ 500 por ano' não cita um ano: a auditoria cobre todos os anos da base."""
+    res = check_parliamentary_expenses(casa="camara", categoria="combustível", base_dir=mock_ceap_data_dir)
+    assert res.qtd_lancamentos == 2 and res.valor_max == 2500.0
+    assert "ano" not in res.filtros_aplicados
+
+
+def test_get_top_ceap_spender_menor_gasto_ordena_do_menor_para_o_maior(mock_ceap_data_dir: Path):
+    """'Qual deputado registrou o menor gasto?': a ordem crescente não devolve o maior por engano."""
+    res = get_top_ceap_spender(casa="camara", ano=2023, top_n=2, ordem="menor", base_dir=mock_ceap_data_dir)
+    assert [g.nome_parlamentar for g in res.gastadores] == ["Deputado Silva", "Deputada Maria"]
+    assert [g.valor_total for g in res.gastadores] == [150.0, 750.0]
+    assert res.ordem == "menor"
+
+
+def test_get_top_ceap_spender_padrao_continua_sendo_o_maior(mock_ceap_data_dir: Path):
+    res = get_top_ceap_spender(casa="camara", ano=2023, top_n=1, base_dir=mock_ceap_data_dir)
+    assert res.ordem == "maior" and res.gastadores[0].nome_parlamentar.startswith("Pompeo")
+
+
+def test_get_top_ceap_spender_menor_ignora_totais_nao_positivos(tmp_path: Path):
+    """Estorno que zera ou deixa o total negativo não é o 'menor gasto' (não houve gasto)."""
+    d = tmp_path / "data" / "processed" / "camara" / "ceap" / "ano=2023"
+    d.mkdir(parents=True)
+    pl.DataFrame({
+        "idDeputado": ["1", "2", "3"], "txNomeParlamentar": ["A", "B", "C"], "sgUF": ["SP"] * 3, "sgPartido": ["X"] * 3,
+        "numAno": [2023] * 3, "txtDescricao": ["COMBUSTÍVEIS"] * 3, "txtFornecedor": ["F"] * 3,
+        "vlrLiquido": [-50.0, 0.0, 80.0],
+    }).write_parquet(d / "ceap.parquet")
+
+    res = get_top_ceap_spender(casa="camara", ano=2023, top_n=3, ordem="menor", base_dir=tmp_path / "data" / "processed")
+    assert [g.nome_parlamentar for g in res.gastadores] == ["C"]
+
+
+def test_get_top_ceap_spender_rejeita_ordem_invalida(mock_ceap_data_dir: Path):
+    with pytest.raises(ValueError):
+        get_top_ceap_spender(casa="camara", ano=2023, ordem="aleatoria", base_dir=mock_ceap_data_dir)
+
+
+def test_get_top_ceap_spender_ignora_lancamentos_sem_id_de_parlamentar(tmp_path: Path):
+    """Verbas de liderança e de partido (ex.: 'PSL', 'LID.GOV-CD') não são parlamentares e não entram no ranking."""
+    d = tmp_path / "data" / "processed" / "camara" / "ceap" / "ano=2023"
+    d.mkdir(parents=True)
+    pl.DataFrame({
+        "ideCadastro": [101, None, 103], "txNomeParlamentar": ["Dep A", "PSL", "Dep C"], "sgUF": ["SP", "NA", "RJ"],
+        "sgPartido": ["X", None, "Y"], "numAno": [2023] * 3, "txtDescricao": ["COMBUSTÍVEIS"] * 3,
+        "txtFornecedor": ["F"] * 3, "vlrLiquido": [900.0, 5000.0, 100.0],
+    }).write_parquet(d / "ceap.parquet")
+    base = tmp_path / "data" / "processed"
+
+    maior = get_top_ceap_spender(casa="camara", ano=2023, top_n=5, base_dir=base)
+    menor = get_top_ceap_spender(casa="camara", ano=2023, top_n=5, ordem="menor", base_dir=base)
+
+    assert [g.nome_parlamentar for g in maior.gastadores] == ["Dep A", "Dep C"]
+    assert [g.nome_parlamentar for g in menor.gastadores] == ["Dep C", "Dep A"]
+    assert maior.total_parlamentares_analisados == 2

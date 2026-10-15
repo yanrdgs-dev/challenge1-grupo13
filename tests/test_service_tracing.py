@@ -381,3 +381,16 @@ def test_service_shutdown_survives_langfuse_failure(service):
     with patch("src.observability.tracing._get_client", side_effect=Exception("sem rede")):
         with TestClient(service.app):
             pass
+
+
+def test_check_trace_is_tagged_with_the_llm_strategy_and_provider_chain(trace_recorder):
+    with patch.object(router_service, "llm_client") as llm, \
+         patch.object(router_service, "_call_judge", return_value=JUDGE_OK):
+        llm.strategy = "round_robin"
+        llm.providers = ["ollama", "groq", "deepseek"]
+        llm.chat.return_value = _router_chat([])
+        router_client.post("/check", json={"claim": CLAIM})
+
+    attrs = trace_recorder.trace_attrs[-1]
+    assert attrs["tags"] == ["llm_strategy:round_robin"]
+    assert attrs["metadata"] == {"llm_providers": "ollama,groq,deepseek"}

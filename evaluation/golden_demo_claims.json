@@ -1,0 +1,120 @@
+[
+  {
+    "id": 1,
+    "claim": "Em 2023, o deputado que mais gastou a cota parlamentar (CEAP) foi Pompeo de Mattos (PDT-RS).",
+    "expected_verdict": "VERDADEIRO",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 9,
+    "claim": "Dá para ver no site do TSE quanto cada candidato declarou ter gastado na campanha eleitoral.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "GASTOS",
+    "target_entity": "Dados Abertos - TSE"
+  },
+  {
+    "id": 10,
+    "claim": "A confirmação de ministros do Supremo Tribunal Federal pelo plenário do Senado é feita por votação secreta.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "VOTACOES",
+    "target_entity": "Senado Federal"
+  },
+  {
+    "id": 11,
+    "claim": "Deputados podem pedir reembolso de gastos com alimentação usando a cota parlamentar.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 13,
+    "claim": "Todo deputado federal tem um teto fixo de R$ 500,00 por ano para gastar com combustível pela cota parlamentar.",
+    "expected_verdict": "FALSO",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 22,
+    "claim": "Um senador pode usar a cota parlamentar para pagar os gastos da própria campanha eleitoral.",
+    "expected_verdict": "FALSO",
+    "category": "GASTOS",
+    "target_entity": "Senado Federal"
+  },
+  {
+    "id": 31,
+    "claim": "No segundo turno da eleição presidencial de 2022, Lula recebeu 60.345.999 votos válidos.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "get_candidate_votes",
+      "get_election_result"
+    ]
+  },
+  {
+    "id": 34,
+    "claim": "Em 2022, Lula declarou ao TSE bens que somam mais de 7 milhões de reais.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "get_candidate_assets"
+    ]
+  },
+  {
+    "id": 39,
+    "claim": "Em 2022, Jair Bolsonaro venceu o segundo turno da eleição presidencial.",
+    "expected_verdict": "FALSO",
+    "category": "ELEICOES",
+    "target_entity": "Tribunal Superior Eleitoral (TSE)",
+    "expected_tools": [
+      "get_election_result",
+      "get_candidate_votes"
+    ]
+  },
+  {
+    "id": 62,
+    "claim": "Em 2022, o deputado que mais gastou a cota parlamentar (CEAP) foi Shéridan (PSDB-RR).",
+    "expected_verdict": "VERDADEIRO",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados",
+    "expected_tools": [
+      "get_top_ceap_spender"
+    ]
+  },
+  {
+    "id": 65,
+    "claim": "A PEC é promulgada pelas Mesas da Câmara e do Senado, sem sanção presidencial, enquanto o PLN depende de sanção do Presidente da República.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "VOTACOES",
+    "target_entity": "Congresso Nacional",
+    "expected_tools": [
+      "check_institutional_rule"
+    ]
+  },
+  {
+    "id": 67,
+    "claim": "Existe ao menos um projeto de lei na Câmara dos Deputados que trata de isenção ou redução do imposto de renda.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "VOTACOES",
+    "target_entity": "Câmara dos Deputados",
+    "expected_tools": [
+      "resolve_proposition"
+    ]
+  },
+  {
+    "id": 25,
+    "claim": "Um deputado gastou uma quantia muito alta com passagem aérea usando a cota parlamentar recentemente.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados"
+  },
+  {
+    "id": 28,
+    "claim": "A Câmara dos Deputados deve votar em breve um projeto de lei sobre inteligência artificial.",
+    "expected_verdict": "INCONCLUSIVO",
+    "category": "VOTACOES",
+    "target_entity": "Câmara dos Deputados"
+  }
+]
