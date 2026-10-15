@@ -1,0 +1,26 @@
+[
+  {
+    "id": "pec-escala-6x1",
+    "apelidos": ["escala 6x1", "jornada 6x1", "pec 6x1", "pec do 6x1", "fim da 6x1"],
+    "sigla_tipo": "PEC",
+    "numero": 221,
+    "ano": 2019,
+    "descricao": "PEC que reduz a jornada semanal de trabalho e acaba com a escala 6x1 (Câmara e Senado usam o mesmo número)."
+  },
+  {
+    "id": "pec-reforma-tributaria",
+    "apelidos": ["reforma tributaria", "pec da reforma tributaria"],
+    "sigla_tipo": "PEC",
+    "numero": 45,
+    "ano": 2019,
+    "descricao": "PEC da Reforma Tributária sobre o consumo (Emenda Constitucional 132/2023)."
+  },
+  {
+    "id": "pl-fake-news",
+    "apelidos": ["pl das fake news", "lei das fake news", "projeto das fake news", "lei brasileira de liberdade, responsabilidade e transparencia na internet"],
+    "sigla_tipo": "PL",
+    "numero": 2630,
+    "ano": 2020,
+    "descricao": "Lei Brasileira de Liberdade, Responsabilidade e Transparência na Internet (PL das Fake News)."
+  }
+]

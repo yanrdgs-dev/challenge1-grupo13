@@ -61,6 +61,7 @@ from src.tools.tse_tools import (
     resolve_candidate,
     results_unavailable,
 )
+from src.tools.proposition_aliases import find_alias
 from src.tools.votacoes_api import focus_votacoes, get_proposition_vote_breakdown, get_proposition_vote_result
 from src.services.tool_catalog import ROUTER_SYSTEM_PROMPT, TOOLS_CATALOG
 
@@ -535,7 +536,8 @@ def _cited_proposition(claim_text: str) -> Optional[tuple]:
     """(sigla, número, ano) da proposição citada na forma 'PLN 2/2025'; None se a alegação não cita nenhuma."""
     match = _CITED_PROPOSITION_RE.search(claim_text)
     if not match:
-        return None
+        alias = find_alias(claim_text)      # "PEC da escala 6x1": o número só existe na base de apelidos
+        return (alias["sigla_tipo"], alias["numero"], alias["ano"]) if alias else None
     sigla, numero, ano = match.groups()
     return sigla.upper(), int(numero.replace(".", "")), int(ano)
 
@@ -607,6 +609,20 @@ def _with_house(args: Dict[str, Any], claim_text: str) -> Dict[str, Any]:
     Senado, e escolher uma por conta própria produz um veredito válido só para a Casa que o modelo sorteou.
     """
     return {**args, "casa": _house_in_claim(claim_text) or "congresso"}
+
+
+_ALIAS_TOOLS = {"resolve_proposition", "get_proposition_tramitation_history", "check_bill_apensamentos"}
+
+
+def _with_alias(args: Dict[str, Any], claim_text: str) -> Dict[str, Any]:
+    """Apelido citado na alegação ("PEC da escala 6x1") vira sigla, número e ano; o número do LLM nunca é trocado."""
+    if args.get("numero"):
+        return args
+    alias = find_alias(claim_text)
+    if not alias:
+        return args
+    identity = {"sigla_tipo": alias["sigla_tipo"], "numero": alias["numero"], "ano": alias["ano"]}
+    return {**{k: v for k, v in args.items() if k != "termo_busca"}, **identity}
 
 
 _CAMPAIGN_TOOLS = {"get_campaign_finances", "get_top_campaign_finances"}
@@ -796,6 +812,10 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
     if chat.tool_calls and chat.tool_calls[0]["name"] == "resolve_proposition":
         first = chat.tool_calls[0]
         chat.tool_calls = [{**first, "arguments": _with_house(first["arguments"], claim_text)}] + list(chat.tool_calls[1:])
+
+    if chat.tool_calls and chat.tool_calls[0]["name"] in _ALIAS_TOOLS:
+        first = chat.tool_calls[0]
+        chat.tool_calls = [{**first, "arguments": _with_alias(first["arguments"], claim_text)}] + list(chat.tool_calls[1:])
 
     if chat.tool_calls and _THIS_YEAR_RE.search(claim_text):
         first = chat.tool_calls[0]

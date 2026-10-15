@@ -465,10 +465,10 @@ def test_rerouted_claim_that_gets_no_tool_stays_without_evidence(mock_llm):
 # ------------------- sem tool escolhida o julgador não é chamado (regra 1: nada de resposta da memória) ------------------- #
 
 def test_no_tool_chosen_never_calls_the_judge_and_answers_inconclusive(mock_llm):
-    """'O que é a PEC da reforma tributária?': sem tool não há evidência; o juiz explicaria da memória do modelo."""
+    """'O que é a PEC dos precatórios?': sem tool não há evidência; o juiz explicaria da memória do modelo."""
     mock_llm.chat.return_value = _chat_result([])
     with patch.object(router_service, "_call_judge") as judge:
-        resp = client.post("/check", json={"claim": "O que é a PEC da reforma tributária?"})
+        resp = client.post("/check", json={"claim": "O que é a PEC dos precatórios?"})
 
     judge.assert_not_called()
     data = resp.json()
@@ -484,7 +484,7 @@ def test_no_tool_chosen_text_does_not_explain_anything_from_the_model_memory(moc
     mock_llm.chat.return_value = _chat_result([])
     mock_llm.chat.return_value.content = "A PEC da reforma tributária é uma proposta que unifica impostos..."
     with patch.object(router_service, "_call_judge"):
-        data = client.post("/check", json={"claim": "O que é a PEC da reforma tributária?"}).json()
+        data = client.post("/check", json={"claim": "O que é a PEC dos precatórios?"}).json()
 
     assert "unifica" not in data["justificativa"]
 

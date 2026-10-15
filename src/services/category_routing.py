@@ -11,6 +11,8 @@ import re
 import unicodedata
 from typing import Any, Callable, Dict, FrozenSet, List, Optional, Tuple
 
+from src.tools.proposition_aliases import find_alias  # noqa: E402
+
 logger = logging.getLogger("CategoryRouting")
 
 # Tools de regra institucional/cobertura: valem em qualquer tema.
@@ -136,6 +138,8 @@ _RULES_RE = re.compile(
 def rule_category(claim_text: str) -> Optional[str]:
     """Categoria decidida só por regra: exatamente um tema com sinal claro na alegação, senão None."""
     folded = _fold(claim_text)
+    if find_alias(claim_text) and not (_CONSULT_RE.search(folded) or _RULES_RE.search(folded)):
+        return "PROPOSICOES"   # o nome popular de uma proposição ("PEC da escala 6x1") já diz o tema
     if _CONSULT_RE.search(folded) or _RULES_RE.search(folded):
         return "NORMAS"
     hits = [name for name, pattern in _SIGNALS.items() if pattern.search(folded)]
