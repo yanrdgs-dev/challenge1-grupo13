@@ -61,7 +61,7 @@ from src.tools.tse_tools import (
     resolve_candidate,
     results_unavailable,
 )
-from src.tools.votacoes_api import get_proposition_vote_breakdown, get_proposition_vote_result
+from src.tools.votacoes_api import focus_votacoes, get_proposition_vote_breakdown, get_proposition_vote_result
 from src.services.tool_catalog import ROUTER_SYSTEM_PROMPT, TOOLS_CATALOG
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -865,6 +865,13 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
     ):
         vote_args = {"casa": resolved_casa, "id_proposicao": evidence["id_proposicao"]}
         vote_evidence = _run_tool("get_proposition_vote_result", vote_args)
+        if vote_evidence and not evidence_failed(vote_evidence) and vote_evidence.get("votacoes"):
+            # Só as votações da própria proposição (e o placar como número): a PEC 221/2019 tem 117 requerimentos.
+            all_votes = vote_evidence["votacoes"]
+            focused, omitted = focus_votacoes(all_votes, claim_text)
+            vote_evidence = {
+                **vote_evidence, "votacoes": focused, "total_votacoes": len(all_votes), "votacoes_omitidas": omitted,
+            }
         resolution = {
             k: evidence.get(k) for k in ("id_proposicao", "sigla_tipo", "numero", "ano", "casa", "ementa")
         }

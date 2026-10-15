@@ -11,7 +11,7 @@ Tools implementadas:
 - 5.4 get_plenary_attendance
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Tuple, Any, Dict, List, Optional
 import logging
 import re
 from src.tools.http_client import HttpClient, HttpNetworkError
@@ -136,6 +136,51 @@ def get_proposition_vote_result(
         results = [r for r in results if filtro in r["tipo_votacao"].lower()]
 
     return results
+
+
+# ----------------------------------------------------------------------------
+# Foco nas votações da própria proposição
+# ----------------------------------------------------------------------------
+
+_COUNT_PATTERNS = {
+    "votos_sim": re.compile(r"\bsim:\s*(\d+)", re.IGNORECASE),
+    "votos_nao": re.compile(r"\bn[aã]o:\s*(\d+)", re.IGNORECASE),
+    "votos_abstencao": re.compile(r"\babsten[cç][aã]o:\s*(\d+)", re.IGNORECASE),
+    "votos_total": re.compile(r"\btotal:\s*(\d+)", re.IGNORECASE),
+}
+_REQUERIMENTO = re.compile(r"requerimento|\breq\b", re.IGNORECASE)
+_CLAIM_ASKS_ABOUT_REQUERIMENTO = re.compile(r"requerimento|urg[eê]ncia|destaque|\breq\b", re.IGNORECASE)
+DEFAULT_FOCUS_LIMIT = 12
+
+
+def parse_vote_counts(description: Optional[str]) -> Dict[str, int]:
+    """Placar escrito na descrição da votação ('Sim: 472; Não: 22; Total: 494'); vazio se a descrição não traz."""
+    text = description or ""
+    counts: Dict[str, int] = {}
+    for key, pattern in _COUNT_PATTERNS.items():
+        match = pattern.search(text)
+        if match:
+            counts[key] = int(match.group(1))
+    return counts
+
+
+def focus_votacoes(
+    votacoes: List[Dict[str, Any]], claim_text: str, limit: int = DEFAULT_FOCUS_LIMIT
+) -> Tuple[List[Dict[str, Any]], int]:
+    """Votações que interessam à alegação, mais recentes primeiro, com o placar da descrição como número.
+
+    Uma PEC chega a ter mais de cem votações, quase todas de requerimentos: sem este recorte o juiz se perde.
+    Requerimentos só ficam se a alegação os cita (requerimento, urgência, destaque) ou se são tudo o que existe.
+    Devolve ``(votações, quantas_ficaram_de_fora)``; a entrada não é alterada.
+    """
+    keep_requerimentos = bool(_CLAIM_ASKS_ABOUT_REQUERIMENTO.search(claim_text or ""))
+    own = [v for v in votacoes if not _REQUERIMENTO.search(str(v.get("tipo_votacao") or ""))]
+    chosen = votacoes if (keep_requerimentos or not own) else own
+    ordered = sorted(
+        chosen, key=lambda v: (str(v.get("data") or ""), str(v.get("id_votacao") or "")), reverse=True
+    )[:limit]
+    focused = [{**v, **parse_vote_counts(v.get("tipo_votacao"))} for v in ordered]
+    return focused, len(votacoes) - len(focused)
 
 
 # ============================================================================
