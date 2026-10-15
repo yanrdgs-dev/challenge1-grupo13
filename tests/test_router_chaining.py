@@ -333,3 +333,49 @@ def test_only_the_house_where_the_proposition_exists_is_included(both_houses):
 def test_claim_that_names_the_house_keeps_the_single_house_evidence(both_houses):
     ev = post("O Senado aprovou a PEC 221/2019 com apenas um voto contra.")["evidencia_coletada"]
     assert "votacoes_por_casa" not in ev
+
+
+# ------------------- julgamento por Casa: só há veredito definitivo se as duas Casas concordarem ------------------- #
+
+def _judge_by_house(verdicts):
+    """Julgador simulado: devolve o veredito combinado para a Casa que vem na evidência recebida."""
+    def judge(endpoint, payload, headers=None):
+        house = payload["evidence"]["casa"]
+        verdict = verdicts[house]
+        return {"veredito": verdict, "confianca": "ALTA", "justificativa": f"Resultado oficial da Casa {house}.",
+                "fontes_primarias": [f"Fonte {house}"], "tempo_julgamento_ms": 10.0}
+    return judge
+
+
+def test_each_house_is_judged_separately_with_only_its_own_evidence(both_houses):
+    both_houses.judge.side_effect = _judge_by_house({"camara": "FALSO", "senado": "VERDADEIRO"})
+    post(NO_HOUSE_CLAIM)
+    payloads = [c.args[1] for c in both_houses.judge.call_args_list]
+    assert sorted(p["evidence"]["casa"] for p in payloads) == ["camara", "senado"]
+    assert all("votacoes_por_casa" not in p["evidence"] for p in payloads)
+
+
+def test_houses_that_disagree_make_the_verdict_inconclusive_and_the_text_gives_each_result(both_houses):
+    both_houses.judge.side_effect = _judge_by_house({"camara": "FALSO", "senado": "VERDADEIRO"})
+    data = post(NO_HOUSE_CLAIM)
+    assert data["veredito"] == "INCONCLUSIVO"
+    text = data["justificativa"]
+    assert "Câmara" in text and "Senado" in text and "FALSO" in text and "VERDADEIRO" in text
+    assert "difere" in text.lower() or "divergem" in text.lower()
+
+
+@pytest.mark.parametrize("verdict", ["VERDADEIRO", "FALSO"])
+def test_houses_that_agree_keep_the_definitive_verdict(both_houses, verdict):
+    both_houses.judge.side_effect = _judge_by_house({"camara": verdict, "senado": verdict})
+    assert post(NO_HOUSE_CLAIM)["veredito"] == verdict
+
+
+def test_one_inconclusive_house_makes_the_whole_verdict_inconclusive(both_houses):
+    both_houses.judge.side_effect = _judge_by_house({"camara": "VERDADEIRO", "senado": "INCONCLUSIVO"})
+    assert post(NO_HOUSE_CLAIM)["veredito"] == "INCONCLUSIVO"
+
+
+def test_claim_that_names_the_house_is_judged_once(both_houses):
+    both_houses.judge.return_value = JUDGE
+    post("O Senado aprovou a PEC 221/2019 com apenas um voto contra.")
+    assert both_houses.judge.call_count == 1
