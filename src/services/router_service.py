@@ -600,6 +600,13 @@ def _house_in_claim(claim_text: str) -> Optional[str]:
 
 
 _THIS_YEAR_RE = re.compile(r"\b(?:neste|este) ano\b|\bano atual\b|\bano corrente\b|\batualmente\b", re.IGNORECASE)
+def _with_house(args: Dict[str, Any], claim_text: str) -> Dict[str, Any]:
+    """Casa do resolvedor: a escolha explícita do LLM fica; faltando ou 'congresso', vale a Casa que a alegação nomeia."""
+    if args.get("casa") not in (None, "", "congresso"):
+        return args
+    return {**args, "casa": _house_in_claim(claim_text) or "congresso"}
+
+
 _CAMPAIGN_TOOLS = {"get_campaign_finances", "get_top_campaign_finances"}
 _QUOTA_TOOL_NAMES = {
     "get_top_ceap_spender", "list_expense_categories", "check_parliamentary_expenses", "get_member_expenses",
@@ -785,12 +792,8 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
             chat.tool_calls = []
 
     if chat.tool_calls and chat.tool_calls[0]["name"] == "resolve_proposition":
-        # A Casa que a alegação nomeia ("o Senado aprovou") vale mais que "congresso": só assim a votação encadeia.
         first = chat.tool_calls[0]
-        current = first["arguments"].get("casa")
-        if current in (None, "", "congresso"):
-            house = _house_in_claim(claim_text) or "congresso"
-            chat.tool_calls = [{**first, "arguments": {**first["arguments"], "casa": house}}] + list(chat.tool_calls[1:])
+        chat.tool_calls = [{**first, "arguments": _with_house(first["arguments"], claim_text)}] + list(chat.tool_calls[1:])
 
     if chat.tool_calls and _THIS_YEAR_RE.search(claim_text):
         first = chat.tool_calls[0]
@@ -829,7 +832,7 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
             }
             return RoutingOutcome("get_proposition_vote_result", {}, evidence, [],
                                   (time.perf_counter() - start) * 1000)
-        tool_name, tool_args = "resolve_proposition", resolver_call["arguments"]
+        tool_name, tool_args = "resolve_proposition", _with_house(resolver_call["arguments"], claim_text)
 
     # Guarda das regras 2 e 3: o nome do parlamentar vem da alegação, nunca do "conhecimento" do LLM.
     if tool_name == "get_member_expenses" and not _name_in_claim(tool_args.get("parlamentar"), claim_text):
