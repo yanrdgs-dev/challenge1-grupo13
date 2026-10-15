@@ -613,7 +613,6 @@
     "expected_verdict": "INCONCLUSIVO",
     "category": "VOTACOES",
     "target_entity": "Senado Federal",
-    "expected_tools": [],
-    "inconclusive_reason": "subespecificada"
+    "expected_tools": []
   }
 ]

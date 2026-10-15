@@ -111,7 +111,9 @@ def test_router_uses_the_system_prompt_from_langfuse_plus_the_guard_hint():
         llm.chat.return_value = ChatResult(content="", tool_calls=[], provider="ollama", model="m")
         router_service._chat_for_routing("uma claim", [], hint=" +DICA")
     system = llm.chat.call_args.args[0][0]
-    assert system == {"role": "system", "content": "SISTEMA REMOTO +DICA"}
+    assert system["role"] == "system"
+    assert system["content"].startswith("SISTEMA REMOTO +DICA")           # prompt remoto + dica + data de hoje
+    assert "Data de hoje:" in system["content"]
     assert getter.call_args.args[:2] == (PROMPT_ROUTER_SYSTEM, ROUTER_SYSTEM_PROMPT)
 
 
@@ -119,7 +121,8 @@ def test_router_works_with_the_local_prompt_by_default():
     with patch.object(router_service, "llm_client") as llm:
         llm.chat.return_value = ChatResult(content="", tool_calls=[], provider="ollama", model="m")
         router_service._chat_for_routing("uma claim", [])
-    assert llm.chat.call_args.args[0][0]["content"] == ROUTER_SYSTEM_PROMPT
+    content = llm.chat.call_args.args[0][0]["content"]
+    assert content.startswith(ROUTER_SYSTEM_PROMPT) and "Data de hoje:" in content
 
 
 # ------------------------- publicação no Langfuse (4.2) ------------------------- #

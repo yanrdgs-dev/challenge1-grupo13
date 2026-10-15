@@ -12,6 +12,7 @@ import re
 import time
 import unicodedata
 from contextlib import asynccontextmanager
+from datetime import date
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 from fastapi import FastAPI, HTTPException
@@ -592,6 +593,7 @@ def _house_in_claim(claim_text: str) -> Optional[str]:
     return "senado" if senado else "camara"
 
 
+_THIS_YEAR_RE = re.compile(r"\b(?:neste|este) ano\b|\bano atual\b|\bano corrente\b|\batualmente\b", re.IGNORECASE)
 _CAMPAIGN_TOOLS = {"get_campaign_finances", "get_top_campaign_finances"}
 _QUOTA_TOOL_NAMES = {
     "get_top_ceap_spender", "list_expense_categories", "check_parliamentary_expenses", "get_member_expenses",
@@ -637,12 +639,25 @@ def _category_for_claim(claim_text: str) -> Optional[str]:
     return category_for(lambda messages: llm_client.chat(messages, model=ROUTER_MODEL, json_mode=True), claim_text)
 
 
+def _today() -> date:
+    return date.today()
+
+
+def _today_note() -> str:
+    """A data de hoje, para o modelo ancorar 'este ano' e 'atualmente' sem inventar o ano."""
+    today = _today()
+    return (
+        f"\n\nData de hoje: {today.isoformat()}. Se a alegação disser 'este ano', 'neste ano' ou 'atualmente' e a "
+        f"tool pedir um ano, use {today.year}. Nunca invente um ano que a alegação não permita deduzir."
+    )
+
+
 def _chat_for_routing(claim_text: str, tools: List[Dict[str, Any]], hint: str = "") -> Any:
     system_prompt = get_prompt(PROMPT_ROUTER_SYSTEM, ROUTER_SYSTEM_PROMPT)
     try:
         return llm_client.chat(
             [
-                {"role": "system", "content": system_prompt.text + hint},
+                {"role": "system", "content": system_prompt.text + hint + _today_note()},
                 {"role": "user", "content": claim_text},
             ],
             tools=tools,
@@ -770,6 +785,16 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
         if current in (None, "", "congresso"):
             house = _house_in_claim(claim_text) or "congresso"
             chat.tool_calls = [{**first, "arguments": {**first["arguments"], "casa": house}}] + list(chat.tool_calls[1:])
+
+    if chat.tool_calls and _THIS_YEAR_RE.search(claim_text):
+        first = chat.tool_calls[0]
+        takes_year = "ano" in next(
+            (t["function"]["parameters"]["properties"] for t in TOOLS_CATALOG if t["function"]["name"] == first["name"]),
+            {},
+        )
+        if takes_year and not first["arguments"].get("ano"):
+            # "Neste ano" / "atualmente": o ano é o de hoje, dito pela própria alegação (nunca adivinhado).
+            chat.tool_calls = [{**first, "arguments": {**first["arguments"], "ano": _today().year}}] + list(chat.tool_calls[1:])
 
     if chat.tool_calls and _takes_turno(chat.tool_calls[0]) and not chat.tool_calls[0]["arguments"].get("turno"):
         turno = _turno_in_claim(claim_text)   # só o que a alegação diz: o turno nunca é adivinhado
