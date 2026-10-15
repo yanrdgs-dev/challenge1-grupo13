@@ -951,6 +951,50 @@ def _votes_in_both_houses(
     return outcome
 
 
+_HOUSE_NAMES = {"camara": "Câmara dos Deputados", "senado": "Senado Federal"}
+
+
+def _judge_each_house(
+    endpoint: str, claim_text: str, tool_name: Optional[str], evidence: Dict[str, Any], headers: Dict[str, str]
+) -> Dict[str, Any]:
+    """Julga cada Casa com a evidência só dela e combina: veredito definitivo apenas se as Casas concordarem.
+
+    A alegação que não diz a Casa vale para as duas. Um modelo pequeno, com as duas evidências juntas, tende a
+    concluir pela Casa mais fácil (PEC 221/2019: 19 votos contrários na Câmara e 1 no Senado), e esse erro é de
+    veredito, não de texto. Por isso a regra de concordância fica no código.
+    """
+    results: Dict[str, Dict[str, Any]] = {}
+    for house, entry in evidence["votacoes_por_casa"].items():
+        house_evidence = {"casa": house, **entry, "entidade_resolvida": evidence.get("entidade_resolvida")}
+        results[house] = _call_judge(
+            endpoint, {"claim": claim_text, "evidence": house_evidence, "tool_used": tool_name}, headers=headers
+        )
+
+    verdicts = {house: str(r.get("veredito") or "INCONCLUSIVO").upper() for house, r in results.items()}
+    sources: List[str] = []
+    for r in results.values():
+        for source in r.get("fontes_primarias") or []:
+            if source not in sources:
+                sources.append(source)
+    total_ms = round(sum(float(r.get("tempo_julgamento_ms") or 0) for r in results.values()), 2)
+    parts = [
+        f"{_HOUSE_NAMES.get(house, house)} ({verdicts[house]}): {str(results[house].get('justificativa') or '').strip()[:260]}"
+        for house in results
+    ]
+    unique = set(verdicts.values())
+    if len(unique) == 1 and unique <= {"VERDADEIRO", "FALSO"}:
+        return {"veredito": unique.pop(), "confianca": "ALTA", "justificativa": " ".join(parts),
+                "fontes_primarias": sources, "tempo_julgamento_ms": total_ms}
+    definitive = unique <= {"VERDADEIRO", "FALSO"}
+    lead = (
+        "A alegação não diz a Casa e o resultado difere entre elas, então não há um veredito único. "
+        if definitive else
+        "A alegação não diz a Casa e a evidência não permite concluir pelas duas. "
+    )
+    return {"veredito": "INCONCLUSIVO", "confianca": "ALTA" if definitive else "MÉDIA",
+            "justificativa": lead + " ".join(parts), "fontes_primarias": sources, "tempo_julgamento_ms": total_ms}
+
+
 # Placar só das votações mais recentes: cada consulta nominal da Câmara baixa ~500 votos.
 MAX_VOTE_BREAKDOWNS = 3
 
@@ -1081,9 +1125,13 @@ def _run_check(
     with tracing.observation("judge.call", input=judge_payload) as judge_span:
         try:
             # O traceparent é lido dentro do span judge.call: o judge se pendura nele.
-            judge_data = _call_judge(
-                judge_endpoint, judge_payload, headers=tracing.traceparent_header()
-            )
+            houses = (evidence or {}).get("votacoes_por_casa") if isinstance(evidence, dict) else None
+            if houses and len(houses) >= 2:
+                judge_data = _judge_each_house(judge_endpoint, claim_text, tool_name, evidence, tracing.traceparent_header())
+            else:
+                judge_data = _call_judge(
+                    judge_endpoint, judge_payload, headers=tracing.traceparent_header()
+                )
             veredito = judge_data.get("veredito", "INCONCLUSIVO")
             confianca = judge_data.get("confianca", "MÉDIA")
             justificativa = judge_data.get("justificativa", "")
