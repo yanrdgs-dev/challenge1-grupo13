@@ -609,10 +609,11 @@
   },
   {
     "id": 70,
-    "claim": "Medidas provisórias caducaram no Senado durante a atual legislatura.",
+    "claim": "O atual presidente da Câmara dos Deputados é do PL.",
     "expected_verdict": "INCONCLUSIVO",
     "category": "VOTACOES",
-    "target_entity": "Senado Federal",
-    "expected_tools": []
+    "target_entity": "Câmara dos Deputados",
+    "expected_tools": [],
+    "inconclusive_reason": "subespecificada"
   }
 ]
