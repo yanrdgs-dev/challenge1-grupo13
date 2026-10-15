@@ -854,7 +854,8 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
             }
             return RoutingOutcome("get_proposition_vote_result", {}, evidence, [],
                                   (time.perf_counter() - start) * 1000)
-        tool_name, tool_args = "resolve_proposition", _with_house(resolver_call["arguments"], claim_text)
+        tool_name = "resolve_proposition"
+        tool_args = _with_alias(_with_house(resolver_call["arguments"], claim_text), claim_text)
 
     # Guarda das regras 2 e 3: o nome do parlamentar vem da alegação, nunca do "conhecimento" do LLM.
     if tool_name == "get_member_expenses" and not _name_in_claim(tool_args.get("parlamentar"), claim_text):
