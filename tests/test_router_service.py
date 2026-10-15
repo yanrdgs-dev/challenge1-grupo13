@@ -975,3 +975,17 @@ def test_claim_with_a_popular_name_goes_to_the_resolver_even_when_the_llm_picks_
     name, args = execute.call_args_list[0].args
     assert name == "resolve_proposition"
     assert (args["sigla_tipo"], args["numero"], args["ano"]) == ("PEC", 221, 2019) and args["casa"] == "senado"
+
+
+def test_popular_name_is_also_applied_when_the_llm_goes_straight_to_the_vote_tool(mock_llm):
+    """'votos contra' leva o modelo à tool de votação; o guarda refaz via resolvedor e o apelido ainda vale."""
+    mock_llm.chat.side_effect = [
+        _chat_result([{"name": "get_proposition_vote_result", "arguments": {"casa": "senado", "id_proposicao": 99}}]),
+        _chat_result([{"name": "resolve_proposition", "arguments": {"casa": "senado", "termo_busca": "escala 6x1"}}]),
+    ]
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 1, "casa": "senado"}) as execute:
+        router_service._route_and_execute("A PEC da escala 6x1 teve apenas um voto contra no Senado.")
+
+    args = execute.call_args_list[0].args[1]
+    assert (args["sigla_tipo"], args["numero"], args["ano"]) == ("PEC", 221, 2019)
+    assert "termo_busca" not in args
