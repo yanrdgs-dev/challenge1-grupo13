@@ -811,7 +811,9 @@ def test_proposition_claim_without_a_tool_is_retried_with_the_resolver_only(mock
     (MARCO_CLAIM, None, "camara"),
     ("O Senado e a Câmara aprovaram a PEC da Reforma Tributária em 2023.", "congresso", "congresso"),
     ("A PEC da Reforma Tributária foi aprovada em 2023.", "congresso", "congresso"),
-    (SENADO_PEC_CLAIM, "camara", "camara"),                 # a escolha explícita do LLM nunca é trocada
+    (SENADO_PEC_CLAIM, "camara", "senado"),                 # o texto da alegação vale mais que a escolha do LLM
+    ("A PEC da Reforma Tributária foi aprovada em 2023.", "camara", "congresso"),   # Casa que ninguém citou não vale
+    ("A PEC da Reforma Tributária foi aprovada em 2023.", "senado", "congresso"),
 ])
 def test_resolver_house_comes_from_the_house_named_in_the_claim(mock_llm, claim, casa_from_llm, expected):
     args = {} if casa_from_llm is None else {"casa": casa_from_llm}

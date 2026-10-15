@@ -257,3 +257,77 @@ def test_breakdown_is_requested_for_the_proposition_votes_not_for_requerimentos(
     tools.votes.return_value = [_req(i) for i in range(20)] + [PEC_VOTE]
     post(PEC_CLAIM)
     assert [c.kwargs["id_votacao"] for c in tools.breakdown.call_args_list] == ["2233802-438"]
+
+
+# ------------------- alegação que não diz a Casa: consulta as duas (PEC 221/2019: Câmara 19 contra, Senado 1) ------------------- #
+
+NO_HOUSE_CLAIM = "A PEC 221/2019 teve apenas um voto contra."
+PEC_RESOLVE_CALL = {"name": "resolve_proposition",
+                    "arguments": {"casa": "camara", "sigla_tipo": "PEC", "numero": 221, "ano": 2019}}
+
+
+def _prop(id_, casa):
+    return {"id_proposicao": id_, "sigla_tipo": "PEC", "numero": 221, "ano": 2019, "casa": casa,
+            "ementa": "Altera o art. 7º da Constituição Federal.", "ambiguous": False, "candidatos": [], "match_score": 100.0}
+
+
+def _senate_vote(i="7106"):
+    return {"id_votacao": i, "data": "2026-10-14", "aprovado": True,
+            "tipo_votacao": "Votação nominal da Proposta de Emenda à Constituição nº 221, de 2019, em primeiro turno."}
+
+
+@pytest.fixture
+def both_houses():
+    by_house = {"camara": _prop(2233802, "camara"), "senado": _prop(174386, "senado"),
+                "congresso": _prop(174386, "congresso")}
+    votes = {"camara": [PEC_VOTE], "senado": [_senate_vote()]}
+    with patch.object(router_service, "resolve_proposition", side_effect=lambda **kw: by_house[kw["casa"]]) as resolver, \
+         patch.object(router_service, "get_proposition_vote_result",
+                      side_effect=lambda id_proposicao, casa: [dict(v) for v in votes[casa]]) as vote_tool, \
+         patch.object(router_service, "get_proposition_vote_breakdown", return_value=PLACAR) as breakdown, \
+         patch.object(router_service, "_call_judge", return_value=JUDGE) as judge, \
+         patch.object(router_service, "llm_client") as llm:
+        llm.chat.return_value = chat(PEC_RESOLVE_CALL)
+        yield SimpleTools(resolver, vote_tool, judge, llm, breakdown)
+
+
+def test_claim_without_a_house_gets_the_votes_of_both_houses(both_houses):
+    data = post(NO_HOUSE_CLAIM)
+    ev = data["evidencia_coletada"]
+    assert ev["casa"] == "congresso"
+    assert set(ev["votacoes_por_casa"]) == {"camara", "senado"}
+    assert ev["votacoes_por_casa"]["camara"]["id_proposicao"] == 2233802
+    assert ev["votacoes_por_casa"]["senado"]["id_proposicao"] == 174386
+    assert [v["id_votacao"] for v in ev["votacoes_por_casa"]["camara"]["votacoes"]] == ["2233802-438"]
+    assert [v["id_votacao"] for v in ev["votacoes_por_casa"]["senado"]["votacoes"]] == ["7106"]
+    assert "votacoes" not in ev                      # nada solto: cada votação fica sob a sua Casa
+
+
+def test_breakdown_runs_in_each_house_with_that_houses_ids(both_houses):
+    post(NO_HOUSE_CLAIM)
+    calls = sorted((c.kwargs["casa"], c.kwargs["id_votacao"]) for c in both_houses.breakdown.call_args_list)
+    assert calls == [("camara", "2233802-438"), ("senado", "7106")]
+
+
+def test_sources_cite_both_houses_and_all_tools_are_listed(both_houses):
+    data = post(NO_HOUSE_CLAIM)
+    assert {"resolve_proposition", "get_proposition_vote_result", "get_proposition_vote_breakdown"} <= set(
+        data["ferramentas_usadas"])
+    sources = " ".join(data["fontes_primarias"])
+    assert "Câmara" in sources and "Senado" in sources
+
+
+def test_only_the_house_where_the_proposition_exists_is_included(both_houses):
+    original = router_service.resolve_proposition.side_effect
+
+    def only_camara(**kw):
+        return original(**kw) if kw["casa"] != "senado" else {**_prop(None, "senado"), "id_proposicao": None}
+
+    router_service.resolve_proposition.side_effect = only_camara
+    ev = post(NO_HOUSE_CLAIM)["evidencia_coletada"]
+    assert set(ev["votacoes_por_casa"]) == {"camara"}
+
+
+def test_claim_that_names_the_house_keeps_the_single_house_evidence(both_houses):
+    ev = post("O Senado aprovou a PEC 221/2019 com apenas um voto contra.")["evidencia_coletada"]
+    assert "votacoes_por_casa" not in ev
