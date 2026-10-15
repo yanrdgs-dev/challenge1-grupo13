@@ -58,6 +58,16 @@ GENERIC_PROPOSITIONS = [
     "projeto de lei sobre inteligencia artificial",
 ]
 
+# Tempo relativo sem âncora; roda sobre o texto sem acentos e em minúsculas ('atualização' não casa).
+_RELATIVE_TIME = re.compile(
+    r"\batua(?:l|is)\b|\batualmente\b|\bneste momento\b|\bultim[ao]s? (?:sabatina|votacao|sessao|legislatura)\b"
+)
+
+
+def _strip_accents(text: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+
+
 # Claims eleitorais (Fase 1, passo 5): o resultado depende de ano e turno, que a claim precisa trazer.
 # Os padrões rodam sobre o texto sem acentos e em minúsculas.
 _YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
@@ -143,6 +153,19 @@ def check_input_specificity(claim: str) -> Dict[str, Any]:
             "reason": (
                 "A alegação refere-se a um evento futuro ou ainda não ocorrido ('em breve'). "
                 "Conforme a Regra 3 da Constituição do Agente, previsões legislativas não são fatos consumados verificáveis."
+            ),
+            "rule_matched": "guarda_de_especificidade",
+        }
+
+    # 2b. Referência temporal relativa que a alegação não ancora ("os atuais membros", "na última sabatina"):
+    # o dado muda com o tempo e não há ano para consultar (Regra 3).
+    if _RELATIVE_TIME.search(_strip_accents(lower)):
+        return {
+            "is_valid": False,
+            "verdict": "INCONCLUSIVO",
+            "reason": (
+                "A alegação usa uma referência temporal relativa sem âncora ('atual', 'atualmente', 'última "
+                "sabatina/votação/sessão'). Conforme a Regra 3 da Constituição do Agente, informe o ano ou a data."
             ),
             "rule_matched": "guarda_de_especificidade",
         }
