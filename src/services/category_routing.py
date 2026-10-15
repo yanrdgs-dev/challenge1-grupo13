@@ -9,7 +9,7 @@ import json
 import logging
 import re
 import unicodedata
-from typing import Any, Callable, Dict, FrozenSet, List, Optional
+from typing import Any, Callable, Dict, FrozenSet, List, Optional, Tuple
 
 logger = logging.getLogger("CategoryRouting")
 
@@ -136,3 +136,29 @@ def rule_category(claim_text: str) -> Optional[str]:
 def category_for(chat: Callable[..., Any], claim_text: str) -> Optional[str]:
     """Regra primeiro (sem custo de LLM); o LLM só classifica quando a regra não decide."""
     return rule_category(claim_text) or classify_claim(chat, claim_text)
+
+
+# Dentro de ELEICOES o modelo pequeno confunde tools vizinhas (patrimônio x dinheiro em espécie x perfil, vencedor
+# x votos de um candidato). Quando a redação é inequívoca, a regra nomeia a tool no prompt do roteamento; o LLM
+# continua extraindo os parâmetros. Ordem importa: o primeiro padrão que casa vence.
+_TOOL_HINTS: List[Tuple["re.Pattern[str]", str, str]] = [
+    (re.compile(r"dinheiro em especie|aeronave|aviao|embarcacao|joias?\b|\bouro\b|bens especiais"),
+     "check_cash_and_special_assets", "dinheiro em espécie ou bens especiais (aeronave, embarcação, joias)"),
+    (re.compile(r"patrimonio|bens (?:declarad|que somam)|declarou .{0,40}\bbens\b|declarou .{0,40}reais? em bens"),
+     "get_candidate_assets", "patrimônio ou bens declarados por um candidato"),
+    (re.compile(r"\b(?:venceu|ganhou|vencedor|vencedora|mais votad[oa]|ficou em segundo|foi o eleito)\b"),
+     "get_election_result", "quem venceu ou foi o mais votado de uma eleição"),
+    (re.compile(r"candidatura|registro de candidat|indeferid|deferid|cancelad|renunci"),
+     "check_candidate_status", "situação do registro de candidatura"),
+    (re.compile(r"escolaridade|grau de instrucao|profissao|ocupacao|naturalidade|estado civil|cor/raca"),
+     "check_candidate_profile", "perfil do candidato (escolaridade, profissão, naturalidade)"),
+]
+
+
+def tool_hint(claim_text: str) -> Optional[str]:
+    """Dica de roteamento (texto para o prompt) quando a redação aponta uma tool só; None se não há sinal claro."""
+    folded = _fold(claim_text)
+    for pattern, tool, topic in _TOOL_HINTS:
+        if pattern.search(folded):
+            return f"\n\nDica de roteamento: a alegação trata de {topic}; utilize '{tool}'."
+    return None

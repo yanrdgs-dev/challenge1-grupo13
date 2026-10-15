@@ -169,7 +169,8 @@ def get_top_campaign_finances(
         "total_candidatos": len(entries), "valor_total_cargo": round(float(ranking["valor"].sum()), 2),
         "candidatos": entries[: max(1, min(int(top_n), MAX_TOP_N))],
     }
-    if any(e["tipo_prestacao"] != "FINAL" for e in entries):
+    shown = entries[: max(1, min(int(top_n), MAX_TOP_N))]
+    if any(e["tipo_prestacao"] != "FINAL" for e in shown):   # só os candidatos exibidos importam para o aviso
         if ano is not None and ano < _current_year():
             result["aviso"] = _CLOSED_RANKING_NOTICE
         else:
