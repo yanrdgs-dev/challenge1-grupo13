@@ -657,3 +657,18 @@ def test_compare_with_a_single_candidate_keeps_uf_to_disambiguate(mock_llm):
         router_service._route_and_execute("Tarcísio de Freitas foi o mais votado para governador de SP em 2022.")
 
     assert execute.call_args.args[1]["uf"] == "SP"
+
+
+def test_routing_prompt_gets_the_tool_hint_for_clear_wording(mock_llm):
+    mock_llm.chat.return_value = _chat_result([])
+    router_service._route_and_execute("Em 2022, Lula declarou ao TSE bens que somam mais de 7 milhões de reais.")
+
+    system = mock_llm.chat.call_args.args[0][0]["content"]
+    assert "get_candidate_assets" in system.split("Dica de roteamento")[-1]
+
+
+def test_routing_prompt_has_no_hint_without_clear_wording(mock_llm):
+    mock_llm.chat.return_value = _chat_result([])
+    router_service._route_and_execute("Quem mais gastou em 2022?")
+
+    assert "Dica de roteamento" not in mock_llm.chat.call_args.args[0][0]["content"]

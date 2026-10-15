@@ -147,3 +147,31 @@ def test_claims_about_what_can_be_consulted_go_to_the_normative_category_even_wi
     assert rule_category(claim) == "NORMAS"
     names = _names(restrict_catalog(TOOLS_CATALOG, "NORMAS"))
     assert names == {"check_institutional_rule", "check_data_source_coverage"}
+
+
+# ------------------------------ dica de tool por regra (dentro da categoria) ------------------------------ #
+
+from src.services.category_routing import tool_hint  # noqa: E402
+
+
+@pytest.mark.parametrize("claim, tool", [
+    ("Em 2022, Lula declarou ao TSE bens que somam mais de 7 milhões de reais.", "get_candidate_assets"),
+    ("Jair Bolsonaro declarou um patrimônio superior a 10 milhões em 2022.", "get_candidate_assets"),
+    ("Candidato declarou dinheiro em espécie e uma aeronave ao TSE.", "check_cash_and_special_assets"),
+    ("Em 2022, Jair Bolsonaro venceu o segundo turno da eleição presidencial.", "get_election_result"),
+    ("Quem foi o candidato mais votado para governador em 2022?", "get_election_result"),
+    ("O registro de candidatura de Fulano consta como cancelado no TSE.", "check_candidate_status"),
+    ("A candidatura de Fulano foi indeferida.", "check_candidate_status"),
+    ("Qual a escolaridade do candidato Fulano?", "check_candidate_profile"),
+])
+def test_tool_hint_names_the_tool_for_clear_wording(claim, tool):
+    assert tool in (tool_hint(claim) or "")
+
+
+@pytest.mark.parametrize("claim", [
+    "Quem mais gastou em 2022?",
+    "O PL 2630/2020 foi aprovado?",
+    "Lula teve 60 milhões de votos no segundo turno de 2022.",   # votos de um candidato: sem dica (o LLM decide)
+])
+def test_tool_hint_is_none_without_a_clear_signal(claim):
+    assert tool_hint(claim) is None
