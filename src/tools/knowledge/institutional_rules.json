@@ -82,6 +82,12 @@
     "fonte_normativa": "Ato da Comissão Diretora do Senado Federal nº 3/2003 (Regulamento da CEAPS), art. 2º, inciso IV; e Regulamento Administrativo do Senado Federal",
     "fundamentacao": "A regulamentação interna do Senado Federal prevê a possibilidade expressa de indenização para serviços de consultoria, assessoria técnica e pesquisas especializadas prestados por pessoas jurídicas para apoiar os trabalhos legislativos do parlamentar.",
     "veredito_regra": "permitido"
+  },
+  "ceaps_passagens": {
+    "topico": "ceaps_passagens",
+    "resposta_resumida": "Senadores podem usar a verba indenizatória (CEAPS) para custear passagens aéreas, aquáticas e terrestres nacionais ligadas ao exercício do mandato; o Senado não proíbe esse uso.",
+    "fonte_normativa": "Ato da Comissão Diretora do Senado Federal nº 3/2003 (Regulamento da CEAPS); categoria 'Passagens aéreas, aquáticas e terrestres nacionais' nos dados abertos da CEAPS",
+    "fundamentacao": "O regulamento da CEAPS inclui o ressarcimento de passagens aéreas, aquáticas e terrestres nacionais, desde que vinculadas ao exercício do mandato. Os dados abertos da CEAPS registram essa categoria de despesa todos os anos, o que confirma que o uso não é proibido.",
+    "veredito_regra": "permitido"
   }
 }
-

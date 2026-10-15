@@ -796,7 +796,7 @@ def _resolver_call(**args):
     return {"name": "resolve_proposition", "arguments": {"termo_busca": "PEC da Reforma Tributária", **args}}
 
 
-def test_proposition_claim_without_a_tool_is_retried_with_the_resolver_only(mock_llm):
+def test_proposition_claim_without_a_tool_is_retried_with_the_resolver_only(mock_llm, two_stage):
     mock_llm.chat.side_effect = [_chat_result([]), _chat_result([_resolver_call(casa="senado")])]
     with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 1, "casa": "senado"}):
         router_service._route_and_execute(SENADO_PEC_CLAIM)

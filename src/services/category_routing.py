@@ -124,10 +124,15 @@ _CONSULT_RE = re.compile(
 )
 
 
+# Temas que a base normativa curada responde por escrito (lei, regimento, resolução), mesmo quando a alegação
+# cita o TSE ou a cota: a pergunta é sobre a regra, não sobre os dados.
+_RULES_RE = re.compile(r"fundo partidario|fundo eleitoral|prestar contas|teto de gastos")
+
+
 def rule_category(claim_text: str) -> Optional[str]:
     """Categoria decidida só por regra: exatamente um tema com sinal claro na alegação, senão None."""
     folded = _fold(claim_text)
-    if _CONSULT_RE.search(folded):
+    if _CONSULT_RE.search(folded) or _RULES_RE.search(folded):
         return "NORMAS"
     hits = [name for name, pattern in _SIGNALS.items() if pattern.search(folded)]
     return hits[0] if len(hits) == 1 else None

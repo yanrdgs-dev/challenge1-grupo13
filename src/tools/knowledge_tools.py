@@ -27,6 +27,7 @@ INSTITUTIONAL_TOPICS: Tuple[str, ...] = (
     "cota_compra_bens",
     "tramitacao_comissoes",
     "consultoria_ceaps",
+    "ceaps_passagens",
 )
 
 # Fontes primárias de dados oficiais mapeadas

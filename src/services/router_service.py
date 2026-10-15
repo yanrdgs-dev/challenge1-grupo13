@@ -577,6 +577,20 @@ def _takes_turno(call: Dict[str, Any]) -> bool:
 
 # "X foi o que mais gastou" só se decide vendo também o 2º e o 3º colocados na evidência.
 MIN_RANKING_SHOWN = 3
+_SENADO_RE = re.compile(r"\bsenad", re.IGNORECASE)
+_CAMARA_RE = re.compile(r"camara|deputad", re.IGNORECASE)
+
+
+def _house_in_claim(claim_text: str) -> Optional[str]:
+    """Casa que a alegação nomeia sozinha ('Senado' ou 'Câmara/deputados'); None se cita as duas ou nenhuma."""
+    folded = unicodedata.normalize("NFKD", claim_text)
+    folded = "".join(ch for ch in folded if not unicodedata.combining(ch))
+    senado, camara = bool(_SENADO_RE.search(folded)), bool(_CAMARA_RE.search(folded))
+    if senado == camara:
+        return None
+    return "senado" if senado else "camara"
+
+
 _CAMPAIGN_TOOLS = {"get_campaign_finances", "get_top_campaign_finances"}
 _QUOTA_TOOL_NAMES = {
     "get_top_ceap_spender", "list_expense_categories", "check_parliamentary_expenses", "get_member_expenses",
@@ -738,6 +752,23 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
             forced = None
         if forced:
             chat.tool_calls = [forced]
+
+    if category == "PROPOSICOES" and not chat.tool_calls:
+        # Nome popular sem número ("Marco Temporal"): o modelo pequeno às vezes não chama nada. O resolvedor é o
+        # primeiro passo de toda alegação de proposição, então a chamada é refeita só com ele.
+        try:
+            retry = _chat_for_routing(claim_text, _RESOLVER_ONLY_CATALOG, _RESOLVE_FIRST_HINT)
+            chat.tool_calls = [c for c in retry.tool_calls if c["name"] == "resolve_proposition"]
+        except HTTPException:
+            chat.tool_calls = []
+
+    if chat.tool_calls and chat.tool_calls[0]["name"] == "resolve_proposition":
+        # A Casa que a alegação nomeia ("o Senado aprovou") vale mais que "congresso": só assim a votação encadeia.
+        first = chat.tool_calls[0]
+        current = first["arguments"].get("casa")
+        if current in (None, "", "congresso"):
+            house = _house_in_claim(claim_text) or "congresso"
+            chat.tool_calls = [{**first, "arguments": {**first["arguments"], "casa": house}}] + list(chat.tool_calls[1:])
 
     if chat.tool_calls and _takes_turno(chat.tool_calls[0]) and not chat.tool_calls[0]["arguments"].get("turno"):
         turno = _turno_in_claim(claim_text)   # só o que a alegação diz: o turno nunca é adivinhado
