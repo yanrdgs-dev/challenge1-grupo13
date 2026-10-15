@@ -784,3 +784,47 @@ def test_turno_is_not_added_to_tools_that_do_not_take_it(mock_llm):
         router_service._route_and_execute("No segundo turno de 2022, Lula declarou 7 milhões em bens.")
 
     assert "turno" not in execute.call_args.args[1]
+
+
+# ------------------- proposição por nome popular: o resolvedor sempre roda, na Casa que a alegação cita ------------------- #
+
+SENADO_PEC_CLAIM = "O Senado aprovou, em votação nominal, o texto-base da PEC da Reforma Tributária em 2023."
+MARCO_CLAIM = "A votação do Marco Temporal na Câmara dos Deputados em 2023 foi unânime, sem nenhum deputado votando contra."
+
+
+def _resolver_call(**args):
+    return {"name": "resolve_proposition", "arguments": {"termo_busca": "PEC da Reforma Tributária", **args}}
+
+
+def test_proposition_claim_without_a_tool_is_retried_with_the_resolver_only(mock_llm):
+    mock_llm.chat.side_effect = [_chat_result([]), _chat_result([_resolver_call(casa="senado")])]
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 1, "casa": "senado"}):
+        router_service._route_and_execute(SENADO_PEC_CLAIM)
+
+    retry = mock_llm.chat.call_args_list[1]
+    assert [t["function"]["name"] for t in retry.kwargs["tools"]] == ["resolve_proposition"]
+
+
+@pytest.mark.parametrize("claim, casa_from_llm, expected", [
+    (SENADO_PEC_CLAIM, "congresso", "senado"),
+    (MARCO_CLAIM, "congresso", "camara"),
+    (MARCO_CLAIM, None, "camara"),
+    ("O Senado e a Câmara aprovaram a PEC da Reforma Tributária em 2023.", "congresso", "congresso"),
+    ("A PEC da Reforma Tributária foi aprovada em 2023.", "congresso", "congresso"),
+    (SENADO_PEC_CLAIM, "camara", "camara"),                 # a escolha explícita do LLM nunca é trocada
+])
+def test_resolver_house_comes_from_the_house_named_in_the_claim(mock_llm, claim, casa_from_llm, expected):
+    args = {} if casa_from_llm is None else {"casa": casa_from_llm}
+    mock_llm.chat.return_value = _chat_result([_resolver_call(**args)])
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 1}) as execute:
+        router_service._route_and_execute(claim)
+
+    assert execute.call_args.args[1]["casa"] == expected
+
+
+def test_no_tool_outside_the_proposition_category_is_not_forced_to_the_resolver(mock_llm):
+    mock_llm.chat.return_value = _chat_result([])
+    outcome = router_service._route_and_execute("O céu é azul?")
+
+    mock_llm.chat.assert_called_once()
+    assert outcome.tool_name is None

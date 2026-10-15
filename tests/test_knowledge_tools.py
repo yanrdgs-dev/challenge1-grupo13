@@ -163,3 +163,13 @@ def test_golden_dataset_claim_21_lai_gratuidade():
     cov_res = check_data_source_coverage("portal_transparencia", "licitacoes_dados_abertos")
     assert cov_res["disponivel"] is True
     assert "gratuito" in cov_res["observacao"].lower()
+
+
+def test_ceaps_passagens_topic_is_covered_and_cites_the_senate_regulation():
+    """Golden 17: o Senado NÃO proibiu a CEAPS para passagens aéreas."""
+    assert "ceaps_passagens" in INSTITUTIONAL_TOPICS
+    result = check_institutional_rule("ceaps_passagens")
+    assert result["encontrado"] is True
+    assert result["veredito_regra"] == "permitido"
+    assert "passagens" in result["resposta_resumida"].lower()
+    assert "Senado" in result["fonte_normativa"] and "CEAPS" in result["fonte_normativa"]

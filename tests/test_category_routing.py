@@ -182,3 +182,17 @@ def test_hinted_tool_returns_only_the_tool_name():
 
     assert hinted_tool("Em 2022, Lula declarou ao TSE bens que somam mais de 7 milhões de reais.") == "get_candidate_assets"
     assert hinted_tool("Quem mais gastou em 2022?") is None
+
+
+@pytest.mark.parametrize("claim", [
+    "Um partido pode receber a cota do Fundo Partidário sem prestar contas ao TSE de como gastou o dinheiro.",
+    "O TSE proíbe que se divulgue publicamente o teto de gastos de campanha para presidente e governador.",
+    "Os partidos precisam prestar contas do Fundo Partidário à Justiça Eleitoral?",
+])
+def test_rules_of_the_curated_base_go_to_normas_even_when_the_claim_mentions_the_tse(claim):
+    assert rule_category(claim) == "NORMAS"
+
+
+def test_campaign_money_data_claims_stay_in_eleicoes():
+    assert rule_category("Quem mais gastou na campanha para presidente em 2022?") == "ELEICOES"
+    assert rule_category("A campanha de Lula arrecadou mais do que a de Tebet em 2022.") == "ELEICOES"
