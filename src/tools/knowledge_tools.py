@@ -28,6 +28,7 @@ INSTITUTIONAL_TOPICS: Tuple[str, ...] = (
     "tramitacao_comissoes",
     "consultoria_ceaps",
     "ceaps_passagens",
+    "tramitacao_pec_pln",
 )
 
 # Fontes primárias de dados oficiais mapeadas

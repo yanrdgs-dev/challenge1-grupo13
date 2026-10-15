@@ -198,6 +198,9 @@ def test_campaign_money_data_claims_stay_in_eleicoes():
     assert rule_category("A campanha de Lula arrecadou mais do que a de Tebet em 2022.") == "ELEICOES"
 
 
+from src.services.category_routing import hinted_tool  # noqa: E402
+
+
 @pytest.mark.parametrize("claim", [
     "Qual deputado registrou o menor gasto em 2022?",
     "Qual deputado teve o maior gasto com a Cota Parlamentar (CEAP) no ano de 2023?",

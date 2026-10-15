@@ -126,7 +126,10 @@ _CONSULT_RE = re.compile(
 
 # Temas que a base normativa curada responde por escrito (lei, regimento, resolução), mesmo quando a alegação
 # cita o TSE ou a cota: a pergunta é sobre a regra, não sobre os dados.
-_RULES_RE = re.compile(r"fundo partidario|fundo eleitoral|prestar contas|teto de gastos")
+_RULES_RE = re.compile(
+    r"fundo partidario|fundo eleitoral|prestar contas|teto de gastos|"
+    r"cota parlamentar.{0,200}(?:campanh|propaganda)|(?:campanh|propaganda).{0,200}cota parlamentar"
+)
 
 
 def rule_category(claim_text: str) -> Optional[str]:
@@ -147,6 +150,9 @@ def category_for(chat: Callable[..., Any], claim_text: str) -> Optional[str]:
 # x votos de um candidato). Quando a redação é inequívoca, a regra nomeia a tool no prompt do roteamento; o LLM
 # continua extraindo os parâmetros. Ordem importa: o primeiro padrão que casa vence.
 _TOOL_HINTS: List[Tuple["re.Pattern[str]", str, str]] = [
+    (re.compile(r"(?:qual|quais|quem)\b[^?.]{0,50}\b(?:deputad\w*|senador\w*|parlamentar\w*)\b[^?.]{0,60}\b(?:maior|menor|mais|menos)\b[^?.]{0,30}\bgast|"
+                r"(?:deputad\w*|senador\w*|parlamentar\w*) que (?:mais|menos) gast"),
+     "get_top_ceap_spender", "ranking de gastos da cota parlamentar (quem mais ou menos gastou)"),
     (re.compile(r"dinheiro em especie|aeronave|aviao|embarcacao|joias?\b|\bouro\b|bens especiais"),
      "check_cash_and_special_assets", "dinheiro em espécie ou bens especiais (aeronave, embarcação, joias)"),
     (re.compile(r"patrimonio|bens (?:declarad|que somam)|declarou .{0,40}\bbens\b|declarou .{0,40}reais? em bens"),
@@ -160,10 +166,15 @@ _TOOL_HINTS: List[Tuple["re.Pattern[str]", str, str]] = [
 ]
 
 
+_CAMPAIGN_WORDS_RE = re.compile(r"campanh|eleic|candidat")
+
+
 def _matching_hint(claim_text: str) -> Optional[Tuple[str, str]]:
     folded = _fold(claim_text)
     for pattern, tool, topic in _TOOL_HINTS:
         if pattern.search(folded):
+            if tool == "get_top_ceap_spender" and _CAMPAIGN_WORDS_RE.search(folded):
+                continue   # "quem mais gastou na campanha" é dado do TSE, não da cota
             return tool, topic
     return None
 

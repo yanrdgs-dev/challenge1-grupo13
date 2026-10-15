@@ -316,7 +316,8 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
         )
     if tool_name == "get_top_ceap_spender":
         return get_top_ceap_spender(
-            casa=args["casa"], ano=args["ano"], top_n=args.get("top_n", 1)
+            casa=args["casa"], ano=args["ano"], top_n=args.get("top_n", 1),
+            ordem=str(args.get("ordem") or "maior").lower(),
         ).to_dict()
     if tool_name == "list_expense_categories":
         return list_expense_categories(
@@ -520,7 +521,7 @@ _PROPOSITION_COMPATIBLE_TOOLS = {
     "get_proposition_tramitation_history", "check_bill_apensamentos",
 }
 _APENSAMENTO_CUE_RE = re.compile(r"apens|anexad|apensad", re.IGNORECASE)
-_TRAMITACAO_CUE_RE = re.compile(r"tramit|comiss[aã]o|comiss[oõ]es|em que fase|situa[cç][aã]o atual|parad[ao]", re.IGNORECASE)
+_TRAMITACAO_CUE_RE = re.compile(r"tramit|comiss[aã]o|comiss[oõ]es|em que fase|em que p[eé]|situa[cç][aã]o atual|status|andamento|parad[ao]", re.IGNORECASE)
 
 
 def _cited_proposition(claim_text: str) -> Optional[tuple]:

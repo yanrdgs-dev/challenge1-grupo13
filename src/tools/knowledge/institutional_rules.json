@@ -89,5 +89,12 @@
     "fonte_normativa": "Ato da Comissão Diretora do Senado Federal nº 3/2003 (Regulamento da CEAPS); categoria 'Passagens aéreas, aquáticas e terrestres nacionais' nos dados abertos da CEAPS",
     "fundamentacao": "O regulamento da CEAPS inclui o ressarcimento de passagens aéreas, aquáticas e terrestres nacionais, desde que vinculadas ao exercício do mandato. Os dados abertos da CEAPS registram essa categoria de despesa todos os anos, o que confirma que o uso não é proibido.",
     "veredito_regra": "permitido"
+  },
+  "tramitacao_pec_pln": {
+    "topico": "tramitacao_pec_pln",
+    "resposta_resumida": "A PEC é votada em dois turnos em cada Casa, com três quintos dos votos, e promulgada pelas Mesas da Câmara e do Senado, sem sanção. O PLN (projeto de lei do Congresso Nacional, como LDO, LOA e créditos) passa pela Comissão Mista de Orçamento, é apreciado pelo Congresso na forma do Regimento Comum e depende de sanção presidencial.",
+    "fonte_normativa": "Constituição Federal de 1988, art. 60 (emenda à Constituição) e art. 166 (leis orçamentárias); Regimento Comum do Congresso Nacional",
+    "fundamentacao": "A proposta de emenda à Constituição é discutida e votada em cada Casa em dois turnos, exigindo três quintos dos membros em ambos, e é promulgada pelas Mesas da Câmara e do Senado, sem sanção ou veto do Presidente (art. 60, §§ 2º e 3º). Os projetos de lei relativos ao plano plurianual, às diretrizes orçamentárias, ao orçamento anual e aos créditos adicionais (PLN) têm parecer da Comissão Mista de Orçamento e são apreciados pelas duas Casas na forma do regimento comum, seguindo depois para sanção do Presidente da República (art. 166).",
+    "veredito_regra": "tramitacao_distinta"
   }
 }

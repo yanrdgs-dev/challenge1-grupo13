@@ -95,6 +95,11 @@ TOOLS_CATALOG: List[Dict[str, Any]] = [
                         "type": "integer",
                         "description": "Quantidade de parlamentares no topo do ranking (padrão 1).",
                     },
+                    "ordem": {
+                        "type": "string",
+                        "enum": ["maior", "menor"],
+                        "description": "'maior' para quem mais gastou (padrão); 'menor' para quem menos gastou.",
+                    },
                 },
                 "required": ["casa", "ano"],
             },
@@ -566,7 +571,7 @@ ROUTER_SYSTEM_PROMPT = (
     "  Numeração no formato 'número/ano' (ex: 'PLN 2/2025' = sigla 'PLN', numero 2, ano 2025) é proposição legislativa, não eleição nem campanha: use 'resolve_proposition' (casa 'congresso' para PLN, LDO e LOA).\n"
     "- Se a alegação cita o nome de um político/parlamentar para checar dados individuais, você DEVE chamar 'resolve_politician' primeiro para obter o identificador oficial.\n"
     "  ⚠️ ATENÇÃO PARA 'resolve_politician': Passe APENAS 'nome_busca' com o nome. NUNCA passe 'uf' ou 'cargo' se a alegação estiver justamente afirmando de qual estado ou cargo ele é (ex: 'Nikolas Ferreira é deputado de Distrito Federal'). Se passar 'uf': 'DF', a ferramenta buscará um Nikolas no DF, não achará e gerará um falso INCONCLUSIVO! Busque pelo nome para obter o estado real (MG) e permitir ao julgador cravar FALSO.\n"
-    "- Se a alegação pergunta sobre ranking de gastos ou 'quem mais gastou a cota (CEAP/CEAPS)', utilize 'get_top_ceap_spender'.\n"
+    "- Se a alegação pergunta sobre ranking de gastos ou 'quem mais gastou a cota (CEAP/CEAPS)', utilize 'get_top_ceap_spender' (ordem 'maior'; para 'quem menos gastou' ou 'menor gasto', ordem 'menor').\n"
     "- Se a alegação questiona se um tipo de gasto é permitido ou elegível (ex: consultoria, combustível), utilize 'list_expense_categories'.\n"
     "- Se a alegação pergunta quanto um parlamentar ESPECÍFICO gastou ou teve reembolsado da cota (ex: combustível, passagens, \"vale-combustível\"), utilize 'get_member_expenses' com o nome em 'parlamentar', a sigla do estado em 'uf' quando citada e SEMPRE a 'categoria' quando a alegação citar um tipo de gasto (\"vale-combustível\", gasolina e combustível = 'Combustíveis'; passagem = 'Passagens Aéreas'). A cota reembolsa despesas, não paga salário nem vale em dinheiro.\n"
     "- Se a alegação trata da TRAMITAÇÃO de uma proposição (por quais comissões passou, em que fase está, onde está parada), utilize 'get_proposition_tramitation_history'; se pergunta se está APENSADA a outra, 'check_bill_apensamentos'. Passe a sigla, o número e o ano citados (ou o nome popular).\n"

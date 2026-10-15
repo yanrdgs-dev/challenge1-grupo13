@@ -73,14 +73,14 @@ def test_get_top_ceap_spender_dispatch():
                       return_value=_dataclass_like({"gastadores": [{"posicao": 1}]})) as tool:
         result = execute_tool("get_top_ceap_spender", {"casa": "camara", "ano": 2023, "top_n": 3})
 
-    tool.assert_called_once_with(casa="camara", ano=2023, top_n=3)
+    tool.assert_called_once_with(casa="camara", ano=2023, top_n=3, ordem="maior")
     assert result == {"gastadores": [{"posicao": 1}]}
 
 
 def test_get_top_ceap_spender_default_top_n_is_one():
     with patch.object(router_service, "get_top_ceap_spender", return_value=_dataclass_like({})) as tool:
         execute_tool("get_top_ceap_spender", {"casa": "senado", "ano": 2022})
-    tool.assert_called_once_with(casa="senado", ano=2022, top_n=1)
+    tool.assert_called_once_with(casa="senado", ano=2022, top_n=1, ordem="maior")
 
 
 # ----------------------------- list_expense_categories ----------------------------- #
@@ -336,7 +336,7 @@ def test_missing_required_param_returns_clear_evidence_and_never_calls_the_tool(
 def test_arguments_are_normalized_before_dispatch():
     with patch.object(router_service, "get_top_ceap_spender", return_value=_dataclass_like({})) as tool:
         execute_tool("get_top_ceap_spender", {"casa": "Câmara", "ano": "2023"})
-    tool.assert_called_once_with(casa="camara", ano=2023, top_n=1)
+    tool.assert_called_once_with(casa="camara", ano=2023, top_n=1, ordem="maior")
 
 
 def test_invalid_enum_never_reaches_the_curated_base():

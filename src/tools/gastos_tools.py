@@ -58,6 +58,7 @@ class TopSpenderResponse:
     top_n: int
     gastadores: List[TopSpenderItem]
     total_parlamentares_analisados: int
+    ordem: str = "maior"
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -288,6 +289,7 @@ def get_top_ceap_spender(
     ano: int,
     top_n: int = 1,
     base_dir: Optional[Path] = None,
+    ordem: str = "maior",
 ) -> TopSpenderResponse:
     """Identifica os parlamentares com maiores gastos na Cota Parlamentar (CEAP/CEAPS).
 
@@ -298,10 +300,18 @@ def get_top_ceap_spender(
         ano: Ano de exercício fiscal a analisar (ex: 2023).
         top_n: Quantidade de posições do ranking a retornar (padrão: 1).
         base_dir: Diretório base opcional dos dados processados (para injeção em testes).
+        ordem: 'maior' (padrão, do maior para o menor gasto) ou 'menor' (do menor para o maior). Em 'menor',
+            totais zerados ou negativos (só estornos) não contam: não houve gasto.
 
     Returns:
-        TopSpenderResponse contendo a lista dos maiores gastadores ordenados decrescentemente.
+        TopSpenderResponse com o ranking na ordem pedida.
+
+    Raises:
+        ValueError: ordem diferente de 'maior' e 'menor'.
     """
+    clean_ordem = str(ordem).strip().lower()
+    if clean_ordem not in ("maior", "menor"):
+        raise ValueError(f"Ordem inválida: '{ordem}'. Valores aceitos: 'maior', 'menor'.")
     clean_casa = casa.strip().lower()
     lf = _resolve_ceap_dataset(casa=clean_casa, ano=ano, base_dir=base_dir)
 
@@ -312,8 +322,10 @@ def get_top_ceap_spender(
     aggregated = (
         lf_filtered.group_by(["id_parlamentar", "nome_parlamentar", "uf", "partido"])
         .agg(pl.col("valor").sum().alias("valor_total"))
-        .sort(by="valor_total", descending=True)
     )
+    if clean_ordem == "menor":
+        aggregated = aggregated.filter(pl.col("valor_total") > 0)
+    aggregated = aggregated.sort(by="valor_total", descending=(clean_ordem == "maior"))
 
     df = aggregated.collect()
     total_parlamentares = df.height
@@ -325,6 +337,7 @@ def get_top_ceap_spender(
             top_n=top_n,
             gastadores=[],
             total_parlamentares_analisados=0,
+            ordem=clean_ordem,
         )
 
     top_df = df.head(top_n)
@@ -347,6 +360,7 @@ def get_top_ceap_spender(
         top_n=top_n,
         gastadores=items,
         total_parlamentares_analisados=total_parlamentares,
+        ordem=clean_ordem,
     )
 
 
