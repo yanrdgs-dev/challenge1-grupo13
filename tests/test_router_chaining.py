@@ -230,3 +230,30 @@ def test_vote_tool_failure_skips_the_breakdown(tools):
     tools.votes.side_effect = RuntimeError("API da Câmara fora do ar")
     post()
     tools.breakdown.assert_not_called()
+
+
+# ------------------- foco nas votações da própria proposição (PEC 221/2019: 117 de 123 são requerimentos) ------------------- #
+
+PEC_CLAIM = "Quantos votos tivemos na PEC 221/2019?"
+PEC_VOTE = {"id_votacao": "2233802-438", "data": "2026-05-27", "aprovado": True,
+            "tipo_votacao": "Aprovada, em segundo turno, a Proposta de Emenda à Constituição n° 221, de 2019. . Sim: 461; Não: 19; Total: 480."}
+
+
+def _req(i):
+    return {"id_votacao": f"2233802-{i}", "data": "2026-05-26", "aprovado": True,
+            "tipo_votacao": f"Aprovado o Requerimento nº {3000 + i}/2026, dos Senhores Líderes."}
+
+
+def test_evidence_keeps_only_the_proposition_votes_with_counts_and_reports_the_omitted(tools):
+    tools.votes.return_value = [_req(i) for i in range(20)] + [PEC_VOTE]
+    data = post(PEC_CLAIM)
+    ev = data["evidencia_coletada"]
+    assert [v["id_votacao"] for v in ev["votacoes"]] == ["2233802-438"]
+    assert (ev["votacoes"][0]["votos_sim"], ev["votacoes"][0]["votos_nao"]) == (461, 19)
+    assert ev["votacoes_omitidas"] == 20 and ev["total_votacoes"] == 21
+
+
+def test_breakdown_is_requested_for_the_proposition_votes_not_for_requerimentos(tools):
+    tools.votes.return_value = [_req(i) for i in range(20)] + [PEC_VOTE]
+    post(PEC_CLAIM)
+    assert [c.kwargs["id_votacao"] for c in tools.breakdown.call_args_list] == ["2233802-438"]
