@@ -732,3 +732,55 @@ def test_comparison_between_candidates_is_never_replaced_by_the_hinted_single_ca
 
     mock_llm.chat.assert_called_once()
     assert execute.call_args.args[0] == "compare_candidates"
+
+
+# ------------------- turno dito na alegação, esquecido pelo LLM ------------------- #
+
+@pytest.mark.parametrize("claim, turno", [
+    ("Em 2022, Jair Bolsonaro venceu o segundo turno da eleição presidencial.", 2),
+    ("Lula foi o mais votado no 2º turno de 2022.", 2),
+    ("Lula foi o mais votado no 2o turno de 2022.", 2),
+    ("Lula foi o mais votado no primeiro turno de 2022.", 1),
+    ("Lula foi o mais votado no 1º turno de 2022.", 1),
+])
+@pytest.mark.parametrize("tool, base_args", [
+    ("get_election_result", {"cargo": "Presidente", "ano": 2022}),
+    ("get_candidate_votes", {"nome_candidato": "Lula", "ano": 2022}),
+    ("compare_candidates", {"candidatos": ["Lula", "Jair Bolsonaro"], "ano": 2022, "metrica": "votos_validos"}),
+])
+def test_turno_written_in_the_claim_is_filled_when_the_llm_forgets_it(mock_llm, claim, turno, tool, base_args):
+    mock_llm.chat.return_value = _chat_result([{"name": tool, "arguments": dict(base_args)}])
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        router_service._route_and_execute(claim)
+
+    assert execute.call_args.args[1]["turno"] == turno
+
+
+def test_turno_chosen_by_the_llm_is_never_overridden(mock_llm):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "get_election_result", "arguments": {"cargo": "Presidente", "ano": 2022, "turno": 1}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        router_service._route_and_execute("Em 2022, Jair Bolsonaro venceu o segundo turno.")
+
+    assert execute.call_args.args[1]["turno"] == 1
+
+
+def test_turno_is_not_invented_when_the_claim_does_not_say_it(mock_llm):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "get_election_result", "arguments": {"cargo": "Presidente", "ano": 2022}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        router_service._route_and_execute("Em 2022, Lula foi o mais votado para presidente.")
+
+    assert "turno" not in execute.call_args.args[1]
+
+
+def test_turno_is_not_added_to_tools_that_do_not_take_it(mock_llm):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "get_candidate_assets", "arguments": {"nome_candidato": "Lula", "ano": 2022}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        router_service._route_and_execute("No segundo turno de 2022, Lula declarou 7 milhões em bens.")
+
+    assert "turno" not in execute.call_args.args[1]
