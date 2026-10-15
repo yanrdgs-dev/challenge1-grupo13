@@ -106,3 +106,9 @@ def _no_download_backoff(monkeypatch):
     waits = []
     monkeypatch.setattr(download_datasets, "_sleep", waits.append)
     return waits
+
+
+@pytest.fixture(autouse=True)
+def _router_one_stage_by_default(monkeypatch):
+    """Os testes do router assumem uma única chamada ao LLM; os de duas etapas ligam ROUTER_TWO_STAGE."""
+    monkeypatch.setenv("ROUTER_TWO_STAGE", "false")

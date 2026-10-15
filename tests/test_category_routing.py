@@ -86,3 +86,53 @@ def test_classify_claim_returns_none_when_the_answer_is_not_a_valid_category(con
 def test_classify_claim_returns_none_when_the_llm_call_fails():
     chat = MagicMock(side_effect=RuntimeError("timed out"))
     assert classify_claim(chat, "qualquer") is None
+
+
+# ------------------------------ categoria por regra (sem LLM) ------------------------------ #
+
+from src.services.category_routing import category_for, rule_category  # noqa: E402
+
+
+@pytest.mark.parametrize("claim, expected", [
+    ("O PL 2630/2020 foi aprovado pelo Plenário?", "PROPOSICOES"),
+    ("O PLN 2/2025 trata das diretrizes orçamentárias de 2026?", "PROPOSICOES"),
+    ("A PEC 45/2019 está apensada a outra proposição?", "PROPOSICOES"),
+    ("Em que comissões tramitou o projeto de lei das fake news?", "PROPOSICOES"),
+    ("A PEC da reforma tributária foi aprovada em primeiro turno na Câmara?", "PROPOSICOES"),
+    ("Quem mais gastou a cota parlamentar da Câmara em 2023?", "COTA_PARLAMENTAR"),
+    ("Senadores podem usar a CEAPS para pagar consultorias?", "COTA_PARLAMENTAR"),
+    ("A verba indenizatória cobre combustível?", "COTA_PARLAMENTAR"),
+    ("Quantos votos o candidato Lula teve em 2022?", "ELEICOES"),
+    ("Quem mais gastou na campanha para presidente em 2022?", "ELEICOES"),
+    ("O TSE indeferiu a candidatura de Fulano?", "ELEICOES"),
+    ("Qual o patrimônio declarado ao TSE por Fulano?", "ELEICOES"),
+])
+def test_rule_category_decides_when_the_claim_has_a_clear_signal(claim, expected):
+    assert rule_category(claim) == expected
+
+
+@pytest.mark.parametrize("claim", [
+    "Quem mais gastou em 2022?",                                   # sem sinal: o LLM decide
+    "O deputado Fulano de Tal é do PL-SP.",
+    "O céu é azul?",
+    "A campanha da PEC 45/2019 gastou muito?",                     # sinais de duas categorias: o LLM decide
+    "O candidato disse que a cota parlamentar é abusiva.",
+])
+def test_rule_category_is_none_when_there_is_no_signal_or_signals_conflict(claim):
+    assert rule_category(claim) is None
+
+
+def test_category_for_uses_the_rule_without_calling_the_llm():
+    chat = MagicMock()
+    assert category_for(chat, "O PL 2630/2020 foi aprovado?") == "PROPOSICOES"
+    chat.assert_not_called()
+
+
+def test_category_for_falls_back_to_the_llm_when_rules_do_not_decide():
+    chat = _chat_returning('{"categoria": "COTA_PARLAMENTAR"}')
+    assert category_for(chat, "Quem mais gastou em 2022?") == "COTA_PARLAMENTAR"
+    chat.assert_called_once()
+
+
+def test_category_for_is_none_when_neither_rules_nor_llm_decide():
+    assert category_for(_chat_returning("{}"), "O céu é azul?") is None

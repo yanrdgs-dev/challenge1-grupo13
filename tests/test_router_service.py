@@ -547,3 +547,64 @@ def test_tramitation_tool_chosen_by_llm_is_kept_and_not_redirected_to_resolver(m
 
     mock_llm.chat.assert_called_once()
     assert execute.call_args.args[0] == "get_proposition_tramitation_history"
+
+
+# ------------------- roteamento em duas etapas (categoria → tools da categoria) ------------------- #
+
+def _tool_names(call):
+    return {t["function"]["name"] for t in call.kwargs["tools"]}
+
+
+@pytest.fixture
+def two_stage(monkeypatch):
+    monkeypatch.setenv("ROUTER_TWO_STAGE", "true")
+
+
+def test_two_stage_rule_decided_category_restricts_the_catalog_with_a_single_llm_call(mock_llm, two_stage):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "resolve_proposition", "arguments": {"casa": "camara", "sigla_tipo": "PL", "numero": 2630, "ano": 2020}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 1, "casa": "camara"}):
+        router_service._route_and_execute("O PL 2630/2020 foi aprovado pelo Plenário?")
+
+    mock_llm.chat.assert_called_once()
+    names = _tool_names(mock_llm.chat.call_args)
+    assert "resolve_proposition" in names and "check_institutional_rule" in names
+    assert not names & {"get_election_result", "get_top_ceap_spender", "compare_candidates"}
+
+
+def test_two_stage_asks_the_llm_for_the_category_when_rules_do_not_decide(mock_llm, two_stage):
+    mock_llm.chat.side_effect = [
+        _chat_result_with_content('{"categoria": "COTA_PARLAMENTAR"}'),
+        _chat_result([{"name": "get_top_ceap_spender", "arguments": {"casa": "camara", "ano": 2022}}]),
+    ]
+    with patch.object(router_service, "execute_tool", return_value={"gastadores": []}) as execute:
+        router_service._route_and_execute("Quem mais gastou em 2022?")
+
+    classify_call, route_call = mock_llm.chat.call_args_list
+    assert classify_call.kwargs["json_mode"] is True and "tools" not in classify_call.kwargs
+    assert "get_top_ceap_spender" in _tool_names(route_call)
+    assert not _tool_names(route_call) & {"get_election_result", "resolve_proposition"}
+    assert execute.call_args.args[0] == "get_top_ceap_spender"
+
+
+def test_two_stage_keeps_the_full_catalog_when_the_classification_fails(mock_llm, two_stage):
+    mock_llm.chat.side_effect = [RuntimeError("timed out"), _chat_result([])]
+    router_service._route_and_execute("Quem mais gastou em 2022?")
+
+    assert _tool_names(mock_llm.chat.call_args_list[1]) == {t["function"]["name"] for t in router_service.TOOLS_CATALOG}
+
+
+def test_two_stage_can_be_turned_off(mock_llm, monkeypatch):
+    monkeypatch.setenv("ROUTER_TWO_STAGE", "false")
+    mock_llm.chat.return_value = _chat_result([])
+    router_service._route_and_execute("Quem mais gastou em 2022?")
+
+    mock_llm.chat.assert_called_once()
+    assert mock_llm.chat.call_args.kwargs["tools"] == router_service.TOOLS_CATALOG
+
+
+def _chat_result_with_content(content):
+    result = _chat_result([])
+    result.content = content
+    return result
