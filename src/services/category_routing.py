@@ -120,7 +120,8 @@ def _fold(text: str) -> str:
 # alegação cite eleição ou parlamentares, porque a resposta é sobre a fonte, não sobre o dado.
 _CONSULT_RE = re.compile(
     r"\bda para (?:ver|consultar|acessar|baixar)|e possivel (?:consultar|ver|acessar|baixar)|"
-    r"pode(?:m)? ser consultad|consult(?:a|ar|ado) publicamente",
+    r"pode(?:m)? ser consultad|consult(?:a|ar|ado) publicamente|"
+    r"\bdiferenca entre|\bcomo (?:funciona|tramita)\b",
 )
 
 
