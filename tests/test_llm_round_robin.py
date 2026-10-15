@@ -213,3 +213,34 @@ def test_ollama_receives_the_requested_model_in_any_position_of_the_rotation():
         for _ in range(3):
             client.chat(MESSAGES, model="qwen2.5:7b")
     assert ("ollama", "qwen2.5:7b") in seen
+
+
+# ------------------------------------ rastro no Langfuse (provedor, modelo, estratégia) ------------------------------------ #
+
+def test_each_generation_records_provider_model_and_strategy(trace_recorder):
+    client = LLMClient(providers=CHAIN, strategy="round_robin")
+    post = router({"localhost": cloud_response("local", "qwen2.5:7b"), "groq": cloud_response("g", "llama-3.1-8b-instant"),
+                   "deepseek": cloud_response("d", "deepseek-flash")})
+    with patch("httpx.Client.post", side_effect=post):
+        for _ in range(3):
+            client.chat(MESSAGES)
+
+    spans = [s for s in trace_recorder.spans if s["name"] == "llm.chat"]
+    assert [s["kwargs"]["metadata"]["provider"] for s in spans] == ["ollama", "groq", "deepseek"]
+    assert {s["kwargs"]["metadata"]["strategy"] for s in spans} == {"round_robin"}
+    assert [s["updates"][-1]["model"] for s in spans] == ["qwen2.5:7b", "llama-3.1-8b-instant", "deepseek-flash"]
+    assert [s["kwargs"]["metadata"]["fallback"] for s in spans] == [False, False, False]
+
+
+def test_a_failover_is_marked_as_fallback_in_the_generation(trace_recorder):
+    client = LLMClient(providers=CHAIN, strategy="round_robin")
+    post = router({**healthy(), "groq": DOWN})
+    with patch("httpx.Client.post", side_effect=post):
+        client.chat(MESSAGES)
+        client.chat(MESSAGES)
+
+    spans = [s for s in trace_recorder.spans if s["name"] == "llm.chat"]
+    last = spans[-1]
+    assert last["kwargs"]["metadata"]["provider"] == "deepseek" and last["kwargs"]["metadata"]["fallback"] is True
+    failed = spans[-2]
+    assert failed["kwargs"]["metadata"]["provider"] == "groq" and failed["updates"][-1]["level"] == "ERROR"
