@@ -7,6 +7,8 @@ As tools normativas (regra 4) ficam disponíveis em toda categoria, e uma catego
 
 import json
 import logging
+import re
+import unicodedata
 from typing import Any, Callable, Dict, FrozenSet, List, Optional
 
 logger = logging.getLogger("CategoryRouting")
@@ -84,3 +86,36 @@ def restrict_catalog(catalog: List[Dict[str, Any]], category: Optional[str]) -> 
         return list(catalog)
     allowed = spec["tools"] | _NORMATIVE
     return [tool for tool in catalog if tool["function"]["name"] in allowed]
+
+
+# Sinais inequívocos de cada tema. Dois temas no mesmo texto, ou nenhum, deixam a decisão para o LLM.
+_SIGNALS: Dict[str, "re.Pattern[str]"] = {
+    "PROPOSICOES": re.compile(
+        r"\b(?:plp|pln|plv|pl|pec|mpv|pdl|pdc)\s*n?[o.]?\s*\d|\b(?:pec|plp|pln|mpv|pdl)\b|"
+        r"projeto de lei|proposta de emenda|medida provisoria|tramit|apens",
+    ),
+    "COTA_PARLAMENTAR": re.compile(
+        r"cota parlamentar|\bceaps?\b|verba indenizatoria|cota para o exercicio|cota de passagens|reembols",
+    ),
+    "ELEICOES": re.compile(
+        r"campanh|eleic|eleit|candidat|\btse\b|prestacao de contas|patrimonio declarado|fundo eleitoral|"
+        r"fundo partidario|ficha limpa|inelegi",
+    ),
+}
+
+
+def _fold(text: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", text.lower())
+    return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+
+
+def rule_category(claim_text: str) -> Optional[str]:
+    """Categoria decidida só por regra: exatamente um tema com sinal claro na alegação, senão None."""
+    folded = _fold(claim_text)
+    hits = [name for name, pattern in _SIGNALS.items() if pattern.search(folded)]
+    return hits[0] if len(hits) == 1 else None
+
+
+def category_for(chat: Callable[..., Any], claim_text: str) -> Optional[str]:
+    """Regra primeiro (sem custo de LLM); o LLM só classifica quando a regra não decide."""
+    return rule_category(claim_text) or classify_claim(chat, claim_text)

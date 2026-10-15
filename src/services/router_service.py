@@ -31,6 +31,7 @@ from src.observability.prompts import get_prompt
 from src.prompts.defaults import PROMPT_ROUTER_SYSTEM
 from src.services.tool_args import ground_candidate_args, validate_tool_args
 from src.services.data_freshness import data_date, ensure_data_date_cited, load_ingestion_info
+from src.services.category_routing import category_for, restrict_catalog
 from src.services.sources import TSE as TSE_SOURCE, derive_sources, ensure_source_cited, evidence_failed, merge_sources
 from src.tools.gastos_tools import (
     check_parliamentary_expenses,
@@ -573,6 +574,13 @@ def _run_tool(
         return evidence
 
 
+def _category_for_claim(claim_text: str) -> Optional[str]:
+    """Etapa 1 do roteamento: categoria por regra ou, se a regra não decide, pelo LLM (JSON). None = catálogo inteiro."""
+    if os.getenv("ROUTER_TWO_STAGE", "true").strip().lower() in ("0", "false", "no", "off"):
+        return None
+    return category_for(lambda messages: llm_client.chat(messages, model=ROUTER_MODEL, json_mode=True), claim_text)
+
+
 def _chat_for_routing(claim_text: str, tools: List[Dict[str, Any]], hint: str = "") -> Any:
     system_prompt = get_prompt(PROMPT_ROUTER_SYSTEM, ROUTER_SYSTEM_PROMPT)
     try:
@@ -623,7 +631,8 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
     O ``id_proposicao`` da tool de votação nunca vem do LLM: vem sempre do ``resolve_proposition``.
     """
     start = time.perf_counter()
-    chat = _chat_for_routing(claim_text, TOOLS_CATALOG)
+    category = _category_for_claim(claim_text)
+    chat = _chat_for_routing(claim_text, restrict_catalog(TOOLS_CATALOG, category))
     cited = _cited_proposition(claim_text)
 
     if cited and (not chat.tool_calls or chat.tool_calls[0]["name"] not in _PROPOSITION_COMPATIBLE_TOOLS):
