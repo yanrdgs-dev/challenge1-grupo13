@@ -930,3 +930,48 @@ def test_resolver_from_the_vote_tool_guard_without_a_house_in_the_claim_defaults
         router_service._route_and_execute("Quantos votos teve a PEC 221/2019 no segundo turno?")
 
     assert execute.call_args_list[0].args[1]["casa"] == "congresso"
+
+
+# ------------------- apelido de proposição ("PEC da escala 6x1") → identificação oficial ------------------- #
+
+ALIAS_CLAIM = "Quantos votos teve a PEC da escala 6x1 no Senado?"
+ALIAS_IDENTITY = {"sigla_tipo": "PEC", "numero": 221, "ano": 2019}
+
+
+def test_cited_proposition_falls_back_to_the_popular_name():
+    assert router_service._cited_proposition("Quantos votos teve a PEC da escala 6x1?") == ("PEC", 221, 2019)
+    assert router_service._cited_proposition("O PL 2630/2020 foi aprovado?") == ("PL", 2630, 2020)   # número vence apelido
+    assert router_service._cited_proposition("Quem mais gastou a cota em 2023?") is None
+
+
+@pytest.mark.parametrize("tool", ["resolve_proposition", "get_proposition_tramitation_history", "check_bill_apensamentos"])
+def test_popular_name_in_the_claim_replaces_the_llm_search_term_with_the_official_identification(mock_llm, tool):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": tool, "arguments": {"casa": "senado", "termo_busca": "escala 6x1"}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 1, "casa": "senado"}) as execute:
+        router_service._route_and_execute(ALIAS_CLAIM)
+
+    args = execute.call_args_list[0].args[1]
+    assert {k: args[k] for k in ("sigla_tipo", "numero", "ano")} == ALIAS_IDENTITY
+    assert "termo_busca" not in args
+
+
+def test_popular_name_is_never_applied_when_the_llm_already_has_a_number(mock_llm):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "resolve_proposition", "arguments": {"casa": "camara", "sigla_tipo": "PEC", "numero": 45, "ano": 2019}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 1, "casa": "camara"}) as execute:
+        router_service._route_and_execute("A PEC 45/2019 tem relação com a escala 6x1?")
+
+    assert execute.call_args_list[0].args[1]["numero"] == 45
+
+
+def test_claim_with_a_popular_name_goes_to_the_resolver_even_when_the_llm_picks_nothing(mock_llm):
+    mock_llm.chat.side_effect = [_chat_result([]), _chat_result([])]
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 1, "casa": "senado"}) as execute:
+        router_service._route_and_execute("O fim da escala 6x1 foi aprovado pelo Senado?")
+
+    name, args = execute.call_args_list[0].args
+    assert name == "resolve_proposition"
+    assert (args["sigla_tipo"], args["numero"], args["ano"]) == ("PEC", 221, 2019) and args["casa"] == "senado"
