@@ -576,3 +576,10 @@ def test_member_expenses_to_dict_e_serializavel(mock_ceap_data_dir: Path):
     res = get_member_expenses(casa="camara", ano=2023, parlamentar_id="101", base_dir=mock_ceap_data_dir)
     data = json.loads(json.dumps(res.to_dict()))
     assert data["por_categoria"][0]["categoria"] == "PASSAGEM AÉREA - SIGEPA"
+
+
+def test_check_parliamentary_expenses_without_year_looks_at_all_available_years(mock_ceap_data_dir: Path):
+    """'Teto fixo de R$ 500 por ano' não cita um ano: a auditoria cobre todos os anos da base."""
+    res = check_parliamentary_expenses(casa="camara", categoria="combustível", base_dir=mock_ceap_data_dir)
+    assert res.qtd_lancamentos == 2 and res.valor_max == 2500.0
+    assert "ano" not in res.filtros_aplicados

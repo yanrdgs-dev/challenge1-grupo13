@@ -418,3 +418,11 @@ def test_tramitation_data_missing_in_parquet_is_not_a_fake_result():
          patch.object(router_service, "get_proposition_tramitation_history", side_effect=ValueError("sem dados")):
         result = execute_tool("get_proposition_tramitation_history", PEC_ARGS)
     assert result.get("encontrado") is False and "erro" in result
+
+
+def test_expenses_without_year_is_dispatched_without_year():
+    with patch.object(router_service, "check_parliamentary_expenses", return_value=_dataclass_like({"ok": 1})) as tool:
+        result = execute_tool("check_parliamentary_expenses", {"casa": "camara", "categoria": "Combustíveis"})
+
+    assert result == {"ok": 1}
+    assert tool.call_args.kwargs["ano"] is None

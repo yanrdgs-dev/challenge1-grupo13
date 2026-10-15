@@ -136,3 +136,14 @@ def test_category_for_falls_back_to_the_llm_when_rules_do_not_decide():
 
 def test_category_for_is_none_when_neither_rules_nor_llm_decide():
     assert category_for(_chat_returning("{}"), "O céu é azul?") is None
+
+
+@pytest.mark.parametrize("claim", [
+    "Dá para ver no site do TSE quanto cada candidato declarou ter gastado na campanha eleitoral?",
+    "É possível consultar publicamente quais deputados faltaram às sessões do Plenário da Câmara.",
+    "Dá para consultar no Portal da Transparência quanto cada ministério gastou com diárias?",
+])
+def test_claims_about_what_can_be_consulted_go_to_the_normative_category_even_with_other_signals(claim):
+    assert rule_category(claim) == "NORMAS"
+    names = _names(restrict_catalog(TOOLS_CATALOG, "NORMAS"))
+    assert names == {"check_institutional_rule", "check_data_source_coverage"}

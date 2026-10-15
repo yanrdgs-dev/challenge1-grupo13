@@ -608,3 +608,50 @@ def _chat_result_with_content(content):
     result = _chat_result([])
     result.content = content
     return result
+
+
+# ------------------- compare_candidates com um só candidato vira a tool de um candidato ------------------- #
+
+def _compare_call(**overrides):
+    args = {"ano": 2022, "candidatos": ["Lula"], "metrica": "votos_validos", "turno": 2, "cargo": "Presidente"}
+    args.update(overrides)
+    return {"name": "compare_candidates", "arguments": args}
+
+
+@pytest.mark.parametrize("metrica, expected_tool", [
+    ("votos_validos", "get_candidate_votes"),
+    ("patrimonio", "get_candidate_assets"),
+    ("receitas", "get_campaign_finances"),
+    ("despesas_contratadas", "get_campaign_finances"),
+])
+def test_compare_with_a_single_candidate_is_repaired_to_the_single_candidate_tool(mock_llm, metrica, expected_tool):
+    mock_llm.chat.return_value = _chat_result([_compare_call(metrica=metrica)])
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        outcome = router_service._route_and_execute("No segundo turno de 2022, Lula recebeu 60.345.999 votos válidos.")
+
+    assert execute.call_args.args[0] == expected_tool and outcome.tool_name == expected_tool
+    args = execute.call_args.args[1]
+    assert args["nome_candidato"] == "Lula" and args["ano"] == 2022 and args["cargo"] == "Presidente"
+    assert "candidatos" not in args and "metrica" not in args
+    if expected_tool == "get_candidate_votes":
+        assert args["turno"] == 2
+    else:
+        assert "turno" not in args
+
+
+def test_compare_with_two_candidates_is_left_alone(mock_llm):
+    mock_llm.chat.return_value = _chat_result([_compare_call(candidatos=["Lula", "Simone Tebet"])])
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        router_service._route_and_execute("Lula teve mais votos que Simone Tebet em 2022?")
+
+    assert execute.call_args.args[0] == "compare_candidates"
+
+
+def test_compare_with_a_single_candidate_keeps_uf_to_disambiguate(mock_llm):
+    mock_llm.chat.return_value = _chat_result(
+        [_compare_call(candidatos=["Tarcísio de Freitas"], turno=1, cargo="Governador", uf="SP")]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        router_service._route_and_execute("Tarcísio de Freitas foi o mais votado para governador de SP em 2022.")
+
+    assert execute.call_args.args[1]["uf"] == "SP"
