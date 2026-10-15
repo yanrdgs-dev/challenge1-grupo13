@@ -7,7 +7,22 @@ tempo de execução, e as imagens Docker só levam o que o serviço precisa. O s
 
 from typing import Any, Dict, List
 
-from src.tools.knowledge_tools import DATA_SOURCES, INSTITUTIONAL_TOPICS, available_data_types
+from src.tools.knowledge_tools import (
+    DATA_SOURCES,
+    INSTITUTIONAL_TOPICS,
+    available_data_types,
+    check_institutional_rule,
+)
+
+
+def _topic_glossary() -> str:
+    """Uma frase por tópico normativo, tirada da base curada, para o LLM escolher pelo conteúdo e não só pelo nome."""
+    parts = []
+    for topic in INSTITUTIONAL_TOPICS:
+        summary = str(check_institutional_rule(topic).get("resposta_resumida") or "").strip()
+        parts.append(f"{topic}: {summary[:110]}")
+    return " | ".join(parts)
+
 
 TOOLS_CATALOG: List[Dict[str, Any]] = [
     {
@@ -301,7 +316,7 @@ TOOLS_CATALOG.extend([
                     "topico": {
                         "type": "string",
                         "enum": list(INSTITUTIONAL_TOPICS),
-                        "description": "Tópico normativo que melhor corresponde à claim.",
+                        "description": "Tópico normativo que melhor corresponde à claim. Tópicos: " + _topic_glossary(),
                     },
                 },
                 "required": ["topico"],
