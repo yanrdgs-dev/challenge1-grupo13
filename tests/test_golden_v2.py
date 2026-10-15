@@ -176,3 +176,18 @@ def test_v2_has_balanced_comparison_claims(v2):
     verdicts = [c["expected_verdict"] for c in compare]
     assert verdicts.count("VERDADEIRO") == verdicts.count("FALSO") >= 4
     assert verdicts.count("INCONCLUSIVO") >= 2  # ambíguo e 2026; a de turno sem ano é barrada antes de qualquer tool
+
+
+def test_v2_has_the_claims_about_written_rules_and_relative_time(v2):
+    """Fase 'regras escritas': ranking de cota, cota em campanha, PEC x PLN, existência de PL e tempo relativo."""
+    by_id = {c["id"]: c for c in v2}
+    assert len(v2) == 70 and [c["id"] for c in v2] == list(range(1, 71))
+    new = [by_id[i] for i in range(62, 71)]
+    verdicts = [c["expected_verdict"] for c in new]
+    assert verdicts.count("VERDADEIRO") == 3 and verdicts.count("FALSO") == 3 and verdicts.count("INCONCLUSIVO") == 3
+    for c in new:
+        if c["expected_verdict"] == "INCONCLUSIVO":
+            assert c["inconclusive_reason"] == "subespecificada" and c["expected_tools"] == []
+    assert {"get_top_ceap_spender", "check_institutional_rule", "resolve_proposition"} <= {
+        t for c in new for t in c["expected_tools"]
+    }
