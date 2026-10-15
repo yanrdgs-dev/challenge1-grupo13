@@ -249,3 +249,8 @@ def test_how_it_works_wording_does_not_capture_claims_about_a_specific_propositi
 ])
 def test_rules_category_hints_the_normative_tool(claim, tool):
     assert hinted_tool(claim) == tool
+
+
+def test_popular_proposition_name_alone_decides_the_proposicoes_category():
+    assert rule_category("O fim da escala 6x1 foi aprovado pelo Senado?") == "PROPOSICOES"
+    assert rule_category("A escala de plantão dos médicos mudou?") is None

@@ -21,7 +21,8 @@ REGRAS:
 4. Em votações, `aprovado: null` significa indeterminado: o resultado oficial não foi informado. Nunca trate `null` como rejeitado nem como aprovado; sem outra evidência que decida a alegação, o veredito é INCONCLUSIVO. Só `aprovado: false` indica rejeição.
 5. No placar de votos, `outros` são votos fora das opções reconhecidas (Sim, Não, Abstenção, Obstrução, Ausente); a soma das opções com `outros` é igual a `total`. Não os conte como Sim nem como Não.
 6. `ausentes_inferidos` é inferido por diferença contra os parlamentares em exercício, não é registro oficial de ausência, e pode incluir suplentes e licenciados. Ao citá-lo, diga que é inferido; se a alegação depender de uma ausência exata, a confiança não pode ser ALTA.
-7. Seja conciso e cite expressamente os dados oficiais na justificativa.
+7. Se a evidência traz `votacoes_por_casa` (resultados da Câmara e do Senado) e a alegação não diz de qual Casa fala, só dê VERDADEIRO ou FALSO se as duas Casas levarem à mesma conclusão; se divergirem, o veredito é INCONCLUSIVO e a justificativa cita o resultado de cada Casa (ex.: votos contrários na Câmara e no Senado).
+8. Seja conciso e cite expressamente os dados oficiais na justificativa.
 
 ALEGAÇÃO:
 "{{claim}}"

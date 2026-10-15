@@ -61,7 +61,8 @@ from src.tools.tse_tools import (
     resolve_candidate,
     results_unavailable,
 )
-from src.tools.votacoes_api import get_proposition_vote_breakdown, get_proposition_vote_result
+from src.tools.proposition_aliases import find_alias
+from src.tools.votacoes_api import focus_votacoes, get_proposition_vote_breakdown, get_proposition_vote_result
 from src.services.tool_catalog import ROUTER_SYSTEM_PROMPT, TOOLS_CATALOG
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -535,7 +536,8 @@ def _cited_proposition(claim_text: str) -> Optional[tuple]:
     """(sigla, número, ano) da proposição citada na forma 'PLN 2/2025'; None se a alegação não cita nenhuma."""
     match = _CITED_PROPOSITION_RE.search(claim_text)
     if not match:
-        return None
+        alias = find_alias(claim_text)      # "PEC da escala 6x1": o número só existe na base de apelidos
+        return (alias["sigla_tipo"], alias["numero"], alias["ano"]) if alias else None
     sigla, numero, ano = match.groups()
     return sigla.upper(), int(numero.replace(".", "")), int(ano)
 
@@ -600,6 +602,29 @@ def _house_in_claim(claim_text: str) -> Optional[str]:
 
 
 _THIS_YEAR_RE = re.compile(r"\b(?:neste|este) ano\b|\bano atual\b|\bano corrente\b|\batualmente\b", re.IGNORECASE)
+def _with_house(args: Dict[str, Any], claim_text: str) -> Dict[str, Any]:
+    """Casa do resolvedor: a que a alegação nomeia sozinha; se ela não nomeia nenhuma, 'congresso' (as duas Casas).
+
+    A escolha do LLM não conta quando o texto não a sustenta: "teve apenas um voto contra" não diz se é a Câmara ou o
+    Senado, e escolher uma por conta própria produz um veredito válido só para a Casa que o modelo sorteou.
+    """
+    return {**args, "casa": _house_in_claim(claim_text) or "congresso"}
+
+
+_ALIAS_TOOLS = {"resolve_proposition", "get_proposition_tramitation_history", "check_bill_apensamentos"}
+
+
+def _with_alias(args: Dict[str, Any], claim_text: str) -> Dict[str, Any]:
+    """Apelido citado na alegação ("PEC da escala 6x1") vira sigla, número e ano; o número do LLM nunca é trocado."""
+    if args.get("numero"):
+        return args
+    alias = find_alias(claim_text)
+    if not alias:
+        return args
+    identity = {"sigla_tipo": alias["sigla_tipo"], "numero": alias["numero"], "ano": alias["ano"]}
+    return {**{k: v for k, v in args.items() if k != "termo_busca"}, **identity}
+
+
 _CAMPAIGN_TOOLS = {"get_campaign_finances", "get_top_campaign_finances"}
 _QUOTA_TOOL_NAMES = {
     "get_top_ceap_spender", "list_expense_categories", "check_parliamentary_expenses", "get_member_expenses",
@@ -785,12 +810,12 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
             chat.tool_calls = []
 
     if chat.tool_calls and chat.tool_calls[0]["name"] == "resolve_proposition":
-        # A Casa que a alegação nomeia ("o Senado aprovou") vale mais que "congresso": só assim a votação encadeia.
         first = chat.tool_calls[0]
-        current = first["arguments"].get("casa")
-        if current in (None, "", "congresso"):
-            house = _house_in_claim(claim_text) or "congresso"
-            chat.tool_calls = [{**first, "arguments": {**first["arguments"], "casa": house}}] + list(chat.tool_calls[1:])
+        chat.tool_calls = [{**first, "arguments": _with_house(first["arguments"], claim_text)}] + list(chat.tool_calls[1:])
+
+    if chat.tool_calls and chat.tool_calls[0]["name"] in _ALIAS_TOOLS:
+        first = chat.tool_calls[0]
+        chat.tool_calls = [{**first, "arguments": _with_alias(first["arguments"], claim_text)}] + list(chat.tool_calls[1:])
 
     if chat.tool_calls and _THIS_YEAR_RE.search(claim_text):
         first = chat.tool_calls[0]
@@ -829,7 +854,8 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
             }
             return RoutingOutcome("get_proposition_vote_result", {}, evidence, [],
                                   (time.perf_counter() - start) * 1000)
-        tool_name, tool_args = "resolve_proposition", resolver_call["arguments"]
+        tool_name = "resolve_proposition"
+        tool_args = _with_alias(_with_house(resolver_call["arguments"], claim_text), claim_text)
 
     # Guarda das regras 2 e 3: o nome do parlamentar vem da alegação, nunca do "conhecimento" do LLM.
     if tool_name == "get_member_expenses" and not _name_in_claim(tool_args.get("parlamentar"), claim_text):
@@ -858,6 +884,8 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
 
     # Etapa 2: com a proposição resolvida, consulta a votação usando o ID do resolver.
     resolved_casa = (evidence or {}).get("casa")
+    if tool_name == "resolve_proposition" and not evidence_failed(evidence) and resolved_casa == "congresso":
+        return _votes_in_both_houses(outcome, evidence, tool_args, claim_text)
     if (
         tool_name == "resolve_proposition"
         and not evidence_failed(evidence)
@@ -865,6 +893,13 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
     ):
         vote_args = {"casa": resolved_casa, "id_proposicao": evidence["id_proposicao"]}
         vote_evidence = _run_tool("get_proposition_vote_result", vote_args)
+        if vote_evidence and not evidence_failed(vote_evidence) and vote_evidence.get("votacoes"):
+            # Só as votações da própria proposição (e o placar como número): a PEC 221/2019 tem 117 requerimentos.
+            all_votes = vote_evidence["votacoes"]
+            focused, omitted = focus_votacoes(all_votes, claim_text)
+            vote_evidence = {
+                **vote_evidence, "votacoes": focused, "total_votacoes": len(all_votes), "votacoes_omitidas": omitted,
+            }
         resolution = {
             k: evidence.get(k) for k in ("id_proposicao", "sigla_tipo", "numero", "ano", "casa", "ementa")
         }
@@ -874,6 +909,90 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
         outcome.tools_used.append("get_proposition_vote_result")
         outcome.tools_used.extend(_attach_vote_breakdowns(outcome.evidence, resolved_casa))
     return outcome
+
+
+def _votes_in_both_houses(
+    outcome: "RoutingOutcome", resolution_evidence: Dict[str, Any], tool_args: Dict[str, Any], claim_text: str
+) -> "RoutingOutcome":
+    """Alegação que não diz a Casa: resolve a proposição em cada uma e traz as votações de cada uma, separadas.
+
+    A PEC 221/2019 teve 19 votos contrários na Câmara e 1 no Senado: responder só por uma Casa dá um veredito
+    certo para ela e errado para a outra. O julgador recebe as duas e só conclui se concordarem.
+    """
+    identity = {k: tool_args.get(k) for k in ("sigla_tipo", "numero", "ano", "termo_busca") if tool_args.get(k) is not None}
+    per_house: Dict[str, Any] = {}
+    extra_tools: List[str] = []
+    for house in ("camara", "senado"):
+        resolved = _run_tool("resolve_proposition", {**identity, "casa": house})
+        if evidence_failed(resolved) or resolved.get("ambiguous") or resolved.get("id_proposicao") is None:
+            continue
+        entry: Dict[str, Any] = {k: resolved.get(k) for k in ("id_proposicao", "sigla_tipo", "numero", "ano", "ementa")}
+        votes = _run_tool("get_proposition_vote_result", {"casa": house, "id_proposicao": resolved["id_proposicao"]})
+        if votes and not evidence_failed(votes) and votes.get("votacoes"):
+            focused, omitted = focus_votacoes(votes["votacoes"], claim_text)
+            entry.update(votacoes=focused, total_votacoes=len(votes["votacoes"]), votacoes_omitidas=omitted)
+            extra_tools.extend(_attach_vote_breakdowns(entry, house))
+        else:
+            entry["votacoes"] = []
+        per_house[house] = entry
+        if "get_proposition_vote_result" not in extra_tools:
+            extra_tools.insert(0, "get_proposition_vote_result")
+    if not per_house:
+        return outcome
+    resolution = {
+        k: resolution_evidence.get(k) for k in ("id_proposicao", "sigla_tipo", "numero", "ano", "casa", "ementa")
+    }
+    outcome.tool_name = "get_proposition_vote_result"
+    outcome.tool_args = {"casa": "congresso", **identity}
+    outcome.evidence = {"casa": "congresso", "votacoes_por_casa": per_house, "entidade_resolvida": resolution}
+    for name in extra_tools:
+        if name not in outcome.tools_used:
+            outcome.tools_used.append(name)
+    return outcome
+
+
+_HOUSE_NAMES = {"camara": "Câmara dos Deputados", "senado": "Senado Federal"}
+
+
+def _judge_each_house(
+    endpoint: str, claim_text: str, tool_name: Optional[str], evidence: Dict[str, Any], headers: Dict[str, str]
+) -> Dict[str, Any]:
+    """Julga cada Casa com a evidência só dela e combina: veredito definitivo apenas se as Casas concordarem.
+
+    A alegação que não diz a Casa vale para as duas. Um modelo pequeno, com as duas evidências juntas, tende a
+    concluir pela Casa mais fácil (PEC 221/2019: 19 votos contrários na Câmara e 1 no Senado), e esse erro é de
+    veredito, não de texto. Por isso a regra de concordância fica no código.
+    """
+    results: Dict[str, Dict[str, Any]] = {}
+    for house, entry in evidence["votacoes_por_casa"].items():
+        house_evidence = {"casa": house, **entry, "entidade_resolvida": evidence.get("entidade_resolvida")}
+        results[house] = _call_judge(
+            endpoint, {"claim": claim_text, "evidence": house_evidence, "tool_used": tool_name}, headers=headers
+        )
+
+    verdicts = {house: str(r.get("veredito") or "INCONCLUSIVO").upper() for house, r in results.items()}
+    sources: List[str] = []
+    for r in results.values():
+        for source in r.get("fontes_primarias") or []:
+            if source not in sources:
+                sources.append(source)
+    total_ms = round(sum(float(r.get("tempo_julgamento_ms") or 0) for r in results.values()), 2)
+    parts = [
+        f"{_HOUSE_NAMES.get(house, house)} ({verdicts[house]}): {str(results[house].get('justificativa') or '').strip()[:260]}"
+        for house in results
+    ]
+    unique = set(verdicts.values())
+    if len(unique) == 1 and unique <= {"VERDADEIRO", "FALSO"}:
+        return {"veredito": unique.pop(), "confianca": "ALTA", "justificativa": " ".join(parts),
+                "fontes_primarias": sources, "tempo_julgamento_ms": total_ms}
+    definitive = unique <= {"VERDADEIRO", "FALSO"}
+    lead = (
+        "A alegação não diz a Casa e o resultado difere entre elas, então não há um veredito único. "
+        if definitive else
+        "A alegação não diz a Casa e a evidência não permite concluir pelas duas. "
+    )
+    return {"veredito": "INCONCLUSIVO", "confianca": "ALTA" if definitive else "MÉDIA",
+            "justificativa": lead + " ".join(parts), "fontes_primarias": sources, "tempo_julgamento_ms": total_ms}
 
 
 # Placar só das votações mais recentes: cada consulta nominal da Câmara baixa ~500 votos.
@@ -1006,9 +1125,13 @@ def _run_check(
     with tracing.observation("judge.call", input=judge_payload) as judge_span:
         try:
             # O traceparent é lido dentro do span judge.call: o judge se pendura nele.
-            judge_data = _call_judge(
-                judge_endpoint, judge_payload, headers=tracing.traceparent_header()
-            )
+            houses = (evidence or {}).get("votacoes_por_casa") if isinstance(evidence, dict) else None
+            if houses and len(houses) >= 2:
+                judge_data = _judge_each_house(judge_endpoint, claim_text, tool_name, evidence, tracing.traceparent_header())
+            else:
+                judge_data = _call_judge(
+                    judge_endpoint, judge_payload, headers=tracing.traceparent_header()
+                )
             veredito = judge_data.get("veredito", "INCONCLUSIVO")
             confianca = judge_data.get("confianca", "MÉDIA")
             justificativa = judge_data.get("justificativa", "")

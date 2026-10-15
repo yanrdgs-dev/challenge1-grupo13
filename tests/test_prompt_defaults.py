@@ -199,3 +199,11 @@ def test_judge_prompt_treats_evidence_about_another_subject_as_inconclusive():
     text = JUDGE_PROMPT_TEMPLATE.lower()
     assert "mesmo assunto" in text
     assert "outro assunto" in text and "inconclusivo" in text
+
+
+def test_judge_prompt_requires_the_houses_to_agree_when_the_claim_does_not_say_which_one():
+    from src.prompts.defaults import JUDGE_PROMPT_TEMPLATE
+
+    assert "votacoes_por_casa" in JUDGE_PROMPT_TEMPLATE
+    text = JUDGE_PROMPT_TEMPLATE.lower()
+    assert "divergirem" in text and "inconclusivo" in text

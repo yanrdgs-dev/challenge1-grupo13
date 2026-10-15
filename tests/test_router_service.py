@@ -465,10 +465,10 @@ def test_rerouted_claim_that_gets_no_tool_stays_without_evidence(mock_llm):
 # ------------------- sem tool escolhida o julgador não é chamado (regra 1: nada de resposta da memória) ------------------- #
 
 def test_no_tool_chosen_never_calls_the_judge_and_answers_inconclusive(mock_llm):
-    """'O que é a PEC da reforma tributária?': sem tool não há evidência; o juiz explicaria da memória do modelo."""
+    """'O que é a PEC dos precatórios?': sem tool não há evidência; o juiz explicaria da memória do modelo."""
     mock_llm.chat.return_value = _chat_result([])
     with patch.object(router_service, "_call_judge") as judge:
-        resp = client.post("/check", json={"claim": "O que é a PEC da reforma tributária?"})
+        resp = client.post("/check", json={"claim": "O que é a PEC dos precatórios?"})
 
     judge.assert_not_called()
     data = resp.json()
@@ -484,7 +484,7 @@ def test_no_tool_chosen_text_does_not_explain_anything_from_the_model_memory(moc
     mock_llm.chat.return_value = _chat_result([])
     mock_llm.chat.return_value.content = "A PEC da reforma tributária é uma proposta que unifica impostos..."
     with patch.object(router_service, "_call_judge"):
-        data = client.post("/check", json={"claim": "O que é a PEC da reforma tributária?"}).json()
+        data = client.post("/check", json={"claim": "O que é a PEC dos precatórios?"}).json()
 
     assert "unifica" not in data["justificativa"]
 
@@ -811,7 +811,9 @@ def test_proposition_claim_without_a_tool_is_retried_with_the_resolver_only(mock
     (MARCO_CLAIM, None, "camara"),
     ("O Senado e a Câmara aprovaram a PEC da Reforma Tributária em 2023.", "congresso", "congresso"),
     ("A PEC da Reforma Tributária foi aprovada em 2023.", "congresso", "congresso"),
-    (SENADO_PEC_CLAIM, "camara", "camara"),                 # a escolha explícita do LLM nunca é trocada
+    (SENADO_PEC_CLAIM, "camara", "senado"),                 # o texto da alegação vale mais que a escolha do LLM
+    ("A PEC da Reforma Tributária foi aprovada em 2023.", "camara", "congresso"),   # Casa que ninguém citou não vale
+    ("A PEC da Reforma Tributária foi aprovada em 2023.", "senado", "congresso"),
 ])
 def test_resolver_house_comes_from_the_house_named_in_the_claim(mock_llm, claim, casa_from_llm, expected):
     args = {} if casa_from_llm is None else {"casa": casa_from_llm}
@@ -904,3 +906,86 @@ def test_current_year_is_not_added_to_tools_without_a_year_parameter(mock_llm, f
         router_service._route_and_execute("Neste ano, o veto presidencial pode ser derrubado pelo Congresso.")
 
     assert "ano" not in execute.call_args.args[1]
+
+
+def test_resolver_from_the_vote_tool_guard_also_gets_the_house(mock_llm):
+    """LLM chama a tool de votação direto (ID inventado); o retry traz o resolvedor sem 'casa': ela vem da alegação."""
+    mock_llm.chat.side_effect = [
+        _chat_result([{"name": "get_proposition_vote_result", "arguments": {"casa": "camara", "id_proposicao": 123}}]),
+        _chat_result([{"name": "resolve_proposition", "arguments": {"sigla_tipo": "PEC", "numero": 221, "ano": 2019}}]),
+    ]
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 1, "casa": "camara"}) as execute:
+        router_service._route_and_execute("Quantos deputados votaram a favor da PEC 221/2019 no segundo turno?")
+
+    first = execute.call_args_list[0]
+    assert first.args[0] == "resolve_proposition" and first.args[1]["casa"] == "camara"
+
+
+def test_resolver_from_the_vote_tool_guard_without_a_house_in_the_claim_defaults_to_congresso(mock_llm):
+    mock_llm.chat.side_effect = [
+        _chat_result([{"name": "get_proposition_vote_result", "arguments": {"casa": "camara", "id_proposicao": 123}}]),
+        _chat_result([{"name": "resolve_proposition", "arguments": {"sigla_tipo": "PEC", "numero": 221, "ano": 2019}}]),
+    ]
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 1, "casa": "camara"}) as execute:
+        router_service._route_and_execute("Quantos votos teve a PEC 221/2019 no segundo turno?")
+
+    assert execute.call_args_list[0].args[1]["casa"] == "congresso"
+
+
+# ------------------- apelido de proposição ("PEC da escala 6x1") → identificação oficial ------------------- #
+
+ALIAS_CLAIM = "Quantos votos teve a PEC da escala 6x1 no Senado?"
+ALIAS_IDENTITY = {"sigla_tipo": "PEC", "numero": 221, "ano": 2019}
+
+
+def test_cited_proposition_falls_back_to_the_popular_name():
+    assert router_service._cited_proposition("Quantos votos teve a PEC da escala 6x1?") == ("PEC", 221, 2019)
+    assert router_service._cited_proposition("O PL 2630/2020 foi aprovado?") == ("PL", 2630, 2020)   # número vence apelido
+    assert router_service._cited_proposition("Quem mais gastou a cota em 2023?") is None
+
+
+@pytest.mark.parametrize("tool", ["resolve_proposition", "get_proposition_tramitation_history", "check_bill_apensamentos"])
+def test_popular_name_in_the_claim_replaces_the_llm_search_term_with_the_official_identification(mock_llm, tool):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": tool, "arguments": {"casa": "senado", "termo_busca": "escala 6x1"}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 1, "casa": "senado"}) as execute:
+        router_service._route_and_execute(ALIAS_CLAIM)
+
+    args = execute.call_args_list[0].args[1]
+    assert {k: args[k] for k in ("sigla_tipo", "numero", "ano")} == ALIAS_IDENTITY
+    assert "termo_busca" not in args
+
+
+def test_popular_name_is_never_applied_when_the_llm_already_has_a_number(mock_llm):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "resolve_proposition", "arguments": {"casa": "camara", "sigla_tipo": "PEC", "numero": 45, "ano": 2019}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 1, "casa": "camara"}) as execute:
+        router_service._route_and_execute("A PEC 45/2019 tem relação com a escala 6x1?")
+
+    assert execute.call_args_list[0].args[1]["numero"] == 45
+
+
+def test_claim_with_a_popular_name_goes_to_the_resolver_even_when_the_llm_picks_nothing(mock_llm):
+    mock_llm.chat.side_effect = [_chat_result([]), _chat_result([])]
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 1, "casa": "senado"}) as execute:
+        router_service._route_and_execute("O fim da escala 6x1 foi aprovado pelo Senado?")
+
+    name, args = execute.call_args_list[0].args
+    assert name == "resolve_proposition"
+    assert (args["sigla_tipo"], args["numero"], args["ano"]) == ("PEC", 221, 2019) and args["casa"] == "senado"
+
+
+def test_popular_name_is_also_applied_when_the_llm_goes_straight_to_the_vote_tool(mock_llm):
+    """'votos contra' leva o modelo à tool de votação; o guarda refaz via resolvedor e o apelido ainda vale."""
+    mock_llm.chat.side_effect = [
+        _chat_result([{"name": "get_proposition_vote_result", "arguments": {"casa": "senado", "id_proposicao": 99}}]),
+        _chat_result([{"name": "resolve_proposition", "arguments": {"casa": "senado", "termo_busca": "escala 6x1"}}]),
+    ]
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 1, "casa": "senado"}) as execute:
+        router_service._route_and_execute("A PEC da escala 6x1 teve apenas um voto contra no Senado.")
+
+    args = execute.call_args_list[0].args[1]
+    assert (args["sigla_tipo"], args["numero"], args["ano"]) == ("PEC", 221, 2019)
+    assert "termo_busca" not in args

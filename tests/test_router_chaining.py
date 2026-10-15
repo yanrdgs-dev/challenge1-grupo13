@@ -111,10 +111,12 @@ def test_unresolved_proposition_cannot_support_a_verdict(tools, resolution):
     assert post()["veredito"] == "INCONCLUSIVO"
 
 
-def test_congress_proposition_is_not_chained_to_a_single_house_vote_tool(tools):
+def test_congress_proposition_is_never_sent_to_the_vote_tool_as_a_single_house(tools):
+    """'congresso' não é uma Casa: a votação é buscada em 'camara' e em 'senado', nunca com casa='congresso'."""
     tools.resolver.return_value = {**RESOLVED, "casa": "congresso"}
     post()
-    tools.votes.assert_not_called()
+    houses = {call.kwargs["casa"] for call in tools.votes.call_args_list}
+    assert houses <= {"camara", "senado"} and "congresso" not in houses
 
 
 def test_vote_tool_failure_keeps_the_resolution_and_degrades_to_inconclusive(tools):
@@ -230,3 +232,150 @@ def test_vote_tool_failure_skips_the_breakdown(tools):
     tools.votes.side_effect = RuntimeError("API da Câmara fora do ar")
     post()
     tools.breakdown.assert_not_called()
+
+
+# ------------------- foco nas votações da própria proposição (PEC 221/2019: 117 de 123 são requerimentos) ------------------- #
+
+PEC_CLAIM = "Quantos votos tivemos na PEC 221/2019?"
+PEC_VOTE = {"id_votacao": "2233802-438", "data": "2026-05-27", "aprovado": True,
+            "tipo_votacao": "Aprovada, em segundo turno, a Proposta de Emenda à Constituição n° 221, de 2019. . Sim: 461; Não: 19; Total: 480."}
+
+
+def _req(i):
+    return {"id_votacao": f"2233802-{i}", "data": "2026-05-26", "aprovado": True,
+            "tipo_votacao": f"Aprovado o Requerimento nº {3000 + i}/2026, dos Senhores Líderes."}
+
+
+def test_evidence_keeps_only_the_proposition_votes_with_counts_and_reports_the_omitted(tools):
+    tools.votes.return_value = [_req(i) for i in range(20)] + [PEC_VOTE]
+    data = post(PEC_CLAIM)
+    ev = data["evidencia_coletada"]
+    assert [v["id_votacao"] for v in ev["votacoes"]] == ["2233802-438"]
+    assert (ev["votacoes"][0]["votos_sim"], ev["votacoes"][0]["votos_nao"]) == (461, 19)
+    assert ev["votacoes_omitidas"] == 20 and ev["total_votacoes"] == 21
+
+
+def test_breakdown_is_requested_for_the_proposition_votes_not_for_requerimentos(tools):
+    tools.votes.return_value = [_req(i) for i in range(20)] + [PEC_VOTE]
+    post(PEC_CLAIM)
+    assert [c.kwargs["id_votacao"] for c in tools.breakdown.call_args_list] == ["2233802-438"]
+
+
+# ------------------- alegação que não diz a Casa: consulta as duas (PEC 221/2019: Câmara 19 contra, Senado 1) ------------------- #
+
+NO_HOUSE_CLAIM = "A PEC 221/2019 teve apenas um voto contra."
+PEC_RESOLVE_CALL = {"name": "resolve_proposition",
+                    "arguments": {"casa": "camara", "sigla_tipo": "PEC", "numero": 221, "ano": 2019}}
+
+
+def _prop(id_, casa):
+    return {"id_proposicao": id_, "sigla_tipo": "PEC", "numero": 221, "ano": 2019, "casa": casa,
+            "ementa": "Altera o art. 7º da Constituição Federal.", "ambiguous": False, "candidatos": [], "match_score": 100.0}
+
+
+def _senate_vote(i="7106"):
+    return {"id_votacao": i, "data": "2026-10-14", "aprovado": True,
+            "tipo_votacao": "Votação nominal da Proposta de Emenda à Constituição nº 221, de 2019, em primeiro turno."}
+
+
+@pytest.fixture
+def both_houses():
+    by_house = {"camara": _prop(2233802, "camara"), "senado": _prop(174386, "senado"),
+                "congresso": _prop(174386, "congresso")}
+    votes = {"camara": [PEC_VOTE], "senado": [_senate_vote()]}
+    with patch.object(router_service, "resolve_proposition", side_effect=lambda **kw: by_house[kw["casa"]]) as resolver, \
+         patch.object(router_service, "get_proposition_vote_result",
+                      side_effect=lambda id_proposicao, casa: [dict(v) for v in votes[casa]]) as vote_tool, \
+         patch.object(router_service, "get_proposition_vote_breakdown", return_value=PLACAR) as breakdown, \
+         patch.object(router_service, "_call_judge", return_value=JUDGE) as judge, \
+         patch.object(router_service, "llm_client") as llm:
+        llm.chat.return_value = chat(PEC_RESOLVE_CALL)
+        yield SimpleTools(resolver, vote_tool, judge, llm, breakdown)
+
+
+def test_claim_without_a_house_gets_the_votes_of_both_houses(both_houses):
+    data = post(NO_HOUSE_CLAIM)
+    ev = data["evidencia_coletada"]
+    assert ev["casa"] == "congresso"
+    assert set(ev["votacoes_por_casa"]) == {"camara", "senado"}
+    assert ev["votacoes_por_casa"]["camara"]["id_proposicao"] == 2233802
+    assert ev["votacoes_por_casa"]["senado"]["id_proposicao"] == 174386
+    assert [v["id_votacao"] for v in ev["votacoes_por_casa"]["camara"]["votacoes"]] == ["2233802-438"]
+    assert [v["id_votacao"] for v in ev["votacoes_por_casa"]["senado"]["votacoes"]] == ["7106"]
+    assert "votacoes" not in ev                      # nada solto: cada votação fica sob a sua Casa
+
+
+def test_breakdown_runs_in_each_house_with_that_houses_ids(both_houses):
+    post(NO_HOUSE_CLAIM)
+    calls = sorted((c.kwargs["casa"], c.kwargs["id_votacao"]) for c in both_houses.breakdown.call_args_list)
+    assert calls == [("camara", "2233802-438"), ("senado", "7106")]
+
+
+def test_sources_cite_both_houses_and_all_tools_are_listed(both_houses):
+    data = post(NO_HOUSE_CLAIM)
+    assert {"resolve_proposition", "get_proposition_vote_result", "get_proposition_vote_breakdown"} <= set(
+        data["ferramentas_usadas"])
+    sources = " ".join(data["fontes_primarias"])
+    assert "Câmara" in sources and "Senado" in sources
+
+
+def test_only_the_house_where_the_proposition_exists_is_included(both_houses):
+    original = router_service.resolve_proposition.side_effect
+
+    def only_camara(**kw):
+        return original(**kw) if kw["casa"] != "senado" else {**_prop(None, "senado"), "id_proposicao": None}
+
+    router_service.resolve_proposition.side_effect = only_camara
+    ev = post(NO_HOUSE_CLAIM)["evidencia_coletada"]
+    assert set(ev["votacoes_por_casa"]) == {"camara"}
+
+
+def test_claim_that_names_the_house_keeps_the_single_house_evidence(both_houses):
+    ev = post("O Senado aprovou a PEC 221/2019 com apenas um voto contra.")["evidencia_coletada"]
+    assert "votacoes_por_casa" not in ev
+
+
+# ------------------- julgamento por Casa: só há veredito definitivo se as duas Casas concordarem ------------------- #
+
+def _judge_by_house(verdicts):
+    """Julgador simulado: devolve o veredito combinado para a Casa que vem na evidência recebida."""
+    def judge(endpoint, payload, headers=None):
+        house = payload["evidence"]["casa"]
+        verdict = verdicts[house]
+        return {"veredito": verdict, "confianca": "ALTA", "justificativa": f"Resultado oficial da Casa {house}.",
+                "fontes_primarias": [f"Fonte {house}"], "tempo_julgamento_ms": 10.0}
+    return judge
+
+
+def test_each_house_is_judged_separately_with_only_its_own_evidence(both_houses):
+    both_houses.judge.side_effect = _judge_by_house({"camara": "FALSO", "senado": "VERDADEIRO"})
+    post(NO_HOUSE_CLAIM)
+    payloads = [c.args[1] for c in both_houses.judge.call_args_list]
+    assert sorted(p["evidence"]["casa"] for p in payloads) == ["camara", "senado"]
+    assert all("votacoes_por_casa" not in p["evidence"] for p in payloads)
+
+
+def test_houses_that_disagree_make_the_verdict_inconclusive_and_the_text_gives_each_result(both_houses):
+    both_houses.judge.side_effect = _judge_by_house({"camara": "FALSO", "senado": "VERDADEIRO"})
+    data = post(NO_HOUSE_CLAIM)
+    assert data["veredito"] == "INCONCLUSIVO"
+    text = data["justificativa"]
+    assert "Câmara" in text and "Senado" in text and "FALSO" in text and "VERDADEIRO" in text
+    assert "difere" in text.lower() or "divergem" in text.lower()
+
+
+@pytest.mark.parametrize("verdict", ["VERDADEIRO", "FALSO"])
+def test_houses_that_agree_keep_the_definitive_verdict(both_houses, verdict):
+    both_houses.judge.side_effect = _judge_by_house({"camara": verdict, "senado": verdict})
+    assert post(NO_HOUSE_CLAIM)["veredito"] == verdict
+
+
+def test_one_inconclusive_house_makes_the_whole_verdict_inconclusive(both_houses):
+    both_houses.judge.side_effect = _judge_by_house({"camara": "VERDADEIRO", "senado": "INCONCLUSIVO"})
+    assert post(NO_HOUSE_CLAIM)["veredito"] == "INCONCLUSIVO"
+
+
+def test_claim_that_names_the_house_is_judged_once(both_houses):
+    both_houses.judge.return_value = JUDGE
+    post("O Senado aprovou a PEC 221/2019 com apenas um voto contra.")
+    assert both_houses.judge.call_count == 1
