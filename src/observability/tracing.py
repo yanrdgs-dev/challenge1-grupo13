@@ -168,18 +168,27 @@ def _propagate_attributes(**kwargs: Any) -> Any:
 
 @contextmanager
 def trace_attributes(
-    user_id: Optional[str] = None, session_id: Optional[str] = None
+    user_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+    tags: Optional[list] = None,
+    metadata: Optional[dict] = None,
 ) -> Iterator[None]:
-    """Associa ``user_id`` e ``session_id`` a todos os spans criados dentro do contexto.
+    """Associa ``user_id``, ``session_id``, ``tags`` e ``metadata`` a todos os spans criados dentro do contexto.
 
-    Ambos são opcionais: sem eles (usuário deslogado), ou com tracing desligado, não faz nada.
-    Deve envolver a criação do span raiz.
+    Todos são opcionais: sem eles (usuário deslogado), ou com tracing desligado, não faz nada.
+    Deve envolver a criação do span raiz. As tags (ex.: ``llm_strategy:round_robin``) permitem filtrar traces.
     """
-    attrs = {
+    attrs: dict = {
         key: cleaned
         for key, cleaned in (("user_id", _clean_id(user_id)), ("session_id", _clean_id(session_id)))
         if cleaned
     }
+    clean_tags = [str(t)[:200] for t in (tags or []) if t]
+    if clean_tags:
+        attrs["tags"] = clean_tags
+    clean_metadata = {str(k): str(v)[:200] for k, v in (metadata or {}).items() if v not in (None, "")}
+    if clean_metadata:
+        attrs["metadata"] = clean_metadata
     cm = None
     if attrs and is_enabled():
         try:

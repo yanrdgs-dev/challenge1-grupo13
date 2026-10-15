@@ -330,6 +330,7 @@ class LLMClient:
         planned_model = (model if provider == "ollama" and model else None) or self._default_model(provider)
         base_metadata = {
             "provider": provider,
+            "strategy": self.strategy,
             "fallback": is_fallback,
             "json_mode": json_mode,
             "with_tools": bool(tools),

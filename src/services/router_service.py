@@ -466,7 +466,13 @@ def _traced_check(
 ) -> CheckClaimResponse:
     """Pipeline completo dentro do trace `check_claim` (usado por /check e pelos endpoints /api/*)."""
     start_total = time.perf_counter()
-    with tracing.trace_attributes(user_id=user_id, session_id=session_id), \
+    strategy, providers = getattr(llm_client, "strategy", None), getattr(llm_client, "providers", None)
+    trace_extras: Dict[str, Any] = {}
+    if isinstance(strategy, str):
+        trace_extras["tags"] = [f"llm_strategy:{strategy}"]
+    if isinstance(providers, list):
+        trace_extras["metadata"] = {"llm_providers": ",".join(providers)}
+    with tracing.trace_attributes(user_id=user_id, session_id=session_id, **trace_extras), \
          tracing.observation("check_claim", input=claim_text) as root:
         response = _run_check(claim_text, start_total, on_step=on_step)
         response.trace_id = root.trace_id
