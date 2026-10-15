@@ -672,3 +672,53 @@ def test_routing_prompt_has_no_hint_without_clear_wording(mock_llm):
     router_service._route_and_execute("Quem mais gastou em 2022?")
 
     assert "Dica de roteamento" not in mock_llm.chat.call_args.args[0][0]["content"]
+
+
+# ------------------- tool dita pela redação: se o LLM escolhe outra, refaz só com ela ------------------- #
+
+ASSETS_CLAIM = "Em 2022, Lula declarou ao TSE bens que somam mais de 7 milhões de reais."
+
+
+def test_llm_choice_that_differs_from_the_hinted_tool_is_retried_with_only_the_hinted_tool(mock_llm):
+    mock_llm.chat.side_effect = [
+        _chat_result([{"name": "check_cash_and_special_assets", "arguments": {"nome_candidato": "Lula", "ano": 2022}}]),
+        _chat_result([{"name": "get_candidate_assets", "arguments": {"nome_candidato": "Lula", "ano": 2022}}]),
+    ]
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        outcome = router_service._route_and_execute(ASSETS_CLAIM)
+
+    retry = mock_llm.chat.call_args_list[1]
+    assert [t["function"]["name"] for t in retry.kwargs["tools"]] == ["get_candidate_assets"]
+    assert execute.call_args.args[0] == "get_candidate_assets" and outcome.tool_name == "get_candidate_assets"
+
+
+def test_llm_choice_equal_to_the_hinted_tool_is_not_retried(mock_llm):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "get_candidate_assets", "arguments": {"nome_candidato": "Lula", "ano": 2022}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}):
+        router_service._route_and_execute(ASSETS_CLAIM)
+
+    mock_llm.chat.assert_called_once()
+
+
+def test_hinted_retry_that_fails_keeps_the_original_choice(mock_llm):
+    mock_llm.chat.side_effect = [
+        _chat_result([{"name": "check_cash_and_special_assets", "arguments": {"nome_candidato": "Lula", "ano": 2022}}]),
+        _chat_result([]),
+    ]
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        router_service._route_and_execute(ASSETS_CLAIM)
+
+    assert execute.call_args.args[0] == "check_cash_and_special_assets"
+
+
+def test_no_tool_with_a_hint_is_retried_with_the_hinted_tool(mock_llm):
+    mock_llm.chat.side_effect = [
+        _chat_result([]),
+        _chat_result([{"name": "get_candidate_assets", "arguments": {"nome_candidato": "Lula", "ano": 2022}}]),
+    ]
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        router_service._route_and_execute(ASSETS_CLAIM)
+
+    assert execute.call_args.args[0] == "get_candidate_assets"

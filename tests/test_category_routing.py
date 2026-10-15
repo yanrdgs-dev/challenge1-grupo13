@@ -175,3 +175,10 @@ def test_tool_hint_names_the_tool_for_clear_wording(claim, tool):
 ])
 def test_tool_hint_is_none_without_a_clear_signal(claim):
     assert tool_hint(claim) is None
+
+
+def test_hinted_tool_returns_only_the_tool_name():
+    from src.services.category_routing import hinted_tool
+
+    assert hinted_tool("Em 2022, Lula declarou ao TSE bens que somam mais de 7 milhões de reais.") == "get_candidate_assets"
+    assert hinted_tool("Quem mais gastou em 2022?") is None
