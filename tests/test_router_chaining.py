@@ -111,10 +111,12 @@ def test_unresolved_proposition_cannot_support_a_verdict(tools, resolution):
     assert post()["veredito"] == "INCONCLUSIVO"
 
 
-def test_congress_proposition_is_not_chained_to_a_single_house_vote_tool(tools):
+def test_congress_proposition_is_never_sent_to_the_vote_tool_as_a_single_house(tools):
+    """'congresso' não é uma Casa: a votação é buscada em 'camara' e em 'senado', nunca com casa='congresso'."""
     tools.resolver.return_value = {**RESOLVED, "casa": "congresso"}
     post()
-    tools.votes.assert_not_called()
+    houses = {call.kwargs["casa"] for call in tools.votes.call_args_list}
+    assert houses <= {"camara", "senado"} and "congresso" not in houses
 
 
 def test_vote_tool_failure_keeps_the_resolution_and_degrades_to_inconclusive(tools):

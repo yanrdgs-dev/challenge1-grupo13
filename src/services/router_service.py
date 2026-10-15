@@ -601,9 +601,11 @@ def _house_in_claim(claim_text: str) -> Optional[str]:
 
 _THIS_YEAR_RE = re.compile(r"\b(?:neste|este) ano\b|\bano atual\b|\bano corrente\b|\batualmente\b", re.IGNORECASE)
 def _with_house(args: Dict[str, Any], claim_text: str) -> Dict[str, Any]:
-    """Casa do resolvedor: a escolha explícita do LLM fica; faltando ou 'congresso', vale a Casa que a alegação nomeia."""
-    if args.get("casa") not in (None, "", "congresso"):
-        return args
+    """Casa do resolvedor: a que a alegação nomeia sozinha; se ela não nomeia nenhuma, 'congresso' (as duas Casas).
+
+    A escolha do LLM não conta quando o texto não a sustenta: "teve apenas um voto contra" não diz se é a Câmara ou o
+    Senado, e escolher uma por conta própria produz um veredito válido só para a Casa que o modelo sorteou.
+    """
     return {**args, "casa": _house_in_claim(claim_text) or "congresso"}
 
 
@@ -861,6 +863,8 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
 
     # Etapa 2: com a proposição resolvida, consulta a votação usando o ID do resolver.
     resolved_casa = (evidence or {}).get("casa")
+    if tool_name == "resolve_proposition" and not evidence_failed(evidence) and resolved_casa == "congresso":
+        return _votes_in_both_houses(outcome, evidence, tool_args, claim_text)
     if (
         tool_name == "resolve_proposition"
         and not evidence_failed(evidence)
@@ -883,6 +887,46 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
         outcome.evidence = {**(vote_evidence or {}), "entidade_resolvida": resolution}
         outcome.tools_used.append("get_proposition_vote_result")
         outcome.tools_used.extend(_attach_vote_breakdowns(outcome.evidence, resolved_casa))
+    return outcome
+
+
+def _votes_in_both_houses(
+    outcome: "RoutingOutcome", resolution_evidence: Dict[str, Any], tool_args: Dict[str, Any], claim_text: str
+) -> "RoutingOutcome":
+    """Alegação que não diz a Casa: resolve a proposição em cada uma e traz as votações de cada uma, separadas.
+
+    A PEC 221/2019 teve 19 votos contrários na Câmara e 1 no Senado: responder só por uma Casa dá um veredito
+    certo para ela e errado para a outra. O julgador recebe as duas e só conclui se concordarem.
+    """
+    identity = {k: tool_args.get(k) for k in ("sigla_tipo", "numero", "ano", "termo_busca") if tool_args.get(k) is not None}
+    per_house: Dict[str, Any] = {}
+    extra_tools: List[str] = []
+    for house in ("camara", "senado"):
+        resolved = _run_tool("resolve_proposition", {**identity, "casa": house})
+        if evidence_failed(resolved) or resolved.get("ambiguous") or resolved.get("id_proposicao") is None:
+            continue
+        entry: Dict[str, Any] = {k: resolved.get(k) for k in ("id_proposicao", "sigla_tipo", "numero", "ano", "ementa")}
+        votes = _run_tool("get_proposition_vote_result", {"casa": house, "id_proposicao": resolved["id_proposicao"]})
+        if votes and not evidence_failed(votes) and votes.get("votacoes"):
+            focused, omitted = focus_votacoes(votes["votacoes"], claim_text)
+            entry.update(votacoes=focused, total_votacoes=len(votes["votacoes"]), votacoes_omitidas=omitted)
+            extra_tools.extend(_attach_vote_breakdowns(entry, house))
+        else:
+            entry["votacoes"] = []
+        per_house[house] = entry
+        if "get_proposition_vote_result" not in extra_tools:
+            extra_tools.insert(0, "get_proposition_vote_result")
+    if not per_house:
+        return outcome
+    resolution = {
+        k: resolution_evidence.get(k) for k in ("id_proposicao", "sigla_tipo", "numero", "ano", "casa", "ementa")
+    }
+    outcome.tool_name = "get_proposition_vote_result"
+    outcome.tool_args = {"casa": "congresso", **identity}
+    outcome.evidence = {"casa": "congresso", "votacoes_por_casa": per_house, "entidade_resolvida": resolution}
+    for name in extra_tools:
+        if name not in outcome.tools_used:
+            outcome.tools_used.append(name)
     return outcome
 
 
