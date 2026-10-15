@@ -137,7 +137,7 @@ TOOLS_CATALOG: List[Dict[str, Any]] = [
                     },
                     "ano": {
                         "type": "integer",
-                        "description": "Ano de referência dos gastos.",
+                        "description": "Ano de referência dos gastos; deixe vazio se a alegação não cita um ano.",
                     },
                     "categoria": {
                         "type": "string",
@@ -148,7 +148,7 @@ TOOLS_CATALOG: List[Dict[str, Any]] = [
                         "description": "ID ou nome do parlamentar se restrito a um indivíduo.",
                     },
                 },
-                "required": ["casa", "ano"],
+                "required": ["casa"],
             },
         },
     },

@@ -336,7 +336,7 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
             parlamentar_id = None
         return check_parliamentary_expenses(
             casa=casa,
-            ano=args["ano"],
+            ano=args.get("ano"),
             categoria=args.get("categoria"),
             parlamentar_id=parlamentar_id,
         ).to_dict()
@@ -536,6 +536,27 @@ NO_TOOL_JUSTIFICATION = (
     "Não há uma fonte oficial de dados abertos aplicável a esta pergunta, então não há evidência para checá-la. "
     "Para proposições, cite a sigla, o número e o ano (ex.: PEC 45/2019); para gastos, o parlamentar e o ano."
 )
+# compare_candidates exige 2 a 4 nomes; com um só ("Lula recebeu X votos") a tool de um candidato responde.
+_SINGLE_CANDIDATE_TOOL = {
+    "votos_validos": "get_candidate_votes",
+    "patrimonio": "get_candidate_assets",
+    "receitas": "get_campaign_finances",
+    "despesas_contratadas": "get_campaign_finances",
+}
+
+
+def _single_candidate_call(call: Dict[str, Any]) -> Dict[str, Any]:
+    """Troca compare_candidates de um candidato pela tool de um candidato, mantendo só os parâmetros dela."""
+    args = call["arguments"]
+    candidates = args.get("candidatos") or []
+    target = _SINGLE_CANDIDATE_TOOL.get(args.get("metrica"))
+    if call["name"] != "compare_candidates" or len(candidates) != 1 or not target:
+        return call
+    schema = next(t["function"]["parameters"]["properties"] for t in TOOLS_CATALOG if t["function"]["name"] == target)
+    new_args = {"nome_candidato": candidates[0], **{k: v for k, v in args.items() if k in schema and v not in (None, "")}}
+    return {**call, "name": target, "arguments": new_args}
+
+
 _CAMPAIGN_TOOLS = {"get_campaign_finances", "get_top_campaign_finances"}
 _QUOTA_TOOL_NAMES = {
     "get_top_ceap_spender", "list_expense_categories", "check_parliamentary_expenses", "get_member_expenses",
@@ -680,6 +701,9 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
         )
         if wanted:
             chat.tool_calls = [{**chat.tool_calls[0], "name": wanted}]
+
+    if chat.tool_calls:
+        chat.tool_calls = [_single_candidate_call(chat.tool_calls[0])] + list(chat.tool_calls[1:])
 
     if not chat.tool_calls:
         return RoutingOutcome(routing_ms=(time.perf_counter() - start) * 1000)

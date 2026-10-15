@@ -17,6 +17,13 @@ logger = logging.getLogger("CategoryRouting")
 _NORMATIVE: FrozenSet[str] = frozenset({"check_institutional_rule", "check_data_source_coverage"})
 
 CATEGORIES: Dict[str, Dict[str, Any]] = {
+    "NORMAS": {
+        "description": (
+            "Alegações sobre o que é PERMITIDO ou COMO FUNCIONA (regras, regimentos) ou sobre se um dado público "
+            "PODE ser consultado numa fonte oficial (ex.: 'dá para ver no site do TSE...')."
+        ),
+        "tools": frozenset(),   # só as normativas, que toda categoria já recebe
+    },
     "COTA_PARLAMENTAR": {
         "description": (
             "Gastos e reembolsos da cota parlamentar (CEAP/CEAPS) de deputados e senadores em mandato: quem mais "
@@ -109,9 +116,19 @@ def _fold(text: str) -> str:
     return "".join(ch for ch in decomposed if not unicodedata.combining(ch))
 
 
+# "Dá para ver / é possível consultar ..." pergunta se o dado existe numa fonte oficial: vale mesmo que a
+# alegação cite eleição ou parlamentares, porque a resposta é sobre a fonte, não sobre o dado.
+_CONSULT_RE = re.compile(
+    r"\bda para (?:ver|consultar|acessar|baixar)|e possivel (?:consultar|ver|acessar|baixar)|"
+    r"pode(?:m)? ser consultad|consult(?:a|ar|ado) publicamente",
+)
+
+
 def rule_category(claim_text: str) -> Optional[str]:
     """Categoria decidida só por regra: exatamente um tema com sinal claro na alegação, senão None."""
     folded = _fold(claim_text)
+    if _CONSULT_RE.search(folded):
+        return "NORMAS"
     hits = [name for name, pattern in _SIGNALS.items() if pattern.search(folded)]
     return hits[0] if len(hits) == 1 else None
 

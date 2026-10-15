@@ -627,7 +627,9 @@ def _compare_call(**overrides):
 def test_compare_with_a_single_candidate_is_repaired_to_the_single_candidate_tool(mock_llm, metrica, expected_tool):
     mock_llm.chat.return_value = _chat_result([_compare_call(metrica=metrica)])
     with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
-        outcome = router_service._route_and_execute("No segundo turno de 2022, Lula recebeu 60.345.999 votos válidos.")
+        outcome = router_service._route_and_execute(
+            "No segundo turno da eleição para Presidente de 2022, Lula recebeu 60.345.999 votos válidos."
+        )
 
     assert execute.call_args.args[0] == expected_tool and outcome.tool_name == expected_tool
     args = execute.call_args.args[1]

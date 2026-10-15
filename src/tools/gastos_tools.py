@@ -88,9 +88,9 @@ class ExpenseCategoriesResponse:
 
 @dataclass
 class ExpenseAuditResult:
-    """Resposta estruturada da tool check_parliamentary_expenses."""
+    """Resposta estruturada da tool check_parliamentary_expenses (``ano`` nulo = todos os anos da base)."""
     casa: str
-    ano: int
+    ano: Optional[int]
     filtros_aplicados: Dict[str, Any]
     qtd_lancamentos: int
     valor_min: float
@@ -436,7 +436,7 @@ def list_expense_categories(
 
 def check_parliamentary_expenses(
     casa: str,
-    ano: int,
+    ano: Optional[int] = None,
     categoria: Optional[str] = None,
     parlamentar_id: Optional[str] = None,
     limite_amostra: int = 5,
@@ -459,14 +459,17 @@ def check_parliamentary_expenses(
         ExpenseAuditResult com métricas calculadas e amostra dos registros.
     """
     clean_casa = casa.strip().lower()
-    filtros: Dict[str, Any] = {"casa": clean_casa, "ano": ano}
+    filtros: Dict[str, Any] = {"casa": clean_casa}
+    if ano is not None:
+        filtros["ano"] = ano
     if categoria:
         filtros["categoria"] = categoria
     if parlamentar_id:
         filtros["parlamentar_id"] = parlamentar_id
 
     lf = _resolve_ceap_dataset(casa=clean_casa, ano=ano, base_dir=base_dir)
-    lf = lf.filter(pl.col("ano") == ano)
+    if ano is not None:
+        lf = lf.filter(pl.col("ano") == ano)
 
     if parlamentar_id:
         clean_pid = str(parlamentar_id).strip()
