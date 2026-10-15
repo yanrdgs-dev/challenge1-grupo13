@@ -31,7 +31,7 @@ from src.observability.prompts import get_prompt
 from src.prompts.defaults import PROMPT_ROUTER_SYSTEM
 from src.services.tool_args import ground_candidate_args, validate_tool_args
 from src.services.data_freshness import data_date, ensure_data_date_cited, load_ingestion_info
-from src.services.category_routing import category_for, restrict_catalog, tool_hint
+from src.services.category_routing import category_for, hinted_tool, restrict_catalog, tool_hint
 from src.services.sources import TSE as TSE_SOURCE, derive_sources, ensure_source_cited, evidence_failed, merge_sources
 from src.tools.gastos_tools import (
     check_parliamentary_expenses,
@@ -704,6 +704,20 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
 
     if chat.tool_calls:
         chat.tool_calls = [_single_candidate_call(chat.tool_calls[0])] + list(chat.tool_calls[1:])
+
+    wanted_tool = hinted_tool(claim_text)
+    is_comparison = bool(chat.tool_calls) and chat.tool_calls[0]["name"] == "compare_candidates"
+    if wanted_tool and not is_comparison and (not chat.tool_calls or chat.tool_calls[0]["name"] != wanted_tool):
+        # A redação aponta uma tool só e o modelo pequeno escolheu outra (ou nenhuma): refaz com ela sozinha no
+        # catálogo, deixando ao LLM só a extração dos parâmetros. Se falhar, vale a escolha original.
+        only = [t for t in TOOLS_CATALOG if t["function"]["name"] == wanted_tool]
+        try:
+            retry = _chat_for_routing(claim_text, only, tool_hint(claim_text) or "")
+            forced = next((c for c in retry.tool_calls if c["name"] == wanted_tool), None)
+        except HTTPException:
+            forced = None
+        if forced:
+            chat.tool_calls = [forced]
 
     if not chat.tool_calls:
         return RoutingOutcome(routing_ms=(time.perf_counter() - start) * 1000)

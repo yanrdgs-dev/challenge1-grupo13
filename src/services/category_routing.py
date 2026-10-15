@@ -155,10 +155,21 @@ _TOOL_HINTS: List[Tuple["re.Pattern[str]", str, str]] = [
 ]
 
 
-def tool_hint(claim_text: str) -> Optional[str]:
-    """Dica de roteamento (texto para o prompt) quando a redação aponta uma tool só; None se não há sinal claro."""
+def _matching_hint(claim_text: str) -> Optional[Tuple[str, str]]:
     folded = _fold(claim_text)
     for pattern, tool, topic in _TOOL_HINTS:
         if pattern.search(folded):
-            return f"\n\nDica de roteamento: a alegação trata de {topic}; utilize '{tool}'."
+            return tool, topic
     return None
+
+
+def hinted_tool(claim_text: str) -> Optional[str]:
+    """Nome da tool que a redação aponta; None se não há sinal claro."""
+    hint = _matching_hint(claim_text)
+    return hint[0] if hint else None
+
+
+def tool_hint(claim_text: str) -> Optional[str]:
+    """Dica de roteamento (texto para o prompt) quando a redação aponta uma tool só; None se não há sinal claro."""
+    hint = _matching_hint(claim_text)
+    return f"\n\nDica de roteamento: a alegação trata de {hint[1]}; utilize '{hint[0]}'." if hint else None
