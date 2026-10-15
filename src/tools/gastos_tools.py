@@ -318,6 +318,9 @@ def get_top_ceap_spender(
     # Filtra por ano se a base contiver múltiplos anos
     lf_filtered = lf.filter(pl.col("ano") == ano)
 
+    # Verbas de liderança e de partido (ex.: 'PSL', 'LID.GOV-CD') não têm ID de parlamentar e não são ranqueadas
+    lf_filtered = lf_filtered.filter(pl.col("id_parlamentar") != "")
+
     # Agrupa por parlamentar e soma os reembolsos líquidos
     aggregated = (
         lf_filtered.group_by(["id_parlamentar", "nome_parlamentar", "uf", "partido"])
