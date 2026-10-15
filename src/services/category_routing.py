@@ -170,8 +170,18 @@ _TOOL_HINTS: List[Tuple["re.Pattern[str]", str, str]] = [
 _CAMPAIGN_WORDS_RE = re.compile(r"campanh|eleic|candidat")
 
 
+_DATA_ACCESS_RE = re.compile(
+    r"\bda para (?:ver|consultar|acessar|baixar)|e possivel (?:consultar|ver|acessar|baixar)|"
+    r"pode(?:m)? ser consultad|consult(?:a|ar|ado) publicamente"
+)
+
+
 def _matching_hint(claim_text: str) -> Optional[Tuple[str, str]]:
     folded = _fold(claim_text)
+    if rule_category(claim_text) == "NORMAS":
+        if _DATA_ACCESS_RE.search(folded):
+            return "check_data_source_coverage", "se um dado público pode ser consultado numa fonte oficial"
+        return "check_institutional_rule", "uma regra ou norma escrita (lei, regimento, resolução)"
     for pattern, tool, topic in _TOOL_HINTS:
         if pattern.search(folded):
             if tool == "get_top_ceap_spender" and _CAMPAIGN_WORDS_RE.search(folded):
