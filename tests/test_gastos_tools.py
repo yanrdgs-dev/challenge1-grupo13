@@ -615,3 +615,22 @@ def test_get_top_ceap_spender_menor_ignora_totais_nao_positivos(tmp_path: Path):
 def test_get_top_ceap_spender_rejeita_ordem_invalida(mock_ceap_data_dir: Path):
     with pytest.raises(ValueError):
         get_top_ceap_spender(casa="camara", ano=2023, ordem="aleatoria", base_dir=mock_ceap_data_dir)
+
+
+def test_get_top_ceap_spender_ignora_lancamentos_sem_id_de_parlamentar(tmp_path: Path):
+    """Verbas de liderança e de partido (ex.: 'PSL', 'LID.GOV-CD') não são parlamentares e não entram no ranking."""
+    d = tmp_path / "data" / "processed" / "camara" / "ceap" / "ano=2023"
+    d.mkdir(parents=True)
+    pl.DataFrame({
+        "ideCadastro": [101, None, 103], "txNomeParlamentar": ["Dep A", "PSL", "Dep C"], "sgUF": ["SP", "NA", "RJ"],
+        "sgPartido": ["X", None, "Y"], "numAno": [2023] * 3, "txtDescricao": ["COMBUSTÍVEIS"] * 3,
+        "txtFornecedor": ["F"] * 3, "vlrLiquido": [900.0, 5000.0, 100.0],
+    }).write_parquet(d / "ceap.parquet")
+    base = tmp_path / "data" / "processed"
+
+    maior = get_top_ceap_spender(casa="camara", ano=2023, top_n=5, base_dir=base)
+    menor = get_top_ceap_spender(casa="camara", ano=2023, top_n=5, ordem="menor", base_dir=base)
+
+    assert [g.nome_parlamentar for g in maior.gastadores] == ["Dep A", "Dep C"]
+    assert [g.nome_parlamentar for g in menor.gastadores] == ["Dep C", "Dep A"]
+    assert maior.total_parlamentares_analisados == 2
