@@ -557,6 +557,24 @@ def _single_candidate_call(call: Dict[str, Any]) -> Dict[str, Any]:
     return {**call, "name": target, "arguments": new_args}
 
 
+_TURNO_RE = re.compile(r"\b(primeiro|1|segundo|2)\s*(?:o|º|°)?\s*turno\b", re.IGNORECASE)
+
+
+def _turno_in_claim(claim_text: str) -> Optional[int]:
+    """Turno dito na alegação ('segundo turno', '2º turno'); None se ela não diz."""
+    match = _TURNO_RE.search(claim_text)
+    if not match:
+        return None
+    return 1 if match.group(1).lower() in ("primeiro", "1") else 2
+
+
+def _takes_turno(call: Dict[str, Any]) -> bool:
+    args = call["arguments"]
+    return call["name"] in ("get_election_result", "get_candidate_votes") or (
+        call["name"] == "compare_candidates" and args.get("metrica") == "votos_validos"
+    )
+
+
 _CAMPAIGN_TOOLS = {"get_campaign_finances", "get_top_campaign_finances"}
 _QUOTA_TOOL_NAMES = {
     "get_top_ceap_spender", "list_expense_categories", "check_parliamentary_expenses", "get_member_expenses",
@@ -718,6 +736,12 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
             forced = None
         if forced:
             chat.tool_calls = [forced]
+
+    if chat.tool_calls and _takes_turno(chat.tool_calls[0]) and not chat.tool_calls[0]["arguments"].get("turno"):
+        turno = _turno_in_claim(claim_text)   # só o que a alegação diz: o turno nunca é adivinhado
+        if turno:
+            first = chat.tool_calls[0]
+            chat.tool_calls = [{**first, "arguments": {**first["arguments"], "turno": turno}}] + list(chat.tool_calls[1:])
 
     if not chat.tool_calls:
         return RoutingOutcome(routing_ms=(time.perf_counter() - start) * 1000)
