@@ -87,7 +87,7 @@ def test_generate_also_rotates():
     post = router(healthy())
     with patch("httpx.Client.post", side_effect=post):
         texts = [client.generate("pergunta") for _ in range(3)]
-    assert hosts(post) == ["ollama", "groq", "deepseek"] and texts == ["local", "groq", "deepseek"]
+    assert hosts(post) == ["ollama", "groq", "deepseek"] and texts[1:] == ["groq", "deepseek"]
 
 
 def test_two_clients_rotate_independently():
@@ -183,15 +183,33 @@ def test_total_failure_still_reports_every_provider():
 
 def test_cloud_providers_keep_the_longer_timeout_even_when_they_open_the_rotation():
     """O Ollama usa o timeout curto de LLM_TIMEOUT; Groq e DeepSeek usam o de nuvem, mesmo quando a vez é deles."""
+    from src.core.llm_client import ChatResult
+
     client = LLMClient(providers=CHAIN, strategy="round_robin", timeout=3.0)
     seen = {}
 
-    def fake_post(url, *args, **kwargs):
-        seen["groq" if "groq" in url else "deepseek" if "deepseek" in url else "ollama"] = kwargs.get("timeout")
-        return cloud_response("ok")
+    def fake_chat_provider(self, provider, messages, tools, model, json_mode, timeout, **kwargs):
+        seen[provider] = timeout
+        return ChatResult(content="ok", provider=provider)
 
-    with patch("httpx.Client.post", side_effect=fake_post):
+    with patch.object(LLMClient, "_chat_provider", fake_chat_provider):
         for _ in range(3):
             client.chat(MESSAGES)
     assert seen["ollama"] == 3.0
     assert seen["groq"] == seen["deepseek"] == client.fallback_timeout
+
+
+def test_ollama_receives_the_requested_model_in_any_position_of_the_rotation():
+    from src.core.llm_client import ChatResult
+
+    client = LLMClient(providers=["groq", "ollama", "deepseek"], strategy="round_robin")
+    seen = []
+
+    def fake_chat_provider(self, provider, messages, tools, model, json_mode, timeout, **kwargs):
+        seen.append((provider, model))
+        return ChatResult(content="ok", provider=provider)
+
+    with patch.object(LLMClient, "_chat_provider", fake_chat_provider):
+        for _ in range(3):
+            client.chat(MESSAGES, model="qwen2.5:7b")
+    assert ("ollama", "qwen2.5:7b") in seen

@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
@@ -72,7 +73,13 @@ class LLMClient:
     A cadeia (``LLM_PROVIDERS``, ex.: ``ollama,groq,deepseek``) é percorrida em ordem: o primeiro que
     responder vence. Cada provedor tem um disjuntor (para de ser tentado depois de falhas seguidas) e
     pode ter um teto diário de chamadas (por padrão, só o DeepSeek, que é pago). Ver ``provider_guard``.
+
+    Com ``LLM_STRATEGY=round_robin`` a cadeia vira uma rotação: cada requisição começa num provedor diferente
+    (Ollama, Groq, DeepSeek, Ollama, ...). Se o da vez falha, a requisição segue para o próximo da rotação
+    (Groq fora manda para o DeepSeek; DeepSeek fora volta ao Ollama).
     """
+
+    STRATEGIES: Set[str] = {"fallback", "round_robin"}
 
     SUPPORTED_PROVIDERS: Set[str] = {"ollama", "groq", "openai", "deepseek"}
 
@@ -83,6 +90,7 @@ class LLMClient:
         timeout: Optional[float] = None,
         providers: Optional[List[str]] = None,
         role: Optional[str] = None,
+        strategy: Optional[str] = None,
     ):
         """Inicializa o cliente com base em parâmetros ou variáveis de ambiente.
 
@@ -91,6 +99,8 @@ class LLMClient:
             fallback_provider: Provedor de contingência (ou None/'' para desabilitar).
             timeout: Tempo limite do primeiro provedor, em segundos.
             providers: Cadeia ordenada completa (tem precedência sobre os demais).
+            strategy: 'fallback' (padrão: sempre começa pelo primeiro) ou 'round_robin' (alterna o primeiro a cada
+                requisição). Sem argumento, vale ``LLM_STRATEGY``; valor desconhecido volta a 'fallback'.
             role: Papel do cliente ('router' ou 'judge'). Nos provedores de nuvem, habilita
                 ``<PAPEL>_<PROVEDOR>_MODEL`` (ex.: ``JUDGE_GROQ_MODEL``) antes de ``<PROVEDOR>_MODEL``.
 
@@ -115,6 +125,13 @@ class LLMClient:
                 self.providers.append(name)
         if not self.providers:
             self.providers = ["ollama"]
+
+        raw_strategy = strategy if strategy is not None else os.getenv("LLM_STRATEGY", "")
+        normalized = (raw_strategy or "").strip().lower().replace("-", "_")
+        normalized = "round_robin" if normalized in ("round_robin", "roundrobin") else normalized
+        self.strategy = normalized if normalized in self.STRATEGIES else "fallback"
+        self._turn = 0
+        self._turn_lock = threading.Lock()
 
         self.role = (role or "").strip().lower() or None
         self.primary_provider = self.providers[0]
@@ -149,7 +166,7 @@ class LLMClient:
         if not prompt or not isinstance(prompt, str):
             raise ValueError("O prompt deve ser uma string não vazia.")
 
-        def attempt(provider: str, index: int) -> str:
+        def attempt(provider: str, index: int, is_fallback: bool) -> str:
             logger.info("Executando inferência via: %s", provider.upper())
             return self._call_provider(
                 provider, prompt, timeout=self.timeout if index == 0 else self.fallback_timeout
@@ -184,18 +201,34 @@ class LLMClient:
         if not messages or not isinstance(messages, list):
             raise ValueError("messages deve ser uma lista não vazia.")
 
-        def attempt(provider: str, index: int) -> ChatResult:
+        def attempt(provider: str, index: int, is_fallback: bool) -> ChatResult:
+            # O modelo informado vale para o Ollama (os provedores de nuvem usam o do ambiente). No round-robin o
+            # Ollama pode ser o 1º ou o 3º da vez, então ele recebe o modelo em qualquer posição.
+            use_model = model if (index == 0 or self.strategy == "round_robin") else None
             result = self._chat_provider(
-                provider, messages, tools, model if index == 0 else None, json_mode,
+                provider, messages, tools, use_model, json_mode,
                 self.timeout if index == 0 else self.fallback_timeout,
-                is_fallback=index > 0, prompt=prompt,
+                is_fallback=is_fallback, prompt=prompt,
             )
-            result.used_fallback = index > 0
+            result.used_fallback = is_fallback
             return result
 
         return self._run_chain(attempt)
 
-    def _run_chain(self, attempt: Callable[[str, int], Any]) -> Any:
+    def _attempt_order(self) -> List[str]:
+        """Ordem de tentativa desta requisição: a cadeia, ou a cadeia girada se a estratégia é round-robin.
+
+        O contador anda uma vez por requisição (e não por tentativa), então o failover de uma requisição não
+        desloca a vez das seguintes.
+        """
+        if self.strategy != "round_robin" or len(self.providers) < 2:
+            return list(self.providers)
+        with self._turn_lock:
+            start = self._turn % len(self.providers)
+            self._turn += 1
+        return self.providers[start:] + self.providers[:start]
+
+    def _run_chain(self, attempt: Callable[[str, int, bool], Any]) -> Any:
         """Percorre a cadeia em ordem, respeitando o teto diário e o disjuntor de cada provedor.
 
         Se todos os disjuntores estiverem abertos, tenta mesmo assim (falhar sem tentar é pior). Erro de
@@ -205,6 +238,7 @@ class LLMClient:
         errors: Dict[str, str] = {}
         skipped: List[str] = []
         attempted = False
+        order = self._attempt_order()
 
         def call(provider: str) -> Tuple[bool, Any]:
             nonlocal attempted
@@ -212,7 +246,7 @@ class LLMClient:
             breaker = guards.breaker(provider)
             guards.cap(provider).acquire()
             try:
-                result = attempt(provider, self.providers.index(provider))
+                result = attempt(provider, self.providers.index(provider), provider != order[0])
             except ProviderConfigError as exc:
                 breaker.release_trial()
                 errors[provider] = str(exc)
@@ -225,7 +259,7 @@ class LLMClient:
                 return True, result
             return False, None
 
-        for provider in self.providers:
+        for provider in order:
             if guards.cap(provider).exhausted():
                 errors[provider] = "limite diário de chamadas atingido"
             elif not guards.breaker(provider).allow():
