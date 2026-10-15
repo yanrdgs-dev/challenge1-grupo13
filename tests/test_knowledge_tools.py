@@ -173,3 +173,13 @@ def test_ceaps_passagens_topic_is_covered_and_cites_the_senate_regulation():
     assert result["veredito_regra"] == "permitido"
     assert "passagens" in result["resposta_resumida"].lower()
     assert "Senado" in result["fonte_normativa"] and "CEAPS" in result["fonte_normativa"]
+
+
+def test_pec_and_pln_tramitation_topic_explains_both_paths():
+    assert "tramitacao_pec_pln" in INSTITUTIONAL_TOPICS
+    result = check_institutional_rule("tramitacao_pec_pln")
+    assert result["encontrado"] is True and result["veredito_regra"] == "tramitacao_distinta"
+    text = (result["resposta_resumida"] + " " + result["fundamentacao"]).lower()
+    for must in ("dois turnos", "três quintos", "sanção", "comissão mista de orçamento", "pln"):
+        assert must in text, must
+    assert "art. 60" in result["fonte_normativa"] and "art. 166" in result["fonte_normativa"]

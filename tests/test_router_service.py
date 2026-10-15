@@ -828,3 +828,18 @@ def test_no_tool_outside_the_proposition_category_is_not_forced_to_the_resolver(
 
     mock_llm.chat.assert_called_once()
     assert outcome.tool_name is None
+
+
+@pytest.mark.parametrize("claim", [
+    "Qual é o status atual da PEC da Dosimetria no Senado?",
+    "Em que pé está a PEC 45/2019?",
+    "Qual o andamento do PL 2630/2020?",
+])
+def test_status_and_progress_wording_upgrades_the_resolver_to_the_tramitation_tool(mock_llm, claim):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "resolve_proposition", "arguments": {"casa": "senado", "termo_busca": "PEC da Dosimetria"}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        router_service._route_and_execute(claim)
+
+    assert execute.call_args.args[0] == "get_proposition_tramitation_history"

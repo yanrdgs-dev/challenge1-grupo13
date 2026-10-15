@@ -426,3 +426,13 @@ def test_expenses_without_year_is_dispatched_without_year():
 
     assert result == {"ok": 1}
     assert tool.call_args.kwargs["ano"] is None
+
+
+@pytest.mark.parametrize("given, expected", [(None, "maior"), ("menor", "menor"), ("Maior", "maior")])
+def test_top_spender_order_is_dispatched(given, expected):
+    args = {"casa": "camara", "ano": 2022}
+    if given:
+        args["ordem"] = given
+    with patch.object(router_service, "get_top_ceap_spender", return_value=_dataclass_like({"ok": 1})) as tool:
+        execute_tool("get_top_ceap_spender", args)
+    assert tool.call_args.kwargs["ordem"] == expected

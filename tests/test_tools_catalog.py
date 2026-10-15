@@ -88,3 +88,9 @@ def test_tramitation_tools_are_in_the_catalog_and_prompt_and_take_a_formal_citat
         assert name in ROUTER_SYSTEM_PROMPT
     assert "tramitação" in _tool("get_proposition_tramitation_history")["description"].lower()
     assert "apens" in _tool("check_bill_apensamentos")["description"].lower()
+
+
+def test_top_spender_tool_exposes_the_order_so_that_smallest_is_not_answered_with_largest():
+    props = _tool("get_top_ceap_spender")["parameters"]["properties"]
+    assert props["ordem"]["enum"] == ["maior", "menor"]
+    assert "get_top_ceap_spender" in ROUTER_SYSTEM_PROMPT and "menor" in ROUTER_SYSTEM_PROMPT

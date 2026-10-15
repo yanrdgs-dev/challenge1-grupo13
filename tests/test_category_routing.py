@@ -196,3 +196,28 @@ def test_rules_of_the_curated_base_go_to_normas_even_when_the_claim_mentions_the
 def test_campaign_money_data_claims_stay_in_eleicoes():
     assert rule_category("Quem mais gastou na campanha para presidente em 2022?") == "ELEICOES"
     assert rule_category("A campanha de Lula arrecadou mais do que a de Tebet em 2022.") == "ELEICOES"
+
+
+@pytest.mark.parametrize("claim", [
+    "Qual deputado registrou o menor gasto em 2022?",
+    "Qual deputado teve o maior gasto com a Cota Parlamentar (CEAP) no ano de 2023?",
+    "Quem foi o senador que mais gastou em 2023?",
+    "O parlamentar que menos gastou em 2022 foi Fulano.",
+])
+def test_ranking_wording_hints_the_top_spender_tool(claim):
+    assert hinted_tool(claim) == "get_top_ceap_spender"
+
+
+@pytest.mark.parametrize("claim", [
+    "Quanto o deputado Fraga gastou com combustível em 2023?",       # parlamentar nomeado: get_member_expenses
+    "Quem mais gastou na campanha para presidente em 2022?",
+])
+def test_ranking_hint_does_not_fire_for_a_named_member_or_campaign(claim):
+    assert hinted_tool(claim) != "get_top_ceap_spender"
+
+
+def test_cota_parlamentar_used_in_campaign_goes_to_the_rules_category():
+    claim = ("Deputados federais e senadores candidatos à reeleição puderam pagar o material de propaganda de suas "
+             "campanhas eleitorais usando a cota parlamentar em 2022?")
+    assert rule_category(claim) == "NORMAS"
+    assert rule_category("Quanto o deputado Fraga gastou da cota parlamentar em 2023?") == "COTA_PARLAMENTAR"
