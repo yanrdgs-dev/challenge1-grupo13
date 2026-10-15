@@ -224,3 +224,17 @@ def test_cota_parlamentar_used_in_campaign_goes_to_the_rules_category():
              "campanhas eleitorais usando a cota parlamentar em 2022?")
     assert rule_category(claim) == "NORMAS"
     assert rule_category("Quanto o deputado Fraga gastou da cota parlamentar em 2023?") == "COTA_PARLAMENTAR"
+
+
+@pytest.mark.parametrize("claim", [
+    "Qual a diferença entre a tramitação de uma PEC e de um PLN entre a Câmara dos Deputados e o Senado Federal?",
+    "Como funciona o segundo turno nas eleições para governador?",
+    "Como tramita uma medida provisória no Congresso?",
+])
+def test_how_it_works_questions_go_to_the_rules_category_even_when_they_cite_a_proposition_type(claim):
+    assert rule_category(claim) == "NORMAS"
+
+
+def test_how_it_works_wording_does_not_capture_claims_about_a_specific_proposition():
+    assert rule_category("O PL 2630/2020 foi aprovado pelo Plenário?") == "PROPOSICOES"
+    assert rule_category("Em que comissões tramitou o PL 2630/2020?") == "PROPOSICOES"
