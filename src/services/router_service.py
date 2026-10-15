@@ -390,7 +390,7 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
     if tool_name == "get_top_campaign_finances":
         return get_top_campaign_finances(
             cargo=args["cargo"], ano=args["ano"], metrica=args.get("metrica") or "despesas_contratadas",
-            uf=args.get("uf"), top_n=args.get("top_n") or 5,
+            uf=args.get("uf"), top_n=max(int(args.get("top_n") or 5), MIN_RANKING_SHOWN),
         )
     if tool_name == "check_candidate_profile":
         return _with_resolved_candidate(args, lambda sq: check_candidate_profile(sq_candidato=sq, ano=args["ano"]))
@@ -575,6 +575,8 @@ def _takes_turno(call: Dict[str, Any]) -> bool:
     )
 
 
+# "X foi o que mais gastou" só se decide vendo também o 2º e o 3º colocados na evidência.
+MIN_RANKING_SHOWN = 3
 _CAMPAIGN_TOOLS = {"get_campaign_finances", "get_top_campaign_finances"}
 _QUOTA_TOOL_NAMES = {
     "get_top_ceap_spender", "list_expense_categories", "check_parliamentary_expenses", "get_member_expenses",
