@@ -183,3 +183,12 @@ def test_pec_and_pln_tramitation_topic_explains_both_paths():
     for must in ("dois turnos", "três quintos", "sanção", "comissão mista de orçamento", "pln"):
         assert must in text, must
     assert "art. 60" in result["fonte_normativa"] and "art. 166" in result["fonte_normativa"]
+
+
+def test_cota_alimentacao_topic_is_covered_and_permitted():
+    """Golden 11: o deputado pode pedir reembolso de alimentação pela cota."""
+    assert "cota_alimentacao" in INSTITUTIONAL_TOPICS
+    result = check_institutional_rule("cota_alimentacao")
+    assert result["encontrado"] is True and result["veredito_regra"] == "permitido"
+    assert "alimenta" in result["resposta_resumida"].lower()
+    assert "Ato da Mesa" in result["fonte_normativa"]

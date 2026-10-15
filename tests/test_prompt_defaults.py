@@ -190,3 +190,12 @@ def test_push_cli_dry_run_and_exit_codes(capsys):
     failing.get_prompt.side_effect = Exception("404")
     failing.create_prompt.side_effect = Exception("401")
     assert main([], client_factory=lambda: failing) == 2
+
+
+def test_judge_prompt_treats_evidence_about_another_subject_as_inconclusive():
+    """Regra de um tópico diferente (ex.: cota não compra imóveis) não contradiz uma claim sobre alimentação."""
+    from src.prompts.defaults import JUDGE_PROMPT_TEMPLATE
+
+    text = JUDGE_PROMPT_TEMPLATE.lower()
+    assert "mesmo assunto" in text
+    assert "outro assunto" in text and "inconclusivo" in text
