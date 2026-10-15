@@ -238,3 +238,14 @@ def test_how_it_works_questions_go_to_the_rules_category_even_when_they_cite_a_p
 def test_how_it_works_wording_does_not_capture_claims_about_a_specific_proposition():
     assert rule_category("O PL 2630/2020 foi aprovado pelo Plenário?") == "PROPOSICOES"
     assert rule_category("Em que comissões tramitou o PL 2630/2020?") == "PROPOSICOES"
+
+
+@pytest.mark.parametrize("claim, tool", [
+    ("Qual a diferença entre a tramitação de uma PEC e de um PLN?", "check_institutional_rule"),
+    ("Um partido pode receber a cota do Fundo Partidário sem prestar contas ao TSE?", "check_institutional_rule"),
+    ("Deputados candidatos à reeleição puderam pagar propaganda com a cota parlamentar em 2022?", "check_institutional_rule"),
+    ("Dá para ver no site do TSE quanto cada candidato declarou ter gastado?", "check_data_source_coverage"),
+    ("É possível consultar publicamente quais deputados faltaram às sessões?", "check_data_source_coverage"),
+])
+def test_rules_category_hints_the_normative_tool(claim, tool):
+    assert hinted_tool(claim) == tool
