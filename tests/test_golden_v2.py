@@ -187,7 +187,11 @@ def test_v2_has_the_claims_about_written_rules_and_relative_time(v2):
     assert verdicts.count("VERDADEIRO") == 3 and verdicts.count("FALSO") == 3 and verdicts.count("INCONCLUSIVO") == 3
     for c in new:
         if c["expected_verdict"] == "INCONCLUSIVO":
-            assert c["inconclusive_reason"] == "subespecificada" and c["expected_tools"] == []
+            assert c["expected_tools"] == []
+    # 'atuais membros' e 'última sabatina' dependem de uma consulta que não temos: o guardrail barra. 'Atual
+    # legislatura' passa pelo guardrail e termina sem tool aplicável.
+    assert by_id[68]["inconclusive_reason"] == by_id[69]["inconclusive_reason"] == "subespecificada"
+    assert "inconclusive_reason" not in by_id[70]
     assert {"get_top_ceap_spender", "check_institutional_rule", "resolve_proposition"} <= {
         t for c in new for t in c["expected_tools"]
     }

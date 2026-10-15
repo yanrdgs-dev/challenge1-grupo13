@@ -843,3 +843,64 @@ def test_status_and_progress_wording_upgrades_the_resolver_to_the_tramitation_to
         router_service._route_and_execute(claim)
 
     assert execute.call_args.args[0] == "get_proposition_tramitation_history"
+
+
+# ------------------- tempo relativo resolvido pela data de hoje ------------------- #
+
+from datetime import date  # noqa: E402
+
+
+@pytest.fixture
+def fixed_today(monkeypatch):
+    monkeypatch.setattr(router_service, "_today", lambda: date(2026, 10, 15))
+
+
+def test_routing_prompt_carries_todays_date(mock_llm, fixed_today):
+    mock_llm.chat.return_value = _chat_result([])
+    router_service._route_and_execute("Quem mais gastou a cota parlamentar da Câmara neste ano?")
+
+    system = mock_llm.chat.call_args.args[0][0]["content"]
+    assert "Data de hoje: 2026-10-15" in system
+    assert "2026" in system.split("Data de hoje")[-1]
+
+
+@pytest.mark.parametrize("claim", [
+    "Neste ano, o deputado que mais gastou a cota parlamentar foi Fulano.",
+    "Este ano o deputado que mais gastou a cota parlamentar foi Fulano.",
+    "No ano atual, o deputado que mais gastou a cota parlamentar foi Fulano.",
+    "Atualmente o deputado que mais gastou a cota parlamentar é Fulano.",
+])
+def test_missing_year_is_filled_with_the_current_year_when_the_claim_says_this_year(mock_llm, fixed_today, claim):
+    mock_llm.chat.return_value = _chat_result([{"name": "get_top_ceap_spender", "arguments": {"casa": "camara"}}])
+    with patch.object(router_service, "execute_tool", return_value={"gastadores": []}) as execute:
+        router_service._route_and_execute(claim)
+
+    assert execute.call_args.args[1]["ano"] == 2026
+
+
+def test_year_chosen_by_the_llm_is_never_overridden_by_the_current_year(mock_llm, fixed_today):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "get_top_ceap_spender", "arguments": {"casa": "camara", "ano": 2023}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"gastadores": []}) as execute:
+        router_service._route_and_execute("Neste ano, o deputado que mais gastou a cota foi Fulano.")
+
+    assert execute.call_args.args[1]["ano"] == 2023
+
+
+def test_year_is_not_invented_when_the_claim_does_not_say_this_year(mock_llm, fixed_today):
+    mock_llm.chat.return_value = _chat_result([{"name": "get_top_ceap_spender", "arguments": {"casa": "camara"}}])
+    with patch.object(router_service, "execute_tool", return_value={"gastadores": []}) as execute:
+        router_service._route_and_execute("O deputado que mais gastou a cota parlamentar foi Fulano.")
+
+    assert "ano" not in execute.call_args.args[1]
+
+
+def test_current_year_is_not_added_to_tools_without_a_year_parameter(mock_llm, fixed_today):
+    mock_llm.chat.return_value = _chat_result(
+        [{"name": "check_institutional_rule", "arguments": {"topico": "veto_presidencial"}}]
+    )
+    with patch.object(router_service, "execute_tool", return_value={"encontrado": True}) as execute:
+        router_service._route_and_execute("Neste ano, o veto presidencial pode ser derrubado pelo Congresso.")
+
+    assert "ano" not in execute.call_args.args[1]
