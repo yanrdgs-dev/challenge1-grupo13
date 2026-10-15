@@ -904,3 +904,27 @@ def test_current_year_is_not_added_to_tools_without_a_year_parameter(mock_llm, f
         router_service._route_and_execute("Neste ano, o veto presidencial pode ser derrubado pelo Congresso.")
 
     assert "ano" not in execute.call_args.args[1]
+
+
+def test_resolver_from_the_vote_tool_guard_also_gets_the_house(mock_llm):
+    """LLM chama a tool de votação direto (ID inventado); o retry traz o resolvedor sem 'casa': ela vem da alegação."""
+    mock_llm.chat.side_effect = [
+        _chat_result([{"name": "get_proposition_vote_result", "arguments": {"casa": "camara", "id_proposicao": 123}}]),
+        _chat_result([{"name": "resolve_proposition", "arguments": {"sigla_tipo": "PEC", "numero": 221, "ano": 2019}}]),
+    ]
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 1, "casa": "camara"}) as execute:
+        router_service._route_and_execute("Quantos deputados votaram a favor da PEC 221/2019 no segundo turno?")
+
+    first = execute.call_args_list[0]
+    assert first.args[0] == "resolve_proposition" and first.args[1]["casa"] == "camara"
+
+
+def test_resolver_from_the_vote_tool_guard_without_a_house_in_the_claim_defaults_to_congresso(mock_llm):
+    mock_llm.chat.side_effect = [
+        _chat_result([{"name": "get_proposition_vote_result", "arguments": {"casa": "camara", "id_proposicao": 123}}]),
+        _chat_result([{"name": "resolve_proposition", "arguments": {"sigla_tipo": "PEC", "numero": 221, "ano": 2019}}]),
+    ]
+    with patch.object(router_service, "execute_tool", return_value={"id_proposicao": 1, "casa": "camara"}) as execute:
+        router_service._route_and_execute("Quantos votos teve a PEC 221/2019 no segundo turno?")
+
+    assert execute.call_args_list[0].args[1]["casa"] == "congresso"
