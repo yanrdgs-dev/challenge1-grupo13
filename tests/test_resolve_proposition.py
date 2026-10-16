@@ -131,6 +131,7 @@ def test_resolve_proposition_contract_keys(mock_camara_pl2630):
         "ambiguous",
         "candidatos",
         "match_score",
+        "registros_equivalentes",
     }
     assert set(result.keys()) == expected_keys
     assert isinstance(result["ambiguous"], bool)
@@ -513,3 +514,54 @@ def test_formal_search_keeps_ambiguity_when_same_type_and_number_exist_in_differ
 
     assert result["ambiguous"] is True
     assert len(result["candidatos"]) == 2
+
+
+# ---------------- registros duplicados da mesma matéria (PEC 45/2019 tem dois ids na Câmara) ----------------
+
+def _dated(id_, sigla, numero, ano, ementa, apresentacao):
+    return {**_item(id_, sigla, numero, ano, ementa), "dataApresentacao": apresentacao}
+
+
+def test_two_records_of_the_same_sigla_number_and_year_resolve_to_the_original_one():
+    """A PEC 45/2019 tem o registro de 2019 (111 votações) e outro de 2023 (a volta do Senado): é a mesma matéria."""
+    client = _client_with([
+        _dated(2403910, "PEC", 45, 2019, "Altera o Sistema Tributário Nacional.", "2023-11-14T18:31"),
+        _dated(2196833, "PEC", 45, 2019, "Altera o Sistema Tributário Nacional e dá outras providências.", "2019-04-03T21:31"),
+    ])
+
+    result = resolve_proposition(casa="camara", sigla_tipo="PEC", numero=45, ano=2019, client=client)
+
+    assert result["ambiguous"] is False
+    assert result["id_proposicao"] == 2196833
+    assert result["registros_equivalentes"] == [2403910]
+
+
+def test_duplicate_records_without_presentation_date_stay_ambiguous():
+    """Sem como saber qual é o original, não se escolhe (regra 3)."""
+    client = _client_with([
+        _item(1, "PEC", 45, 2019, "Altera o Sistema Tributário Nacional."),
+        _item(2, "PEC", 45, 2019, "Altera o Sistema Tributário Nacional."),
+    ])
+
+    result = resolve_proposition(casa="camara", sigla_tipo="PEC", numero=45, ano=2019, client=client)
+
+    assert result["ambiguous"] is True and result["id_proposicao"] is None
+
+
+def test_records_of_different_years_are_never_merged():
+    client = _client_with([
+        _dated(1, "PL", 100, 2019, "Ementa A.", "2019-02-01T10:00"),
+        _dated(2, "PL", 100, 2021, "Ementa B.", "2021-02-01T10:00"),
+    ])
+
+    result = resolve_proposition(casa="camara", sigla_tipo="PL", numero=100, client=client)
+
+    assert result["ambiguous"] is True
+
+
+def test_a_single_record_has_no_equivalent_records():
+    client = _client_with([_dated(7, "PL", 7, 2020, "Ementa.", "2020-01-01T10:00")])
+
+    result = resolve_proposition(casa="camara", sigla_tipo="PL", numero=7, ano=2020, client=client)
+
+    assert result["id_proposicao"] == 7 and result["registros_equivalentes"] == []

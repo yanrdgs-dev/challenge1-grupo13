@@ -30,7 +30,7 @@ from src.api.routes.ingestion import router as ingestion_router
 from src.services import frontend_api
 from src.observability.prompts import get_prompt
 from src.prompts.defaults import PROMPT_ROUTER_SYSTEM
-from src.services.tool_args import ground_candidate_args, validate_tool_args
+from src.services.tool_args import ground_candidate_args, is_question, validate_tool_args
 from src.services.data_freshness import data_date, ensure_data_date_cited, load_ingestion_info
 from src.services.category_routing import category_for, hinted_tool, restrict_catalog, tool_hint
 from src.services.sources import TSE as TSE_SOURCE, derive_sources, ensure_source_cited, evidence_failed, merge_sources
@@ -986,11 +986,12 @@ def _judge_each_house(
         return {"veredito": unique.pop(), "confianca": "ALTA", "justificativa": " ".join(parts),
                 "fontes_primarias": sources, "tempo_julgamento_ms": total_ms}
     definitive = unique <= {"VERDADEIRO", "FALSO"}
-    lead = (
-        "A alegação não diz a Casa e o resultado difere entre elas, então não há um veredito único. "
-        if definitive else
-        "A alegação não diz a Casa e a evidência não permite concluir pelas duas. "
-    )
+    if definitive:
+        lead = "A alegação não diz a Casa e o resultado difere entre elas, então não há um veredito único. "
+    elif is_question(claim_text):
+        lead = "A pergunta não diz a Casa; seguem os dados de cada uma. "  # nada a concluir: não há alegação
+    else:
+        lead = "A alegação não diz a Casa e a evidência não permite concluir pelas duas. "
     return {"veredito": "INCONCLUSIVO", "confianca": "ALTA" if definitive else "MÉDIA",
             "justificativa": lead + " ".join(parts), "fontes_primarias": sources, "tempo_julgamento_ms": total_ms}
 

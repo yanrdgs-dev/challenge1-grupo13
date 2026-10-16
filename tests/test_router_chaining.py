@@ -379,3 +379,30 @@ def test_claim_that_names_the_house_is_judged_once(both_houses):
     both_houses.judge.return_value = JUDGE
     post("O Senado aprovou a PEC 221/2019 com apenas um voto contra.")
     assert both_houses.judge.call_count == 1
+
+
+# ------------------- pergunta que não diz a Casa: o texto não fala em "alegação" ------------------- #
+
+@pytest.mark.parametrize("question", [
+    "O que é a PEC 221/2019?",
+    "Quantos votos teve a PEC 221/2019",          # sem "?" mas com interrogativo
+    "qual foi o placar da PEC 221/2019?",
+])
+def test_question_without_a_house_is_answered_with_each_house_and_without_the_claim_wording(both_houses, question):
+    both_houses.judge.side_effect = _judge_by_house({"camara": "INCONCLUSIVO", "senado": "INCONCLUSIVO"})
+    data = post(question)
+    assert data["veredito"] == "INCONCLUSIVO"
+    text = data["justificativa"]
+    assert "A alegação não diz a Casa" not in text and "não permite concluir" not in text
+    assert "Câmara" in text and "Senado" in text and "camara" in text and "senado" in text
+
+
+def test_claim_without_a_house_where_both_are_inconclusive_keeps_the_claim_wording(both_houses):
+    both_houses.judge.side_effect = _judge_by_house({"camara": "INCONCLUSIVO", "senado": "INCONCLUSIVO"})
+    assert "A alegação não diz a Casa" in post(NO_HOUSE_CLAIM)["justificativa"]
+
+
+def test_question_whose_houses_disagree_still_reports_the_difference(both_houses):
+    both_houses.judge.side_effect = _judge_by_house({"camara": "FALSO", "senado": "VERDADEIRO"})
+    data = post("A PEC 221/2019 teve só um voto contra, certo?")
+    assert data["veredito"] == "INCONCLUSIVO" and "difere" in data["justificativa"].lower()

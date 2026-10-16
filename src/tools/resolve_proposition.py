@@ -106,6 +106,7 @@ class ResolvePropositionResponse(TypedDict):
     ambiguous: bool
     candidatos: List[PropositionCandidateSummary]
     match_score: Optional[float]
+    registros_equivalentes: List[int]
 
 
 def _only_requested(items: List[Dict[str, Any]], sigla: Optional[str], numero: Optional[int]) -> List[Dict[str, Any]]:
@@ -120,6 +121,19 @@ def _only_requested(items: List[Dict[str, Any]], sigla: Optional[str], numero: O
         return True
 
     return [item for item in items if matches(item)]
+
+
+def _original_record(items: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], List[int]]:
+    """Registros com a mesma sigla, número e ano são a mesma matéria (a PEC 45/2019 tem um id em 2019 e outro em 2023).
+
+    O original é o de apresentação mais antiga; os demais saem como ``registros_equivalentes``. Sem data em algum
+    registro não há como saber qual é o original, e a lista segue ambígua (regra 3).
+    """
+    keys = {(str(i.get("siglaTipo") or i.get("sigla")).upper(), str(i.get("numero")), str(i.get("ano"))) for i in items}
+    if len(keys) != 1 or any(not i.get("dataApresentacao") for i in items):
+        return items, []
+    ordered = sorted(items, key=lambda i: str(i["dataApresentacao"]))
+    return ordered[:1], [int(i["id"]) for i in ordered[1:]]
 
 
 def _empty_response(
@@ -138,6 +152,7 @@ def _empty_response(
         "ambiguous": ambiguous,
         "candidatos": candidatos or [],
         "match_score": None,
+        "registros_equivalentes": [],
     }
 
 
@@ -228,6 +243,10 @@ def resolve_proposition(
                 if filtered:
                     raw_items = filtered
 
+            equivalents: List[int] = []
+            if len(raw_items) > 1:
+                raw_items, equivalents = _original_record(raw_items)
+
             if len(raw_items) == 1:
                 item = raw_items[0]
                 return {
@@ -240,6 +259,7 @@ def resolve_proposition(
                     "ambiguous": False,
                     "candidatos": [],
                     "match_score": 100.0,
+                    "registros_equivalentes": equivalents,
                 }
 
             # Mais de um resultado encontrado para a busca formal
@@ -313,6 +333,7 @@ def resolve_proposition(
                     "ambiguous": False,
                     "candidatos": [],
                     "match_score": round(top_score, 2),
+                    "registros_equivalentes": [],
                 }
 
             # Concorrentes empatados ou proximidade de score -> ambiguidade (US3)

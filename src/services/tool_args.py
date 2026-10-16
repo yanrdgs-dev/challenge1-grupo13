@@ -171,3 +171,17 @@ def ground_candidate_args(tool_name: str, args: Any, claim_text: str) -> Any:
     if numero is not None and not re.search(rf"(?<!\d){re.escape(str(numero))}(?!\d)", text):
         grounded.pop("numero")
     return grounded
+
+
+
+# --------------------------- pergunta x alegação --------------------------- #
+
+_QUESTION_START = re.compile(
+    r"^(?:o\s+que|qual|quais|quanto|quantos|quantas|quem|onde|quando|por\s+que|porque)\b"
+)
+
+
+def is_question(text: str) -> bool:
+    """A entrada é uma pergunta ("O que é o PL 2630?", "Quantos votos teve a PEC 45") e não uma afirmação a checar."""
+    folded = _fold(text or "").strip()
+    return folded.endswith("?") or bool(_QUESTION_START.match(folded))

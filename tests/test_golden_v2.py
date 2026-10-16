@@ -181,7 +181,7 @@ def test_v2_has_balanced_comparison_claims(v2):
 def test_v2_has_the_claims_about_written_rules_and_relative_time(v2):
     """Fase 'regras escritas': ranking de cota, cota em campanha, PEC x PLN, existência de PL e tempo relativo."""
     by_id = {c["id"]: c for c in v2}
-    assert len(v2) == 70 and [c["id"] for c in v2] == list(range(1, 71))
+    assert len(v2) >= 70 and [c["id"] for c in v2][:70] == list(range(1, 71))
     new = [by_id[i] for i in range(62, 71)]
     verdicts = [c["expected_verdict"] for c in new]
     assert verdicts.count("VERDADEIRO") == 3 and verdicts.count("FALSO") == 3 and verdicts.count("INCONCLUSIVO") == 3

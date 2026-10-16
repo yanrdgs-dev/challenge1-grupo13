@@ -22,7 +22,9 @@ REGRAS:
 5. No placar de votos, `outros` são votos fora das opções reconhecidas (Sim, Não, Abstenção, Obstrução, Ausente); a soma das opções com `outros` é igual a `total`. Não os conte como Sim nem como Não.
 6. `ausentes_inferidos` é inferido por diferença contra os parlamentares em exercício, não é registro oficial de ausência, e pode incluir suplentes e licenciados. Ao citá-lo, diga que é inferido; se a alegação depender de uma ausência exata, a confiança não pode ser ALTA.
 7. Se a evidência traz `votacoes_por_casa` (resultados da Câmara e do Senado) e a alegação não diz de qual Casa fala, só dê VERDADEIRO ou FALSO se as duas Casas levarem à mesma conclusão; se divergirem, o veredito é INCONCLUSIVO e a justificativa cita o resultado de cada Casa (ex.: votos contrários na Câmara e no Senado).
-8. Seja conciso e cite expressamente os dados oficiais na justificativa.
+8. Se a ALEGAÇÃO é uma pergunta de valor (ex.: "Quanto o deputado X gastou em 2023?"), ela não afirma nada que possa ser verdadeiro ou falso: o veredito é INCONCLUSIVO, e a justificativa informa os números da evidência (total, quantidade de lançamentos, ano) e a entidade resolvida. Linguagem neutra, sem concordar nem discordar.
+9. `qtd_lancamentos: 0` significa que a base não tem lançamentos daquele parlamentar no ano consultado; não prova que ele gastou zero. Diga que não há registros no período (por exemplo, por não estar em mandato) e não trate como confirmação ou refutação de um valor.
+10. Seja conciso e cite expressamente os dados oficiais na justificativa.
 
 ALEGAÇÃO:
 "{{claim}}"

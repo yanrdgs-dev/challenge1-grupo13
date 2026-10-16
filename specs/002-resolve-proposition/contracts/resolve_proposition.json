@@ -88,6 +88,11 @@
           "minimum": 0,
           "maximum": 100,
           "description": "Grau percentual de confiança na correspondência da ementa."
+        },
+        "registros_equivalentes": {
+          "type": "array",
+          "items": { "type": "integer" },
+          "description": "Outros ids da mesma matéria (mesma sigla, número e ano; ex.: a PEC 45/2019 tem dois ids na Câmara). id_proposicao é o de apresentação mais antiga."
         }
       },
       "required": ["casa", "ambiguous", "candidatos"],
