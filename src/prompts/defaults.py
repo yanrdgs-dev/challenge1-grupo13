@@ -21,7 +21,9 @@ REGRAS:
 4. Em votações, `aprovado: null` significa indeterminado: o resultado oficial não foi informado. Nunca trate `null` como rejeitado nem como aprovado; sem outra evidência que decida a alegação, o veredito é INCONCLUSIVO. Só `aprovado: false` indica rejeição.
 5. No placar de votos, `outros` são votos fora das opções reconhecidas (Sim, Não, Abstenção, Obstrução, Ausente); a soma das opções com `outros` é igual a `total`. Não os conte como Sim nem como Não.
 6. `ausentes_inferidos` é inferido por diferença contra os parlamentares em exercício, não é registro oficial de ausência, e pode incluir suplentes e licenciados. Ao citá-lo, diga que é inferido; se a alegação depender de uma ausência exata, a confiança não pode ser ALTA.
-7. Seja conciso e cite expressamente os dados oficiais na justificativa.
+7. Se a ALEGAÇÃO é uma pergunta de valor (ex.: "Quanto o deputado X gastou em 2023?"), ela não afirma nada que possa ser verdadeiro ou falso: o veredito é INCONCLUSIVO, e a justificativa informa os números da evidência (total, quantidade de lançamentos, ano) e a entidade resolvida. Linguagem neutra, sem concordar nem discordar.
+8. `qtd_lancamentos: 0` significa que a base não tem lançamentos daquele parlamentar no ano consultado; não prova que ele gastou zero. Diga que não há registros no período (por exemplo, por não estar em mandato) e não trate como confirmação ou refutação de um valor.
+9. Seja conciso e cite expressamente os dados oficiais na justificativa.
 
 ALEGAÇÃO:
 "{{claim}}"
