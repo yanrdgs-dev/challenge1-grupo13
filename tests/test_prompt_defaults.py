@@ -187,3 +187,15 @@ def test_push_cli_dry_run_and_exit_codes(capsys):
     failing.get_prompt.side_effect = Exception("404")
     failing.create_prompt.side_effect = Exception("401")
     assert main([], client_factory=lambda: failing) == 2
+
+
+def test_judge_template_answers_value_questions_inconclusive_with_the_numbers():
+    """Pergunta de valor ("Quanto ... gastou?") não afirma nada: INCONCLUSIVO, com os números da tool na justificativa."""
+    text = JUDGE_PROMPT_TEMPLATE.lower()
+    assert "pergunta" in text and "não afirma" in text
+    assert "números" in text or "valores" in text
+
+
+def test_judge_template_explains_zero_launches_as_no_records_not_as_a_refutation():
+    text = JUDGE_PROMPT_TEMPLATE.lower()
+    assert "qtd_lancamentos" in text and "mandato" in text
