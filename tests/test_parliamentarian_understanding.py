@@ -181,3 +181,20 @@ def test_expenses_tool_chosen_by_the_llm_also_gets_the_uf_from_the_claim():
     assert resolver.call_args.kwargs["uf"] == "DF"
     assert tool.call_args.kwargs["parlamentar_id"] == "73579"
     assert outcome.tools_used == ["check_parliamentary_expenses"]
+
+
+# ------------------------------------------------------------ prompt de roteamento
+
+def test_router_prompt_no_longer_forbids_uf_and_cargo_and_covers_questions_and_individual_expenses():
+    from src.services.tool_catalog import ROUTER_SYSTEM_PROMPT as prompt
+    assert "NUNCA passe 'uf'" not in prompt and "APENAS 'nome_busca'" not in prompt
+    assert "pergunta" in prompt and "alegação implícita" in prompt
+    assert "quanto o deputado X gastou" in prompt and "check_parliamentary_expenses" in prompt
+
+
+def test_resolver_descriptions_ask_for_uf_and_cargo_written_in_the_claim():
+    from src.services.tool_catalog import TOOLS_CATALOG
+    spec = next(t for t in TOOLS_CATALOG if t["function"]["name"] == "resolve_politician")["function"]
+    assert "NÃO preencha" not in spec["parameters"]["properties"]["uf"]["description"]
+    assert "NÃO preencha" not in spec["parameters"]["properties"]["cargo"]["description"]
+    assert "check_parliamentary_expenses" in spec["description"]

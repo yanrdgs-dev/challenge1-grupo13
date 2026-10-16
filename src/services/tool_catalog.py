@@ -14,7 +14,7 @@ TOOLS_CATALOG: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "resolve_politician",
-            "description": "Resolve e valida o nome de um político para identificadores oficiais (Deputado Federal ou Senador). Usar sempre que um parlamentar for citado pelo nome.",
+            "description": "Resolve e valida o nome de um político para identificadores oficiais (Deputado Federal ou Senador). Usar quando a alegação é sobre QUEM é o parlamentar (partido, estado, cargo). Para gasto da cota de um parlamentar, use check_parliamentary_expenses.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -24,12 +24,12 @@ TOOLS_CATALOG: List[Dict[str, Any]] = [
                     },
                     "uf": {
                         "type": "string",
-                        "description": "Sigla da UF com 2 letras (ex: 'MG', 'RS', 'SP'). ATENÇÃO: NÃO preencha se a frase estiver afirmando de qual estado o político é (ex: 'X é deputado de DF'). Preencha APENAS se a UF for mera referência para desambiguar homônimos.",
+                        "description": "Sigla da UF com 2 letras (ex: 'MG', 'DF'), se a frase a cita (ex: 'Fraga, do DF'). Desambigua homônimos; se não achar ninguém com a UF, o sistema tenta sem ela.",
                     },
                     "cargo": {
                         "type": "string",
                         "enum": ["Deputado Federal", "Senador"],
-                        "description": "NÃO preencha se a frase estiver afirmando o cargo dele.",
+                        "description": "Preencha se a frase diz o cargo ('deputado' → Deputado Federal; 'senador' → Senador).",
                     },
                     "ano": {
                         "type": "integer",
@@ -126,7 +126,7 @@ TOOLS_CATALOG: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "check_parliamentary_expenses",
-            "description": "Consulta gastos específicos, limites monetários ou reembolsos parlamentares por categoria de despesa ou nome do parlamentar.",
+            "description": "Gastos da cota parlamentar (CEAP/CEAPS): total, quantidade de lançamentos, mínimo, máximo e média de um parlamentar específico em um ano, ou de uma categoria de despesa (limites monetários). Usar para 'quanto o deputado X gastou em ANO'.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -145,7 +145,7 @@ TOOLS_CATALOG: List[Dict[str, Any]] = [
                     },
                     "parlamentar_id": {
                         "type": "string",
-                        "description": "ID ou nome do parlamentar se restrito a um indivíduo.",
+                        "description": "Nome do parlamentar como escrito na frase (o sistema resolve o ID). Omitir se a consulta não é de um indivíduo.",
                     },
                     "uf": {
                         "type": "string",
@@ -476,21 +476,32 @@ TOOLS_CATALOG.extend([
 ])
 
 ROUTER_SYSTEM_PROMPT = (
-    "Você é o Agente Roteador do sistema de fact-checking político brasileiro.\n"
-    "Seu papel é analisar a alegação (claim) fornecida e escolher a ferramenta (tool) "
-    "mais adequada do catálogo para iniciar a coleta de evidências primárias.\n\n"
-    "⚠️ REGRA DE OURO (Princípio II da Constituição - Resolução Canônica Obrigatória):\n"
-    "- NUNCA chame ferramentas de votações nominais diretamente com nomes em texto livre.\n"
-    "- Se a alegação cita uma proposição legislativa formal (PL, PEC, MPV) ou nome popular de matéria "
-    "(ex: 'PEC da Reforma Tributária', 'Marco Temporal', 'PL das Fake News'), você DEVE chamar OBRIGATORIAMENTE 'resolve_proposition' primeiro para obter o ID oficial.\n"
-    "- Se a alegação cita o nome de um político/parlamentar para checar dados individuais, você DEVE chamar 'resolve_politician' primeiro para obter o identificador oficial.\n"
-    "  ⚠️ ATENÇÃO PARA 'resolve_politician': Passe APENAS 'nome_busca' com o nome. NUNCA passe 'uf' ou 'cargo' se a alegação estiver justamente afirmando de qual estado ou cargo ele é (ex: 'Nikolas Ferreira é deputado de Distrito Federal'). Se passar 'uf': 'DF', a ferramenta buscará um Nikolas no DF, não achará e gerará um falso INCONCLUSIVO! Busque pelo nome para obter o estado real (MG) e permitir ao julgador cravar FALSO.\n"
-    "- Se a alegação pergunta sobre ranking de gastos ou 'quem mais gastou a cota (CEAP/CEAPS)', utilize 'get_top_ceap_spender'.\n"
-    "- Se a alegação questiona se um tipo de gasto é permitido ou elegível (ex: consultoria, combustível), utilize 'list_expense_categories'.\n"
-    "- Se a alegação cita limites monetários numéricos de gastos (ex: 'R$ 500 por mês'), utilize 'check_parliamentary_expenses'.\n"
+    "Você é o Agente Roteador do sistema de fact-checking político brasileiro. "
+    "Escolha a tool do catálogo que traz a evidência primária para a alegação.\n\n"
+    "COMO O SISTEMA TRABALHA:\n"
+    "- A entrada pode ser uma afirmação ou uma pergunta (ex: 'Quanto o deputado Fraga, do DF, gastou em 2022?'). "
+    "Trate a pergunta como uma alegação implícita e extraia dela os mesmos dados.\n"
+    "- Você escolhe UMA tool. Escreva nomes de pessoas e de matérias legislativas em texto, como aparecem na frase: "
+    "o sistema converte o nome em ID canônico ANTES de consultar o dado. Nunca informe nem invente um ID.\n"
+    "- Extraia da frase tudo o que ela diz: ano, casa, UF, cargo, número, turno. UF e cargo escritos na frase "
+    "(ex: 'Fraga, do DF', 'senador') entram como filtro: eles desambiguam homônimos, e se o filtro não achar ninguém o sistema tenta sem ele. "
+    "O que a frase NÃO diz, deixe vazio, nunca invente.\n\n"
+    "PARLAMENTAR EM MANDATO (Câmara/Senado) E COTA PARLAMENTAR:\n"
+    "- GASTO ou cota de um parlamentar específico em um ano (ex: 'quanto o deputado X gastou em 2023', 'X gastou mais de R$ 400 mil') "
+    "utilize 'check_parliamentary_expenses' com 'parlamentar_id' = nome como escrito na frase, 'casa' (deputado → camara; senador → senado), 'ano' e 'uf' se a frase disser.\n"
+    "- QUEM é o parlamentar (partido, estado, cargo, nome completo) utilize 'resolve_politician' com 'nome_busca' e, se a frase disser, 'uf' e 'cargo'. "
+    "Se a frase afirma um estado ou cargo errado ('Nikolas Ferreira é deputado do DF'), pode preencher mesmo assim: o sistema tenta sem o filtro e o julgador compara com o real.\n"
+    "- Ranking de gastos ou 'quem mais gastou a cota (CEAP/CEAPS)' utilize 'get_top_ceap_spender'.\n"
+    "- Se um tipo de gasto é permitido ou elegível (ex: consultoria, combustível) utilize 'list_expense_categories'.\n"
+    "- Limite monetário numérico de gasto por categoria, sem parlamentar (ex: 'R$ 500 por mês') utilize 'check_parliamentary_expenses'.\n\n"
+    "PROPOSIÇÕES E VOTAÇÕES NO CONGRESSO:\n"
+    "- Se a alegação cita uma proposição formal (PL, PEC, MPV, PDL) ou nome popular de matéria (ex: 'PEC da Reforma Tributária', 'Marco Temporal', 'PL das Fake News'), "
+    "chame 'resolve_proposition' com sigla, número, ano ou nome popular. NUNCA chame 'get_proposition_vote_result' direto: o ID da votação vem do resolvedor, e o sistema encadeia a votação.\n\n"
+    "NORMAS E FONTES:\n"
     "- Se a alegação trata do que é PERMITIDO ou de COMO FUNCIONA um procedimento (regra, regimento, lei), utilize 'check_institutional_rule' com o tópico mais próximo. "
     "Regras e normas NÃO são resolvidas com tools de dados.\n"
-    "- Se a alegação afirma que um dado público pode (ou não) ser consultado numa fonte oficial (Portal da Transparência, TSE, Câmara), utilize 'check_data_source_coverage'.\n"
+    "- Se a alegação afirma que um dado público pode (ou não) ser consultado numa fonte oficial (Portal da Transparência, TSE, Câmara), utilize 'check_data_source_coverage'.\n\n"
+    "ELEIÇÕES (TSE):\n"
     "- Se a alegação trata do RESULTADO de uma eleição (quem ganhou, total de votos de um cargo, ranking), utilize 'get_election_result'; "
     "se trata dos votos ou da eleição de um CANDIDATO específico, utilize 'get_candidate_votes' (o nome é resolvido pelo sistema; use 'resolve_candidate' só para identificar o candidato). "
     "Para a SITUAÇÃO da candidatura (deferida, indeferida, renúncia, cassada) utilize 'check_candidate_status'; para o MOTIVO de um indeferimento ou cassação, 'check_disqualification_motive' (não precisam de turno). "
@@ -504,5 +515,5 @@ ROUTER_SYSTEM_PROMPT = (
     "ela faz a comparação inteira numa só chamada.\n"
     "NÃO invente ano nem turno: se a alegação não diz o ano ('na última eleição') ou o turno, deixe o parâmetro vazio, para que a evidência seja INCONCLUSIVO. "
     "Se a alegação é sobre o resultado da eleição de 2026, chame mesmo assim a tool de resultado com ano 2026: o sistema informa que os dados abertos do TSE ainda não foram atualizados. Votos de eleição são do TSE; votos em plenário do Congresso são das tools de votação.\n"
-    "Extraia todos os parâmetros possíveis (casa, número, ano, sigla, estado/UF) diretamente da frase."
 )
+
