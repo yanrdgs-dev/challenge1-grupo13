@@ -180,8 +180,26 @@ _DATA_ACCESS_RE = re.compile(
 )
 
 
+# "o deputado Fraga", "a senadora Damares Alves": cargo seguido de um nome próprio (precisa da caixa original).
+_NAMED_MEMBER_RE = re.compile(r"\b(?:deputad[oa]|senador[a]?|parlamentar)\s+(?:(?:federal|estadual|distrital)\s+)?[A-ZÀ-Ú]")
+_EXPENSE_WORDS_RE = re.compile(r"\bgast|\bdespesa|cota parlamentar|\bceaps?\b")
+
+
+def _is_named_member_expense(claim_text: str, folded: str) -> bool:
+    """Gasto da cota de UM parlamentar nomeado. Fora: ranking (outra tool), campanha (TSE) e claim sem nome."""
+    return bool(
+        _NAMED_MEMBER_RE.search(claim_text)
+        and _EXPENSE_WORDS_RE.search(folded)
+        and not _CAMPAIGN_WORDS_RE.search(folded)
+        and not _TOOL_HINTS[0][0].search(folded)
+    )
+
+
 def _matching_hint(claim_text: str) -> Optional[Tuple[str, str]]:
     folded = _fold(claim_text)
+    if rule_category(claim_text) != "NORMAS" and _is_named_member_expense(claim_text, folded):
+        # O modelo da rodada (o rodízio mistura provedores) escolhia só o resolvedor de parlamentar: a tool sai da redação.
+        return "get_member_expenses", "o gasto da cota parlamentar de um parlamentar específico"
     if rule_category(claim_text) == "NORMAS":
         if _DATA_ACCESS_RE.search(folded):
             return "check_data_source_coverage", "se um dado público pode ser consultado numa fonte oficial"
