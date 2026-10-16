@@ -364,6 +364,16 @@ def _check_member_vote(args: Dict[str, Any], claim_text: str = "") -> Dict[str, 
     }
 
 
+def _member_vote_runner(claim_text: str) -> Callable[[Dict[str, Any]], Dict[str, Any]]:
+    """Executa check_member_vote com a alegação em mãos (ela decide quais votações interessam), validando antes."""
+    def run(args: Dict[str, Any]) -> Dict[str, Any]:
+        checked, problem = validate_tool_args("check_member_vote", args)
+        if problem:
+            return {"status": "parametros_invalidos", "erro": problem, "tool": "check_member_vote"}
+        return _check_member_vote(checked, claim_text)
+    return run
+
+
 def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Executa a tool Python real mapeada pelo Roteador.
 
@@ -601,7 +611,7 @@ _CITED_PROPOSITION_RE = re.compile(
 # Tools com que uma proposição citada convive sem ser desviada para o resolvedor.
 _PROPOSITION_COMPATIBLE_TOOLS = {
     "resolve_proposition", "get_proposition_vote_result", "check_institutional_rule", "check_data_source_coverage",
-    "get_proposition_tramitation_history", "check_bill_apensamentos",
+    "get_proposition_tramitation_history", "check_bill_apensamentos", "check_member_vote",
 }
 _APENSAMENTO_CUE_RE = re.compile(r"apens|anexad|apensad", re.IGNORECASE)
 _TRAMITACAO_CUE_RE = re.compile(r"tramit|comiss[aã]o|comiss[oõ]es|em que fase|em que p[eé]|situa[cç][aã]o atual|status|andamento|parad[ao]", re.IGNORECASE)
@@ -686,7 +696,7 @@ def _with_house(args: Dict[str, Any], claim_text: str) -> Dict[str, Any]:
     return {**args, "casa": _house_in_claim(claim_text) or "congresso"}
 
 
-_ALIAS_TOOLS = {"resolve_proposition", "get_proposition_tramitation_history", "check_bill_apensamentos"}
+_ALIAS_TOOLS = {"resolve_proposition", "get_proposition_tramitation_history", "check_bill_apensamentos", "check_member_vote"}
 
 
 def _with_alias(args: Dict[str, Any], claim_text: str) -> Dict[str, Any]:
@@ -941,6 +951,14 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
         )
         return RoutingOutcome(tool_name, tool_args, evidence, [], (time.perf_counter() - start) * 1000)
 
+    if tool_name == "check_member_vote" and not _name_in_claim(tool_args.get("parlamentar"), claim_text):
+        logger.warning("LLM usou o parlamentar %r, que não consta na alegação; consulta descartada.", tool_args.get("parlamentar"))
+        evidence = _unresolved(
+            parlamentar_informado=tool_args.get("parlamentar"),
+            motivo="A alegação não cita o parlamentar informado pelo roteador; a consulta foi descartada.",
+        )
+        return RoutingOutcome(tool_name, tool_args, evidence, [], (time.perf_counter() - start) * 1000)
+
     if tool_name == "get_member_expenses" and not tool_args.get("uf"):
         inferred_uf = _uf_in_claim(claim_text)
         if inferred_uf:
@@ -954,7 +972,8 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
     routing_ms = (time.perf_counter() - start) * 1000
     if on_step:
         on_step("search")
-    evidence = _run_tool(tool_name, tool_args)
+    runner = _member_vote_runner(claim_text) if tool_name == "check_member_vote" else None
+    evidence = _run_tool(tool_name, tool_args, runner=runner)
     outcome = RoutingOutcome(tool_name, tool_args, evidence, [tool_name], routing_ms)
 
     # Etapa 2: com a proposição resolvida, consulta a votação usando o ID do resolver.

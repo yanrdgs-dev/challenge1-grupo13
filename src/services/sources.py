@@ -59,7 +59,7 @@ def derive_sources(
     if tool_name in _EXPENSE_TOOLS:
         return _by_casa(casa, CAMARA_CEAP, SENADO_CEAPS)
     if tool_name in ("resolve_proposition", "get_proposition_vote_result",
-                     "get_proposition_tramitation_history", "check_bill_apensamentos"):
+                     "get_proposition_tramitation_history", "check_bill_apensamentos", "check_member_vote"):
         return _by_casa(casa, CAMARA, SENADO)
     if tool_name == "check_institutional_rule":
         return [evidence["fonte_normativa"]] if evidence.get("fonte_normativa") else []

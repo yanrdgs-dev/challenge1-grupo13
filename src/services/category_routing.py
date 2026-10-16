@@ -43,7 +43,7 @@ CATEGORIES: Dict[str, Dict[str, Any]] = {
         ),
         "tools": frozenset({
             "resolve_proposition", "get_proposition_vote_result", "get_proposition_tramitation_history",
-            "check_bill_apensamentos", "resolve_politician",
+            "check_bill_apensamentos", "check_member_vote", "resolve_politician",
         }),
     },
     "ELEICOES": {
@@ -195,8 +195,36 @@ def _is_named_member_expense(claim_text: str, folded: str) -> bool:
     )
 
 
+# "Nikolas Ferreira votou contra a PEC...", "O senador X não votou o PL...": nome próprio antes de "votou". Instituições,
+# partidos (siglas) e plurais não são parlamentares: a tool de voto individual só vale para uma pessoa.
+_VOTE_SUBJECT_RE = re.compile(
+    r"((?:[A-ZÀ-Ú][\wÀ-ú'-]*)(?:\s+(?:d[aeo]s?\s+)?[A-ZÀ-Ú][\wÀ-ú'-]*)*)"
+    r"(?:,\s*d[oa]\s+[A-ZÀ-Ú]{2},?|\s+\([A-ZÀ-Ú-]+\))?\s+(?:n[aã]o\s+)?votou\b"
+)
+_VOTE_QUESTION_RE = re.compile(r"\bcomo\s+votou\b|\bvoto\s+d[oa]\s+(?:deputad|senador|parlamentar)")
+_NOT_A_PERSON = frozenset({"camara", "senado", "plenario", "congresso", "governo", "bancada", "maioria", "oposicao"})
+_PROPOSITION_CUE_RE = re.compile(
+    r"\b(?:pec|pl|plp|plc|pls|pln|mpv|pdl|projeto|proposta|emenda|reforma|marco|lei|escala)\b"
+)
+
+
+def _is_member_vote(claim_text: str, folded: str) -> bool:
+    """Voto individual de um parlamentar numa proposição."""
+    if not (_PROPOSITION_CUE_RE.search(folded) or find_alias(claim_text)):
+        return False
+    if _VOTE_QUESTION_RE.search(folded):
+        return True
+    for match in _VOTE_SUBJECT_RE.finditer(claim_text):
+        words = [w for w in match.group(1).split() if w[:1].isupper()]
+        if words and all(not (w.isupper() and len(w) <= 6) and _fold(w) not in _NOT_A_PERSON for w in words):
+            return True
+    return False
+
+
 def _matching_hint(claim_text: str) -> Optional[Tuple[str, str]]:
     folded = _fold(claim_text)
+    if rule_category(claim_text) != "NORMAS" and _is_member_vote(claim_text, folded) and not _EXPENSE_WORDS_RE.search(folded):
+        return "check_member_vote", "como um parlamentar específico votou numa proposição (voto individual)"
     if rule_category(claim_text) != "NORMAS" and _is_named_member_expense(claim_text, folded):
         # O modelo da rodada (o rodízio mistura provedores) escolhia só o resolvedor de parlamentar: a tool sai da redação.
         return "get_member_expenses", "o gasto da cota parlamentar de um parlamentar específico"

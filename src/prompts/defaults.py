@@ -24,7 +24,8 @@ REGRAS:
 7. Se a evidência traz `votacoes_por_casa` (resultados da Câmara e do Senado) e a alegação não diz de qual Casa fala, só dê VERDADEIRO ou FALSO se as duas Casas levarem à mesma conclusão; se divergirem, o veredito é INCONCLUSIVO e a justificativa cita o resultado de cada Casa (ex.: votos contrários na Câmara e no Senado).
 8. Se a ALEGAÇÃO é uma pergunta de valor (ex.: "Quanto o deputado X gastou em 2023?"), ela não afirma nada que possa ser verdadeiro ou falso: o veredito é INCONCLUSIVO, e a justificativa informa os números da evidência (total, quantidade de lançamentos, ano) e a entidade resolvida. Linguagem neutra, sem concordar nem discordar.
 9. `qtd_lancamentos: 0` significa que a base não tem lançamentos daquele parlamentar no ano consultado; não prova que ele gastou zero. Diga que não há registros no período (por exemplo, por não estar em mandato) e não trate como confirmação ou refutação de um valor.
-10. Seja conciso e cite expressamente os dados oficiais na justificativa.
+10. Na evidência de `check_member_vote`, cada item de `votos` traz o voto do parlamentar em uma votação (`opcao`: sim = a favor, nao = contra, abstencao, obstrucao, ausente, outros). `registrado: false` significa que ele não consta na lista nominal daquela votação: não é voto contrário nem ausência comprovada. Se a alegação não diz qual votação (turno, texto-base, destaque) e os votos diferem entre as votações, o veredito é INCONCLUSIVO e a justificativa lista cada votação (turno e data) com o voto; se todas as votações nominais da proposição concordam, decida por elas. Sem votação nominal em `votos`, o veredito é INCONCLUSIVO.
+11. Seja conciso e cite expressamente os dados oficiais na justificativa.
 
 ALEGAÇÃO:
 "{{claim}}"

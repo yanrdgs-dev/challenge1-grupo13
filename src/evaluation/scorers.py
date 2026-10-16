@@ -27,7 +27,7 @@ ALLOWED_TOOLS: Dict[str, FrozenSet[str]] = {
     ),
     "VOTACOES": frozenset(
         {"resolve_proposition", "get_proposition_vote_result", "get_proposition_tramitation_history",
-         "check_bill_apensamentos", "resolve_politician"} | _INSTITUTIONAL
+         "check_bill_apensamentos", "check_member_vote", "resolve_politician"} | _INSTITUTIONAL
     ),
 }
 
