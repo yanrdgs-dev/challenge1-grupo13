@@ -7,14 +7,29 @@ tempo de execução, e as imagens Docker só levam o que o serviço precisa. O s
 
 from typing import Any, Dict, List
 
-from src.tools.knowledge_tools import DATA_SOURCES, INSTITUTIONAL_TOPICS, available_data_types
+from src.tools.knowledge_tools import (
+    DATA_SOURCES,
+    INSTITUTIONAL_TOPICS,
+    available_data_types,
+    check_institutional_rule,
+)
+
+
+def _topic_glossary() -> str:
+    """Uma frase por tópico normativo, tirada da base curada, para o LLM escolher pelo conteúdo e não só pelo nome."""
+    parts = []
+    for topic in INSTITUTIONAL_TOPICS:
+        summary = str(check_institutional_rule(topic).get("resposta_resumida") or "").strip()
+        parts.append(f"{topic}: {summary[:110]}")
+    return " | ".join(parts)
+
 
 TOOLS_CATALOG: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
             "name": "resolve_politician",
-            "description": "Resolve e valida o nome de um político para identificadores oficiais (Deputado Federal ou Senador). Usar quando a alegação é sobre QUEM é o parlamentar (partido, estado, cargo). Para gasto da cota de um parlamentar, use check_parliamentary_expenses.",
+            "description": "Resolve e valida o nome de um político para identificadores oficiais (Deputado Federal ou Senador). Usar sempre que um parlamentar for citado pelo nome.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -24,12 +39,12 @@ TOOLS_CATALOG: List[Dict[str, Any]] = [
                     },
                     "uf": {
                         "type": "string",
-                        "description": "Sigla da UF com 2 letras (ex: 'MG', 'DF'), se a frase a cita (ex: 'Fraga, do DF'). Desambigua homônimos; se não achar ninguém com a UF, o sistema tenta sem ela.",
+                        "description": "Sigla da UF com 2 letras (ex: 'MG', 'RS', 'SP'). ATENÇÃO: NÃO preencha se a frase estiver afirmando de qual estado o político é (ex: 'X é deputado de DF'). Preencha APENAS se a UF for mera referência para desambiguar homônimos.",
                     },
                     "cargo": {
                         "type": "string",
                         "enum": ["Deputado Federal", "Senador"],
-                        "description": "Preencha se a frase diz o cargo ('deputado' → Deputado Federal; 'senador' → Senador).",
+                        "description": "NÃO preencha se a frase estiver afirmando o cargo dele.",
                     },
                     "ano": {
                         "type": "integer",
@@ -44,7 +59,7 @@ TOOLS_CATALOG: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "resolve_proposition",
-            "description": "Identifica formalmente matérias legislativas (PL, PEC, MPV, PDL) ou busca por nome popular na Câmara, Senado ou Congresso.",
+            "description": "Identifica formalmente matérias legislativas (PL, PLP, PLN, PEC, MPV, PDL) ou busca por nome popular na Câmara, Senado ou Congresso.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -55,7 +70,7 @@ TOOLS_CATALOG: List[Dict[str, Any]] = [
                     },
                     "sigla_tipo": {
                         "type": "string",
-                        "description": "Sigla do tipo formal (ex: 'PL', 'PEC', 'MPV').",
+                        "description": "Sigla do tipo formal (ex: 'PL', 'PLN', 'PEC', 'MPV'). PLN é Projeto de Lei do Congresso Nacional (diretrizes orçamentárias, orçamento, créditos).",
                     },
                     "numero": {
                         "type": "integer",
@@ -95,6 +110,11 @@ TOOLS_CATALOG: List[Dict[str, Any]] = [
                         "type": "integer",
                         "description": "Quantidade de parlamentares no topo do ranking (padrão 1).",
                     },
+                    "ordem": {
+                        "type": "string",
+                        "enum": ["maior", "menor"],
+                        "description": "'maior' para quem mais gastou (padrão); 'menor' para quem menos gastou.",
+                    },
                 },
                 "required": ["casa", "ano"],
             },
@@ -126,7 +146,7 @@ TOOLS_CATALOG: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "check_parliamentary_expenses",
-            "description": "Gastos da cota parlamentar (CEAP/CEAPS): total, quantidade de lançamentos, mínimo, máximo e média de um parlamentar específico em um ano, ou de uma categoria de despesa (limites monetários). Usar para 'quanto o deputado X gastou em ANO'.",
+            "description": "Consulta gastos específicos, limites monetários ou reembolsos parlamentares por categoria de despesa ou nome do parlamentar.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -137,7 +157,7 @@ TOOLS_CATALOG: List[Dict[str, Any]] = [
                     },
                     "ano": {
                         "type": "integer",
-                        "description": "Ano de referência dos gastos.",
+                        "description": "Ano de referência dos gastos; deixe vazio se a alegação não cita um ano.",
                     },
                     "categoria": {
                         "type": "string",
@@ -145,14 +165,94 @@ TOOLS_CATALOG: List[Dict[str, Any]] = [
                     },
                     "parlamentar_id": {
                         "type": "string",
-                        "description": "Nome do parlamentar como escrito na frase (o sistema resolve o ID). Omitir se a consulta não é de um indivíduo.",
+                        "description": "ID ou nome do parlamentar se restrito a um indivíduo.",
+                    },
+                },
+                "required": ["casa"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_member_expenses",
+            "description": "Consulta quanto a cota parlamentar (CEAP/CEAPS) reembolsou a UM parlamentar específico em um ano, com total, detalhamento por categoria (combustíveis, passagens, etc.) e maiores lançamentos. É reembolso de despesa, não salário nem benefício pago em dinheiro.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "casa": {
+                        "type": "string",
+                        "enum": ["camara", "senado"],
+                        "description": "Casa legislativa do parlamentar ('camara' para deputado, 'senado' para senador).",
+                    },
+                    "ano": {
+                        "type": "integer",
+                        "description": "Ano de referência dos gastos (ex: 2023).",
+                    },
+                    "parlamentar": {
+                        "type": "string",
+                        "description": "Nome do parlamentar exatamente como citado na alegação. Nunca invente nem deduza um nome: se a alegação não cita nenhum parlamentar, não use esta tool. É resolvido para o ID oficial antes da consulta.",
                     },
                     "uf": {
                         "type": "string",
-                        "description": "Sigla da UF com 2 letras do parlamentar citado (ex: 'DF'), para desambiguar homônimos quando a frase a informa.",
+                        "description": "Sigla do estado citada na alegação (ex: 'DF'), usada só para desambiguar homônimos.",
+                    },
+                    "categoria": {
+                        "type": "string",
+                        "description": "Categoria da despesa quando a alegação cita uma (ex: 'Combustíveis', 'Passagens Aéreas').",
                     },
                 },
-                "required": ["casa", "ano"],
+                "required": ["casa", "ano", "parlamentar"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_proposition_tramitation_history",
+            "description": "Histórico de tramitação de uma proposição (PL, PEC, MPV...): órgãos e despachos pelos quais passou, se passou por comissão temática e a situação atual. Resolve a proposição pelo número/ano ou nome popular antes de consultar.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "casa": {
+                        "type": "string",
+                        "enum": ["camara", "senado", "congresso"],
+                        "description": "Casa legislativa da matéria ('congresso' tenta Câmara e depois Senado).",
+                    },
+                    "sigla_tipo": {"type": "string", "description": "Sigla do tipo formal (ex: 'PL', 'PLN', 'PEC')."},
+                    "numero": {"type": "integer", "description": "Número oficial da matéria (ex: 2630, 45)."},
+                    "ano": {"type": "integer", "description": "Ano de apresentação da matéria (ex: 2019)."},
+                    "termo_busca": {
+                        "type": "string",
+                        "description": "Nome popular da matéria quando não há número (ex: 'Marco Temporal'). Nunca invente.",
+                    },
+                },
+                "required": ["casa"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_bill_apensamentos",
+            "description": "Verifica se uma proposição tramita sozinha ou apensada (anexada) a outra proposição principal. Resolve a proposição pelo número/ano ou nome popular antes de consultar.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "casa": {
+                        "type": "string",
+                        "enum": ["camara", "senado", "congresso"],
+                        "description": "Casa legislativa da matéria ('congresso' tenta Câmara e depois Senado).",
+                    },
+                    "sigla_tipo": {"type": "string", "description": "Sigla do tipo formal (ex: 'PL', 'PLN', 'PEC')."},
+                    "numero": {"type": "integer", "description": "Número oficial da matéria (ex: 2630, 45)."},
+                    "ano": {"type": "integer", "description": "Ano de apresentação da matéria (ex: 2019)."},
+                    "termo_busca": {
+                        "type": "string",
+                        "description": "Nome popular da matéria quando não há número (ex: 'Marco Temporal'). Nunca invente.",
+                    },
+                },
+                "required": ["casa"],
             },
         },
     },
@@ -216,7 +316,7 @@ TOOLS_CATALOG.extend([
                     "topico": {
                         "type": "string",
                         "enum": list(INSTITUTIONAL_TOPICS),
-                        "description": "Tópico normativo que melhor corresponde à claim.",
+                        "description": "Tópico normativo que melhor corresponde à claim. Tópicos: " + _topic_glossary(),
                     },
                 },
                 "required": ["topico"],
@@ -282,11 +382,11 @@ TOOLS_CATALOG.extend([
                 "properties": {
                     "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado."},
                     "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
-                    "turno": {"type": "integer", "description": "1 ou 2. NÃO invente: se a claim não diz o turno, deixe vazio."},
+                    "turno": {"type": "integer", "description": "1 ou 2. NÃO invente: se a claim não diz o turno, deixe vazio. Deputados e senadores só têm 1º turno: o sistema completa."},
                     "uf": {"type": "string", "description": "UF da disputa (obrigatória para Governador, Senador e Deputados)."},
                     "top_n": {"type": "integer", "description": "Quantos candidatos listar (padrão 10)."},
                 },
-                "required": ["cargo", "ano", "turno"],
+                "required": ["cargo", "ano"],
             },
         },
     },
@@ -300,12 +400,12 @@ TOOLS_CATALOG.extend([
                 "properties": {
                     "nome_candidato": {"type": "string", "description": "Nome de urna ou civil do candidato (resolvido pelo sistema antes da consulta)."},
                     "ano": {"type": "integer", "description": "Ano da eleição (ex: 2022). NÃO invente."},
-                    "turno": {"type": "integer", "description": "1 ou 2. NÃO invente."},
+                    "turno": {"type": "integer", "description": "1 ou 2. NÃO invente: deixe vazio se a claim não diz. Deputados e senadores só têm 1º turno: o sistema completa."},
                     "cargo": {"type": "string", "enum": _CARGOS_ELEITORAIS, "description": "Cargo disputado, se a claim disser."},
                     "uf": {"type": "string", "description": "UF da disputa, para desambiguar homônimos."},
                     "numero": {"type": "integer", "description": "Número do candidato na urna, se citado."},
                 },
-                "required": ["nome_candidato", "ano", "turno"],
+                "required": ["nome_candidato", "ano"],
             },
         },
     },
@@ -476,32 +576,24 @@ TOOLS_CATALOG.extend([
 ])
 
 ROUTER_SYSTEM_PROMPT = (
-    "Você é o Agente Roteador do sistema de fact-checking político brasileiro. "
-    "Escolha a tool do catálogo que traz a evidência primária para a alegação.\n\n"
-    "COMO O SISTEMA TRABALHA:\n"
-    "- A entrada pode ser uma afirmação ou uma pergunta (ex: 'Quanto o deputado Fraga, do DF, gastou em 2022?'). "
-    "Trate a pergunta como uma alegação implícita e extraia dela os mesmos dados.\n"
-    "- Você escolhe UMA tool. Escreva nomes de pessoas e de matérias legislativas em texto, como aparecem na frase: "
-    "o sistema converte o nome em ID canônico ANTES de consultar o dado. Nunca informe nem invente um ID.\n"
-    "- Extraia da frase tudo o que ela diz: ano, casa, UF, cargo, número, turno. UF e cargo escritos na frase "
-    "(ex: 'Fraga, do DF', 'senador') entram como filtro: eles desambiguam homônimos, e se o filtro não achar ninguém o sistema tenta sem ele. "
-    "O que a frase NÃO diz, deixe vazio, nunca invente.\n\n"
-    "PARLAMENTAR EM MANDATO (Câmara/Senado) E COTA PARLAMENTAR:\n"
-    "- GASTO ou cota de um parlamentar específico em um ano (ex: 'quanto o deputado X gastou em 2023', 'X gastou mais de R$ 400 mil') "
-    "utilize 'check_parliamentary_expenses' com 'parlamentar_id' = nome como escrito na frase, 'casa' (deputado → camara; senador → senado), 'ano' e 'uf' se a frase disser.\n"
-    "- QUEM é o parlamentar (partido, estado, cargo, nome completo) utilize 'resolve_politician' com 'nome_busca' e, se a frase disser, 'uf' e 'cargo'. "
-    "Se a frase afirma um estado ou cargo errado ('Nikolas Ferreira é deputado do DF'), pode preencher mesmo assim: o sistema tenta sem o filtro e o julgador compara com o real.\n"
-    "- Ranking de gastos ou 'quem mais gastou a cota (CEAP/CEAPS)' utilize 'get_top_ceap_spender'.\n"
-    "- Se um tipo de gasto é permitido ou elegível (ex: consultoria, combustível) utilize 'list_expense_categories'.\n"
-    "- Limite monetário numérico de gasto por categoria, sem parlamentar (ex: 'R$ 500 por mês') utilize 'check_parliamentary_expenses'.\n\n"
-    "PROPOSIÇÕES E VOTAÇÕES NO CONGRESSO:\n"
-    "- Se a alegação cita uma proposição formal (PL, PEC, MPV, PDL) ou nome popular de matéria (ex: 'PEC da Reforma Tributária', 'Marco Temporal', 'PL das Fake News'), "
-    "chame 'resolve_proposition' com sigla, número, ano ou nome popular. NUNCA chame 'get_proposition_vote_result' direto: o ID da votação vem do resolvedor, e o sistema encadeia a votação.\n\n"
-    "NORMAS E FONTES:\n"
+    "Você é o Agente Roteador do sistema de fact-checking político brasileiro.\n"
+    "Seu papel é analisar a alegação (claim) fornecida e escolher a ferramenta (tool) "
+    "mais adequada do catálogo para iniciar a coleta de evidências primárias.\n\n"
+    "⚠️ REGRA DE OURO (Princípio II da Constituição - Resolução Canônica Obrigatória):\n"
+    "- NUNCA chame ferramentas de votações nominais diretamente com nomes em texto livre.\n"
+    "- Se a alegação cita uma proposição legislativa formal (PL, PLP, PLN, PEC, MPV, PDL) ou nome popular de matéria "
+    "(ex: 'PEC da Reforma Tributária', 'Marco Temporal', 'PL das Fake News'), você DEVE chamar OBRIGATORIAMENTE 'resolve_proposition' primeiro para obter o ID oficial.\n"
+    "  Numeração no formato 'número/ano' (ex: 'PLN 2/2025' = sigla 'PLN', numero 2, ano 2025) é proposição legislativa, não eleição nem campanha: use 'resolve_proposition' (casa 'congresso' para PLN, LDO e LOA).\n"
+    "- Se a alegação cita o nome de um político/parlamentar para checar dados individuais, você DEVE chamar 'resolve_politician' primeiro para obter o identificador oficial.\n"
+    "  ⚠️ ATENÇÃO PARA 'resolve_politician': Passe APENAS 'nome_busca' com o nome. NUNCA passe 'uf' ou 'cargo' se a alegação estiver justamente afirmando de qual estado ou cargo ele é (ex: 'Nikolas Ferreira é deputado de Distrito Federal'). Se passar 'uf': 'DF', a ferramenta buscará um Nikolas no DF, não achará e gerará um falso INCONCLUSIVO! Busque pelo nome para obter o estado real (MG) e permitir ao julgador cravar FALSO.\n"
+    "- Se a alegação pergunta sobre ranking de gastos ou 'quem mais gastou a cota (CEAP/CEAPS)', utilize 'get_top_ceap_spender' (ordem 'maior'; para 'quem menos gastou' ou 'menor gasto', ordem 'menor').\n"
+    "- Se a alegação questiona se um tipo de gasto é permitido ou elegível (ex: consultoria, combustível), utilize 'list_expense_categories'.\n"
+    "- Se a alegação pergunta quanto um parlamentar ESPECÍFICO gastou ou teve reembolsado da cota (ex: combustível, passagens, \"vale-combustível\"), utilize 'get_member_expenses' com o nome em 'parlamentar', a sigla do estado em 'uf' quando citada e SEMPRE a 'categoria' quando a alegação citar um tipo de gasto (\"vale-combustível\", gasolina e combustível = 'Combustíveis'; passagem = 'Passagens Aéreas'). A cota reembolsa despesas, não paga salário nem vale em dinheiro.\n"
+    "- Se a alegação trata da TRAMITAÇÃO de uma proposição (por quais comissões passou, em que fase está, onde está parada), utilize 'get_proposition_tramitation_history'; se pergunta se está APENSADA a outra, 'check_bill_apensamentos'. Passe a sigla, o número e o ano citados (ou o nome popular).\n"
+    "- Se a alegação cita limites monetários numéricos de gastos (ex: 'R$ 500 por mês'), utilize 'check_parliamentary_expenses'.\n"
     "- Se a alegação trata do que é PERMITIDO ou de COMO FUNCIONA um procedimento (regra, regimento, lei), utilize 'check_institutional_rule' com o tópico mais próximo. "
     "Regras e normas NÃO são resolvidas com tools de dados.\n"
-    "- Se a alegação afirma que um dado público pode (ou não) ser consultado numa fonte oficial (Portal da Transparência, TSE, Câmara), utilize 'check_data_source_coverage'.\n\n"
-    "ELEIÇÕES (TSE):\n"
+    "- Se a alegação afirma que um dado público pode (ou não) ser consultado numa fonte oficial (Portal da Transparência, TSE, Câmara), utilize 'check_data_source_coverage'.\n"
     "- Se a alegação trata do RESULTADO de uma eleição (quem ganhou, total de votos de um cargo, ranking), utilize 'get_election_result'; "
     "se trata dos votos ou da eleição de um CANDIDATO específico, utilize 'get_candidate_votes' (o nome é resolvido pelo sistema; use 'resolve_candidate' só para identificar o candidato). "
     "Para a SITUAÇÃO da candidatura (deferida, indeferida, renúncia, cassada) utilize 'check_candidate_status'; para o MOTIVO de um indeferimento ou cassação, 'check_disqualification_motive' (não precisam de turno). "
@@ -515,5 +607,5 @@ ROUTER_SYSTEM_PROMPT = (
     "ela faz a comparação inteira numa só chamada.\n"
     "NÃO invente ano nem turno: se a alegação não diz o ano ('na última eleição') ou o turno, deixe o parâmetro vazio, para que a evidência seja INCONCLUSIVO. "
     "Se a alegação é sobre o resultado da eleição de 2026, chame mesmo assim a tool de resultado com ano 2026: o sistema informa que os dados abertos do TSE ainda não foram atualizados. Votos de eleição são do TSE; votos em plenário do Congresso são das tools de votação.\n"
+    "Extraia todos os parâmetros possíveis (casa, número, ano, sigla, estado/UF) diretamente da frase."
 )
-

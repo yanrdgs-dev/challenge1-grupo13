@@ -27,6 +27,8 @@ from src.tools.gastos_tools import (
     get_top_ceap_spender,
     list_expense_categories,
     check_parliamentary_expenses,
+    get_member_expenses,
+    MemberExpensesResult,
 )
 
 
@@ -483,3 +485,152 @@ def test_expenses_senado_filters_by_cod_senador_with_real_schema(real_schema_cea
     assert resultado.qtd_lancamentos == 2
     assert resultado.valor_total == 1000.0
     assert resultado.amostra[0]["fornecedor"] in {"GOL", "IMOBILIARIA"}
+
+
+# ==============================================================================
+# get_member_expenses: gastos da cota de um parlamentar já resolvido
+# ==============================================================================
+
+def test_member_expenses_camara_total_e_categorias(mock_ceap_data_dir: Path):
+    """Caminho feliz: total, quantidade e detalhamento por categoria de um deputado."""
+    res = get_member_expenses(casa="camara", ano=2023, parlamentar_id="101", base_dir=mock_ceap_data_dir)
+    assert isinstance(res, MemberExpensesResult)
+    assert res.nome_parlamentar == "Pompeo de Mattos"
+    assert res.uf == "RS" and res.partido == "PDT"
+    assert res.qtd_lancamentos == 2
+    assert res.valor_total == 5500.0
+    por_cat = {c.categoria: c for c in res.por_categoria}
+    assert por_cat["COMBUSTÍVEIS E LUBRIFICANTES."].valor_total == 2500.0
+    assert por_cat["PASSAGEM AÉREA - SIGEPA"].valor_total == 3000.0
+    # ordenadas da maior para a menor
+    assert [c.valor_total for c in res.por_categoria] == [3000.0, 2500.0]
+
+
+def test_member_expenses_filtra_categoria_com_plural_e_acento(mock_ceap_data_dir: Path):
+    """'combustível' (singular, acentuado) casa com 'COMBUSTÍVEIS E LUBRIFICANTES.'"""
+    res = get_member_expenses(
+        casa="camara", ano=2023, parlamentar_id="101", categoria="combustível", base_dir=mock_ceap_data_dir
+    )
+    assert res.qtd_lancamentos == 1
+    assert res.valor_total == 2500.0
+    assert res.filtros_aplicados["categoria"] == "combustível"
+    assert len(res.por_categoria) == 1
+
+
+def test_member_expenses_lista_maiores_lancamentos_com_fornecedor(mock_ceap_data_dir: Path):
+    res = get_member_expenses(casa="camara", ano=2023, parlamentar_id="101", base_dir=mock_ceap_data_dir)
+    assert res.maiores_lancamentos[0]["valor"] == 3000.0
+    assert res.maiores_lancamentos[0]["fornecedor"] == "GOL LINHAS AEREAS"
+    assert res.maiores_lancamentos[0]["categoria"] == "PASSAGEM AÉREA - SIGEPA"
+
+
+def test_member_expenses_senado(mock_ceap_data_dir: Path):
+    res = get_member_expenses(
+        casa="senado", ano=2023, parlamentar_id="201", categoria="consultoria", base_dir=mock_ceap_data_dir
+    )
+    assert res.nome_parlamentar == "Senador Almeida"
+    assert res.qtd_lancamentos == 2
+    assert res.valor_total == 25000.0
+
+
+def test_member_expenses_parlamentar_sem_lancamentos(mock_ceap_data_dir: Path):
+    """ID inexistente: resposta vazia explícita, sem nome inventado."""
+    res = get_member_expenses(casa="camara", ano=2023, parlamentar_id="999", base_dir=mock_ceap_data_dir)
+    assert res.qtd_lancamentos == 0
+    assert res.valor_total == 0.0
+    assert res.nome_parlamentar is None
+    assert res.por_categoria == [] and res.maiores_lancamentos == []
+
+
+def test_member_expenses_categoria_sem_lancamentos(mock_ceap_data_dir: Path):
+    res = get_member_expenses(
+        casa="camara", ano=2023, parlamentar_id="101", categoria="helicóptero", base_dir=mock_ceap_data_dir
+    )
+    assert res.qtd_lancamentos == 0
+    assert res.valor_total == 0.0
+    # o parlamentar existe, só não tem gasto nessa categoria
+    assert res.nome_parlamentar == "Pompeo de Mattos"
+
+
+def test_member_expenses_ano_sem_dados(mock_ceap_data_dir: Path):
+    res = get_member_expenses(casa="camara", ano=1999, parlamentar_id="101", base_dir=mock_ceap_data_dir)
+    assert res.qtd_lancamentos == 0
+
+
+def test_member_expenses_casa_invalida(mock_ceap_data_dir: Path):
+    with pytest.raises(ValueError):
+        get_member_expenses(casa="prefeitura", ano=2023, parlamentar_id="101", base_dir=mock_ceap_data_dir)
+
+
+def test_member_expenses_exige_id_do_parlamentar(mock_ceap_data_dir: Path):
+    """Regra 2: sem ID canônico a tool não consulta (nada de nome em texto livre)."""
+    with pytest.raises(ValueError):
+        get_member_expenses(casa="camara", ano=2023, parlamentar_id="", base_dir=mock_ceap_data_dir)
+    with pytest.raises(ValueError):
+        get_member_expenses(casa="camara", ano=2023, parlamentar_id="Fraga", base_dir=mock_ceap_data_dir)
+
+
+def test_member_expenses_to_dict_e_serializavel(mock_ceap_data_dir: Path):
+    import json
+
+    res = get_member_expenses(casa="camara", ano=2023, parlamentar_id="101", base_dir=mock_ceap_data_dir)
+    data = json.loads(json.dumps(res.to_dict()))
+    assert data["por_categoria"][0]["categoria"] == "PASSAGEM AÉREA - SIGEPA"
+
+
+def test_check_parliamentary_expenses_without_year_looks_at_all_available_years(mock_ceap_data_dir: Path):
+    """'Teto fixo de R$ 500 por ano' não cita um ano: a auditoria cobre todos os anos da base."""
+    res = check_parliamentary_expenses(casa="camara", categoria="combustível", base_dir=mock_ceap_data_dir)
+    assert res.qtd_lancamentos == 2 and res.valor_max == 2500.0
+    assert "ano" not in res.filtros_aplicados
+
+
+def test_get_top_ceap_spender_menor_gasto_ordena_do_menor_para_o_maior(mock_ceap_data_dir: Path):
+    """'Qual deputado registrou o menor gasto?': a ordem crescente não devolve o maior por engano."""
+    res = get_top_ceap_spender(casa="camara", ano=2023, top_n=2, ordem="menor", base_dir=mock_ceap_data_dir)
+    assert [g.nome_parlamentar for g in res.gastadores] == ["Deputado Silva", "Deputada Maria"]
+    assert [g.valor_total for g in res.gastadores] == [150.0, 750.0]
+    assert res.ordem == "menor"
+
+
+def test_get_top_ceap_spender_padrao_continua_sendo_o_maior(mock_ceap_data_dir: Path):
+    res = get_top_ceap_spender(casa="camara", ano=2023, top_n=1, base_dir=mock_ceap_data_dir)
+    assert res.ordem == "maior" and res.gastadores[0].nome_parlamentar.startswith("Pompeo")
+
+
+def test_get_top_ceap_spender_menor_ignora_totais_nao_positivos(tmp_path: Path):
+    """Estorno que zera ou deixa o total negativo não é o 'menor gasto' (não houve gasto)."""
+    d = tmp_path / "data" / "processed" / "camara" / "ceap" / "ano=2023"
+    d.mkdir(parents=True)
+    pl.DataFrame({
+        "idDeputado": ["1", "2", "3"], "txNomeParlamentar": ["A", "B", "C"], "sgUF": ["SP"] * 3, "sgPartido": ["X"] * 3,
+        "numAno": [2023] * 3, "txtDescricao": ["COMBUSTÍVEIS"] * 3, "txtFornecedor": ["F"] * 3,
+        "vlrLiquido": [-50.0, 0.0, 80.0],
+    }).write_parquet(d / "ceap.parquet")
+
+    res = get_top_ceap_spender(casa="camara", ano=2023, top_n=3, ordem="menor", base_dir=tmp_path / "data" / "processed")
+    assert [g.nome_parlamentar for g in res.gastadores] == ["C"]
+
+
+def test_get_top_ceap_spender_rejeita_ordem_invalida(mock_ceap_data_dir: Path):
+    with pytest.raises(ValueError):
+        get_top_ceap_spender(casa="camara", ano=2023, ordem="aleatoria", base_dir=mock_ceap_data_dir)
+
+
+def test_get_top_ceap_spender_ignora_lancamentos_sem_id_de_parlamentar(tmp_path: Path):
+    """Verbas de liderança e de partido (ex.: 'PSL', 'LID.GOV-CD') não são parlamentares e não entram no ranking."""
+    d = tmp_path / "data" / "processed" / "camara" / "ceap" / "ano=2023"
+    d.mkdir(parents=True)
+    pl.DataFrame({
+        "ideCadastro": [101, None, 103], "txNomeParlamentar": ["Dep A", "PSL", "Dep C"], "sgUF": ["SP", "NA", "RJ"],
+        "sgPartido": ["X", None, "Y"], "numAno": [2023] * 3, "txtDescricao": ["COMBUSTÍVEIS"] * 3,
+        "txtFornecedor": ["F"] * 3, "vlrLiquido": [900.0, 5000.0, 100.0],
+    }).write_parquet(d / "ceap.parquet")
+    base = tmp_path / "data" / "processed"
+
+    maior = get_top_ceap_spender(casa="camara", ano=2023, top_n=5, base_dir=base)
+    menor = get_top_ceap_spender(casa="camara", ano=2023, top_n=5, ordem="menor", base_dir=base)
+
+    assert [g.nome_parlamentar for g in maior.gastadores] == ["Dep A", "Dep C"]
+    assert [g.nome_parlamentar for g in menor.gastadores] == ["Dep C", "Dep A"]
+    assert maior.total_parlamentares_analisados == 2

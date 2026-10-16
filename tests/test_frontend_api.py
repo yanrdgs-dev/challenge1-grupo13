@@ -158,7 +158,9 @@ def test_llm_outage_is_a_503_so_the_frontend_can_show_its_own_message():
 
 def test_session_and_user_ids_reach_the_trace(fake_check):
     client.post("/api/check", json={"query": CLAIM, "session_id": "chat-1", "user_id": "u-9"})
-    assert fake_check["recorder"].trace_attrs == [{"user_id": "u-9", "session_id": "chat-1"}]
+    attrs = fake_check["recorder"].trace_attrs[0]
+    assert (attrs["user_id"], attrs["session_id"]) == ("u-9", "chat-1")
+    assert attrs["tags"][0].startswith("llm_strategy:")       # o trace também é filtrável pela estratégia de LLM
 
 
 def test_request_without_ids_still_works(fake_check):

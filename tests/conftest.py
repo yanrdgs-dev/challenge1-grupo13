@@ -106,3 +106,19 @@ def _no_download_backoff(monkeypatch):
     waits = []
     monkeypatch.setattr(download_datasets, "_sleep", waits.append)
     return waits
+
+
+@pytest.fixture(autouse=True)
+def _router_one_stage_by_default(monkeypatch):
+    """Os testes do router assumem uma única chamada ao LLM; os de duas etapas ligam ROUTER_TWO_STAGE."""
+    monkeypatch.setenv("ROUTER_TWO_STAGE", "false")
+
+
+@pytest.fixture(autouse=True)
+def _blank_provider_keys(monkeypatch):
+    """Um .env local com chaves reais (carregado por load_dotenv) não pode virar chamada real em teste.
+
+    Os testes que precisam de chave a definem explicitamente (monkeypatch.setenv) depois desta fixture.
+    """
+    for name in ("GROQ_API_KEY", "DEEPSEEK_API_KEY", "OPENAI_API_KEY", "OLLAMA_API_KEY"):
+        monkeypatch.setenv(name, "")

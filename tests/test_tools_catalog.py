@@ -54,3 +54,54 @@ def test_normative_tools_are_described_as_rules_not_transactional_data():
 def test_router_prompt_explains_when_to_use_each_normative_tool():
     assert "check_institutional_rule" in ROUTER_SYSTEM_PROMPT
     assert "check_data_source_coverage" in ROUTER_SYSTEM_PROMPT
+
+
+def test_member_expenses_tool_requires_the_parliamentarian_and_takes_uf_and_category():
+    tool = _tool("get_member_expenses")
+    params = tool["parameters"]
+    assert set(params["required"]) == {"casa", "ano", "parlamentar"}
+    assert {"uf", "categoria"} <= set(params["properties"])
+    assert params["properties"]["casa"]["enum"] == ["camara", "senado"]
+    desc = tool["description"].lower()
+    assert "reembols" in desc  # cota é ressarcimento de despesa, não remuneração
+
+
+def test_router_prompt_routes_individual_expenses_to_member_tool():
+    assert "get_member_expenses" in ROUTER_SYSTEM_PROMPT
+
+
+def test_proposition_resolver_covers_congress_bills_such_as_pln():
+    """PLN (LDO/LOA/créditos) é matéria do Congresso Nacional: o roteador precisa saber mandá-la ao resolver."""
+    tool = _tool("resolve_proposition")
+    assert "PLN" in tool["description"]
+    assert "PLN" in tool["parameters"]["properties"]["sigla_tipo"]["description"]
+    assert "PLN" in ROUTER_SYSTEM_PROMPT and "resolve_proposition" in ROUTER_SYSTEM_PROMPT
+    # numeração com ano ("2/2025") separa número e ano; não é pedido de campanha eleitoral
+    assert "2/2025" in ROUTER_SYSTEM_PROMPT
+
+
+def test_tramitation_tools_are_in_the_catalog_and_prompt_and_take_a_formal_citation():
+    for name in ("get_proposition_tramitation_history", "check_bill_apensamentos"):
+        params = _tool(name)["parameters"]
+        assert {"casa", "sigla_tipo", "numero", "ano", "termo_busca"} <= set(params["properties"])
+        assert params["required"] == ["casa"]
+        assert name in ROUTER_SYSTEM_PROMPT
+    assert "tramitação" in _tool("get_proposition_tramitation_history")["description"].lower()
+    assert "apens" in _tool("check_bill_apensamentos")["description"].lower()
+
+
+def test_top_spender_tool_exposes_the_order_so_that_smallest_is_not_answered_with_largest():
+    props = _tool("get_top_ceap_spender")["parameters"]["properties"]
+    assert props["ordem"]["enum"] == ["maior", "menor"]
+    assert "get_top_ceap_spender" in ROUTER_SYSTEM_PROMPT and "menor" in ROUTER_SYSTEM_PROMPT
+
+
+def test_institutional_topic_description_glosses_every_topic_with_the_curated_summary():
+    """O 7B escolhe o tópico pelo nome do enum; a descrição precisa dizer do que cada um trata."""
+    from src.tools.knowledge_tools import INSTITUTIONAL_TOPICS, check_institutional_rule
+
+    desc = _tool("check_institutional_rule")["parameters"]["properties"]["topico"]["description"]
+    for topic in INSTITUTIONAL_TOPICS:
+        assert f"{topic}:" in desc, topic
+    summary = check_institutional_rule("tramitacao_pec_pln")["resposta_resumida"]
+    assert summary[:40] in desc

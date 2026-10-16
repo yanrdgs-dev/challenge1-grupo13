@@ -40,6 +40,7 @@ def test_every_catalog_tool_is_dispatched_and_none_is_simulated():
          patch.object(router_service, "get_top_ceap_spender", return_value=_dataclass_like({"ok": 1})), \
          patch.object(router_service, "list_expense_categories", return_value=_dataclass_like({"ok": 2})), \
          patch.object(router_service, "check_parliamentary_expenses", return_value=_dataclass_like({"ok": 3})), \
+         patch.object(router_service, "get_member_expenses", return_value=_dataclass_like({"ok": 4})), \
          patch.object(router_service, "get_proposition_vote_result", return_value=[]), \
          patch.object(router_service, "resolve_candidate", return_value={"encontrado": True, "sq_candidato": 1, "ambiguous": False}), \
          patch.object(router_service, "get_election_result", return_value={"encontrado": True}), \
@@ -47,7 +48,7 @@ def test_every_catalog_tool_is_dispatched_and_none_is_simulated():
          patch.object(router_service, "get_candidate_votes", return_value={"encontrado": True}):
         args = {
             "turno": 1, "nome_candidato": "Fulano",
-            "casa": "camara", "ano": 2023, "nome_busca": "Fulano", "id_proposicao": 10,
+            "casa": "camara", "ano": 2023, "nome_busca": "Fulano", "parlamentar": "Fulano", "id_proposicao": 10,
             "topico": "sabatina_stf",
             "fonte": "portal_transparencia", "tipo_dado": "licitacoes_dados_abertos",
         }
@@ -72,14 +73,14 @@ def test_get_top_ceap_spender_dispatch():
                       return_value=_dataclass_like({"gastadores": [{"posicao": 1}]})) as tool:
         result = execute_tool("get_top_ceap_spender", {"casa": "camara", "ano": 2023, "top_n": 3})
 
-    tool.assert_called_once_with(casa="camara", ano=2023, top_n=3)
+    tool.assert_called_once_with(casa="camara", ano=2023, top_n=3, ordem="maior")
     assert result == {"gastadores": [{"posicao": 1}]}
 
 
 def test_get_top_ceap_spender_default_top_n_is_one():
     with patch.object(router_service, "get_top_ceap_spender", return_value=_dataclass_like({})) as tool:
         execute_tool("get_top_ceap_spender", {"casa": "senado", "ano": 2022})
-    tool.assert_called_once_with(casa="senado", ano=2022, top_n=1)
+    tool.assert_called_once_with(casa="senado", ano=2022, top_n=1, ordem="maior")
 
 
 # ----------------------------- list_expense_categories ----------------------------- #
@@ -158,6 +159,64 @@ def test_expenses_with_unresolved_name_never_calls_data_tool(resolution, ambiguo
     assert result["status"] == "entidade_nao_resolvida"
     assert result["ambiguous"] is ambiguous
     assert result["parlamentar_informado"] == "Fulano"
+
+
+# ------------------------------- get_member_expenses ------------------------------- #
+
+def test_member_expenses_resolves_name_with_uf_before_querying(trace_recorder):
+    """'Fraga do DF': a UF vai para o resolvedor (regra 2) e a tool recebe só o ID canônico."""
+    with patch.object(router_service, "resolve_politician", return_value=RESOLVED_CAMARA) as resolver, \
+         patch.object(router_service, "get_member_expenses", return_value=_dataclass_like({"ok": 1})) as tool:
+        result = execute_tool(
+            "get_member_expenses",
+            {"casa": "camara", "ano": 2023, "parlamentar": "Fraga", "uf": "DF", "categoria": "Combustíveis"},
+        )
+
+    assert resolver.call_args.kwargs["nome_busca"] == "Fraga"
+    assert resolver.call_args.kwargs["uf"] == "DF"
+    assert resolver.call_args.kwargs["cargo"] == "Deputado Federal"
+    tool.assert_called_once_with(casa="camara", ano=2023, parlamentar_id="204379", categoria="Combustíveis")
+    assert result == {"ok": 1}
+    assert [n for n, _ in trace_recorder.tree()] == ["resolve_politician"]
+
+
+def test_member_expenses_numeric_id_skips_resolution():
+    with patch.object(router_service, "resolve_politician") as resolver, \
+         patch.object(router_service, "get_member_expenses", return_value=_dataclass_like({})) as tool:
+        execute_tool("get_member_expenses", {"casa": "camara", "ano": 2023, "parlamentar": "204379"})
+
+    resolver.assert_not_called()
+    assert tool.call_args.kwargs["parlamentar_id"] == "204379"
+    assert tool.call_args.kwargs["categoria"] is None
+
+
+def test_member_expenses_senado_resolves_to_cod_senador():
+    with patch.object(router_service, "resolve_politician", return_value=RESOLVED_SENADO) as resolver, \
+         patch.object(router_service, "get_member_expenses", return_value=_dataclass_like({})) as tool:
+        execute_tool("get_member_expenses", {"casa": "senado", "ano": 2023, "parlamentar": "Beltrana"})
+
+    assert resolver.call_args.kwargs["cargo"] == "Senador"
+    assert tool.call_args.kwargs["parlamentar_id"] == "5012"
+
+
+@pytest.mark.parametrize("resolution, ambiguous", [(NOT_FOUND, False), (AMBIGUOUS, True)])
+def test_member_expenses_unresolved_name_never_calls_data_tool(resolution, ambiguous):
+    with patch.object(router_service, "resolve_politician", return_value=resolution), \
+         patch.object(router_service, "get_member_expenses") as tool:
+        result = execute_tool("get_member_expenses", {"casa": "camara", "ano": 2023, "parlamentar": "Fulano"})
+
+    tool.assert_not_called()
+    assert result["status"] == "entidade_nao_resolvida"
+    assert result["ambiguous"] is ambiguous
+    assert result["parlamentar_informado"] == "Fulano"
+
+
+def test_member_expenses_without_parliamentarian_is_invalid_params():
+    with patch.object(router_service, "get_member_expenses") as tool:
+        result = execute_tool("get_member_expenses", {"casa": "camara", "ano": 2023})
+
+    tool.assert_not_called()
+    assert result["status"] == "parametros_invalidos"
 
 
 # ---------------------------- get_proposition_vote_result ---------------------------- #
@@ -265,19 +324,19 @@ def test_unknown_topic_is_rejected_not_invented():
 # --------------------- validação de parâmetros antes de executar (3.6) --------------------- #
 
 def test_missing_required_param_returns_clear_evidence_and_never_calls_the_tool():
-    with patch.object(router_service, "check_parliamentary_expenses") as tool:
-        result = execute_tool("check_parliamentary_expenses", {"casa": "camara", "categoria": "Alimentação"})
+    with patch.object(router_service, "get_top_ceap_spender") as tool:
+        result = execute_tool("get_top_ceap_spender", {"casa": "camara"})
 
     tool.assert_not_called()
     assert result["status"] == "parametros_invalidos"
     assert "ano" in result["erro"]
-    assert result["tool"] == "check_parliamentary_expenses"
+    assert result["tool"] == "get_top_ceap_spender"
 
 
 def test_arguments_are_normalized_before_dispatch():
     with patch.object(router_service, "get_top_ceap_spender", return_value=_dataclass_like({})) as tool:
         execute_tool("get_top_ceap_spender", {"casa": "Câmara", "ano": "2023"})
-    tool.assert_called_once_with(casa="camara", ano=2023, top_n=1)
+    tool.assert_called_once_with(casa="camara", ano=2023, top_n=1, ordem="maior")
 
 
 def test_invalid_enum_never_reaches_the_curated_base():
@@ -289,7 +348,7 @@ def test_invalid_enum_never_reaches_the_curated_base():
 
 def test_invalid_params_make_the_verdict_inconclusive_and_flag_the_tool_span(trace_recorder):
     chat = ChatResult(content="", tool_calls=[
-        {"name": "check_parliamentary_expenses", "arguments": {"casa": "camara", "categoria": "Alimentação"}}])
+        {"name": "get_top_ceap_spender", "arguments": {"casa": "camara"}}])
     judge = {"veredito": "VERDADEIRO", "confianca": "ALTA", "fontes_primarias": ["x"],
              "justificativa": "Confirmado.", "tempo_julgamento_ms": 1.0}
     with patch.object(router_service, "llm_client") as llm, \
@@ -298,5 +357,82 @@ def test_invalid_params_make_the_verdict_inconclusive_and_flag_the_tool_span(tra
         resp = TestClient(router_service.app).post("/check", json={"claim": "Deputados podem pedir reembolso de alimentação."})
 
     assert resp.json()["veredito"] == "INCONCLUSIVO"            # evidência inválida nunca sustenta veredito
-    update = trace_recorder.merged_updates("tool.check_parliamentary_expenses")
+    update = trace_recorder.merged_updates("tool.get_top_ceap_spender")
     assert update["level"] == "WARNING" and "ano" in update["status_message"]
+
+
+# ----------------------- tramitação e apensamento (resolve a proposição antes, regra 2) ----------------------- #
+
+PROP_CAMARA = {"id_proposicao": 2196833, "sigla_tipo": "PEC", "numero": 45, "ano": 2019, "casa": "camara",
+               "ambiguous": False, "candidatos": []}
+PROP_SENADO = {**PROP_CAMARA, "id_proposicao": 137999, "casa": "senado"}
+PROP_NONE = {"id_proposicao": None, "casa": "camara", "ambiguous": False, "candidatos": []}
+PROP_AMBIGUOUS = {"id_proposicao": None, "casa": "camara", "ambiguous": True,
+                  "candidatos": [{"id_proposicao": 1}, {"id_proposicao": 2}]}
+PEC_ARGS = {"casa": "camara", "sigla_tipo": "PEC", "numero": 45, "ano": 2019}
+
+
+@pytest.mark.parametrize("tool, function", [
+    ("get_proposition_tramitation_history", "get_proposition_tramitation_history"),
+    ("check_bill_apensamentos", "check_bill_apensamentos"),
+])
+def test_tramitation_tools_resolve_the_proposition_then_query_with_the_canonical_id(tool, function):
+    with patch.object(router_service, "resolve_proposition", return_value=PROP_CAMARA) as resolver, \
+         patch.object(router_service, function, return_value={"encontrado": True}) as data_tool:
+        result = execute_tool(tool, PEC_ARGS)
+
+    assert resolver.call_args.kwargs["numero"] == 45 and resolver.call_args.kwargs["sigla_tipo"] == "PEC"
+    assert data_tool.call_args.kwargs["id_proposicao"] == "2196833"
+    assert data_tool.call_args.kwargs["casa"] == "camara"
+    assert result["encontrado"] is True
+    assert result["entidade_resolvida"]["id_proposicao"] == 2196833
+
+
+def test_tramitation_with_congresso_tries_camara_then_senado():
+    with patch.object(router_service, "resolve_proposition", side_effect=[PROP_NONE, PROP_SENADO]) as resolver, \
+         patch.object(router_service, "get_proposition_tramitation_history", return_value={"encontrado": True}) as tool:
+        execute_tool("get_proposition_tramitation_history", {**PEC_ARGS, "casa": "congresso"})
+
+    assert [c.kwargs["casa"] for c in resolver.call_args_list] == ["camara", "senado"]
+    assert tool.call_args.kwargs["casa"] == "senado" and tool.call_args.kwargs["id_proposicao"] == "137999"
+
+
+@pytest.mark.parametrize("resolution, ambiguous", [(PROP_NONE, False), (PROP_AMBIGUOUS, True)])
+@pytest.mark.parametrize("tool", ["get_proposition_tramitation_history", "check_bill_apensamentos"])
+def test_tramitation_tools_never_query_data_for_an_unresolved_proposition(tool, resolution, ambiguous):
+    with patch.object(router_service, "resolve_proposition", return_value=resolution), \
+         patch.object(router_service, tool) as data_tool:
+        result = execute_tool(tool, PEC_ARGS)
+
+    data_tool.assert_not_called()
+    assert result["status"] == "entidade_nao_resolvida" and result["ambiguous"] is ambiguous
+
+
+def test_tramitation_tool_without_any_way_to_identify_the_proposition_is_invalid():
+    result = execute_tool("get_proposition_tramitation_history", {"casa": "camara"})
+    assert result["status"] in ("entidade_nao_resolvida", "parametros_invalidos")
+
+
+def test_tramitation_data_missing_in_parquet_is_not_a_fake_result():
+    with patch.object(router_service, "resolve_proposition", return_value=PROP_CAMARA), \
+         patch.object(router_service, "get_proposition_tramitation_history", side_effect=ValueError("sem dados")):
+        result = execute_tool("get_proposition_tramitation_history", PEC_ARGS)
+    assert result.get("encontrado") is False and "erro" in result
+
+
+def test_expenses_without_year_is_dispatched_without_year():
+    with patch.object(router_service, "check_parliamentary_expenses", return_value=_dataclass_like({"ok": 1})) as tool:
+        result = execute_tool("check_parliamentary_expenses", {"casa": "camara", "categoria": "Combustíveis"})
+
+    assert result == {"ok": 1}
+    assert tool.call_args.kwargs["ano"] is None
+
+
+@pytest.mark.parametrize("given, expected", [(None, "maior"), ("menor", "menor"), ("Maior", "maior")])
+def test_top_spender_order_is_dispatched(given, expected):
+    args = {"casa": "camara", "ano": 2022}
+    if given:
+        args["ordem"] = given
+    with patch.object(router_service, "get_top_ceap_spender", return_value=_dataclass_like({"ok": 1})) as tool:
+        execute_tool("get_top_ceap_spender", args)
+    assert tool.call_args.kwargs["ordem"] == expected

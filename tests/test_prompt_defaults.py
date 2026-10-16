@@ -111,7 +111,9 @@ def test_router_uses_the_system_prompt_from_langfuse_plus_the_guard_hint():
         llm.chat.return_value = ChatResult(content="", tool_calls=[], provider="ollama", model="m")
         router_service._chat_for_routing("uma claim", [], hint=" +DICA")
     system = llm.chat.call_args.args[0][0]
-    assert system == {"role": "system", "content": "SISTEMA REMOTO +DICA"}
+    assert system["role"] == "system"
+    assert system["content"].startswith("SISTEMA REMOTO +DICA")           # prompt remoto + dica + data de hoje
+    assert "Data de hoje:" in system["content"]
     assert getter.call_args.args[:2] == (PROMPT_ROUTER_SYSTEM, ROUTER_SYSTEM_PROMPT)
 
 
@@ -119,7 +121,8 @@ def test_router_works_with_the_local_prompt_by_default():
     with patch.object(router_service, "llm_client") as llm:
         llm.chat.return_value = ChatResult(content="", tool_calls=[], provider="ollama", model="m")
         router_service._chat_for_routing("uma claim", [])
-    assert llm.chat.call_args.args[0][0]["content"] == ROUTER_SYSTEM_PROMPT
+    content = llm.chat.call_args.args[0][0]["content"]
+    assert content.startswith(ROUTER_SYSTEM_PROMPT) and "Data de hoje:" in content
 
 
 # ------------------------- publicação no Langfuse (4.2) ------------------------- #
@@ -199,3 +202,19 @@ def test_judge_template_answers_value_questions_inconclusive_with_the_numbers():
 def test_judge_template_explains_zero_launches_as_no_records_not_as_a_refutation():
     text = JUDGE_PROMPT_TEMPLATE.lower()
     assert "qtd_lancamentos" in text and "mandato" in text
+
+def test_judge_prompt_treats_evidence_about_another_subject_as_inconclusive():
+    """Regra de um tópico diferente (ex.: cota não compra imóveis) não contradiz uma claim sobre alimentação."""
+    from src.prompts.defaults import JUDGE_PROMPT_TEMPLATE
+
+    text = JUDGE_PROMPT_TEMPLATE.lower()
+    assert "mesmo assunto" in text
+    assert "outro assunto" in text and "inconclusivo" in text
+
+
+def test_judge_prompt_requires_the_houses_to_agree_when_the_claim_does_not_say_which_one():
+    from src.prompts.defaults import JUDGE_PROMPT_TEMPLATE
+
+    assert "votacoes_por_casa" in JUDGE_PROMPT_TEMPLATE
+    text = JUDGE_PROMPT_TEMPLATE.lower()
+    assert "divergirem" in text and "inconclusivo" in text

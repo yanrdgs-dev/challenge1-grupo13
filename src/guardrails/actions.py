@@ -58,6 +58,20 @@ GENERIC_PROPOSITIONS = [
     "projeto de lei sobre inteligencia artificial",
 ]
 
+# Tempo relativo que a data de hoje NÃO resolve: "atual" ou "última" apontando para um estado ou evento que uma
+# consulta teria de descobrir (membros, presidente, relator, última sabatina). "Este ano", "atualmente" e "atual
+# legislatura" seguem para o roteamento, que recebe a data de hoje. Roda sobre texto sem acentos, em minúsculas.
+_RELATIVE_TIME = re.compile(
+    r"\batua(?:l|is)\s+(?:membros?|titulares?|presidente|vice[- ]?presidente|lider(?:es)?|relator(?:a)?|"
+    r"ministr[oa]s?|ocupante|composicao|integrantes?)\b|"
+    r"\bultim[ao]s? (?:sabatina|votacao|sessao|reuniao)\b"
+)
+
+
+def _strip_accents(text: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+
+
 # Claims eleitorais (Fase 1, passo 5): o resultado depende de ano e turno, que a claim precisa trazer.
 # Os padrões rodam sobre o texto sem acentos e em minúsculas.
 _YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
@@ -143,6 +157,20 @@ def check_input_specificity(claim: str) -> Dict[str, Any]:
             "reason": (
                 "A alegação refere-se a um evento futuro ou ainda não ocorrido ('em breve'). "
                 "Conforme a Regra 3 da Constituição do Agente, previsões legislativas não são fatos consumados verificáveis."
+            ),
+            "rule_matched": "guarda_de_especificidade",
+        }
+
+    # 2b. Referência temporal relativa que a alegação não ancora ("os atuais membros", "na última sabatina"):
+    # o dado muda com o tempo e não há ano para consultar (Regra 3).
+    if _RELATIVE_TIME.search(_strip_accents(lower)):
+        return {
+            "is_valid": False,
+            "verdict": "INCONCLUSIVO",
+            "reason": (
+                "A alegação usa uma referência temporal relativa que exigiria descobrir um estado ou evento "
+                "('atuais membros', 'atual presidente', 'última sabatina/votação/sessão'). Conforme a Regra 3 da "
+                "Constituição do Agente, informe o ano ou a data."
             ),
             "rule_matched": "guarda_de_especificidade",
         }

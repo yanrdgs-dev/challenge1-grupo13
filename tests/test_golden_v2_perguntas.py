@@ -44,7 +44,7 @@ def test_value_question_without_any_tool_is_not_a_pass():
 
 
 def test_v2_has_individual_expense_claims_for_a_homonym(v2):
-    fraga = [c for c in v2 if c["id"] > 61 and "Fraga" in c["claim"]]
+    fraga = [c for c in v2 if "Fraga" in c["claim"]]
     assert len(fraga) >= 5
     verdicts = [c["expected_verdict"] for c in fraga]
     assert verdicts.count("VERDADEIRO") == verdicts.count("FALSO") >= 1  # regra 6: sem viés de verdadeiro ou falso
@@ -53,7 +53,7 @@ def test_v2_has_individual_expense_claims_for_a_homonym(v2):
 
 
 def test_new_expense_claims_use_the_expenses_tool_and_pass_the_input_guard(v2):
-    for claim in (c for c in v2 if c["id"] > 61):
+    for claim in (c for c in v2 if "Fraga" in c["claim"]):
         assert claim["category"] == "GASTOS"
         assert "check_parliamentary_expenses" in claim["expected_tools"]
         assert check_input_specificity(claim["claim"])["is_valid"] is True

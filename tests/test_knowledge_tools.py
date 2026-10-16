@@ -163,3 +163,32 @@ def test_golden_dataset_claim_21_lai_gratuidade():
     cov_res = check_data_source_coverage("portal_transparencia", "licitacoes_dados_abertos")
     assert cov_res["disponivel"] is True
     assert "gratuito" in cov_res["observacao"].lower()
+
+
+def test_ceaps_passagens_topic_is_covered_and_cites_the_senate_regulation():
+    """Golden 17: o Senado NÃO proibiu a CEAPS para passagens aéreas."""
+    assert "ceaps_passagens" in INSTITUTIONAL_TOPICS
+    result = check_institutional_rule("ceaps_passagens")
+    assert result["encontrado"] is True
+    assert result["veredito_regra"] == "permitido"
+    assert "passagens" in result["resposta_resumida"].lower()
+    assert "Senado" in result["fonte_normativa"] and "CEAPS" in result["fonte_normativa"]
+
+
+def test_pec_and_pln_tramitation_topic_explains_both_paths():
+    assert "tramitacao_pec_pln" in INSTITUTIONAL_TOPICS
+    result = check_institutional_rule("tramitacao_pec_pln")
+    assert result["encontrado"] is True and result["veredito_regra"] == "tramitacao_distinta"
+    text = (result["resposta_resumida"] + " " + result["fundamentacao"]).lower()
+    for must in ("dois turnos", "três quintos", "sanção", "comissão mista de orçamento", "pln"):
+        assert must in text, must
+    assert "art. 60" in result["fonte_normativa"] and "art. 166" in result["fonte_normativa"]
+
+
+def test_cota_alimentacao_topic_is_covered_and_permitted():
+    """Golden 11: o deputado pode pedir reembolso de alimentação pela cota."""
+    assert "cota_alimentacao" in INSTITUTIONAL_TOPICS
+    result = check_institutional_rule("cota_alimentacao")
+    assert result["encontrado"] is True and result["veredito_regra"] == "permitido"
+    assert "alimenta" in result["resposta_resumida"].lower()
+    assert "Ato da Mesa" in result["fonte_normativa"]

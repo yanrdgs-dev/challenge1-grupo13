@@ -20,7 +20,7 @@ def bad(tool, args):
 # ------------------------------- obrigatórios ------------------------------- #
 
 def test_missing_required_param_is_reported_by_name():
-    problem = bad("check_parliamentary_expenses", {"casa": "camara", "categoria": "Alimentação"})
+    problem = bad("get_top_ceap_spender", {"casa": "camara"})
     assert "ano" in problem and "obrigat" in problem.lower()
 
 

@@ -83,7 +83,7 @@ def test_tool_span_records_arguments_and_evidence(trace_recorder):
         router_client.post("/check", json={"claim": CLAIM})
 
     tool = trace_recorder.get("tool.resolve_politician")
-    assert tool["kwargs"]["input"] == {"nome_busca": "Fulano", "uf": "SP", "cargo": "Deputado Federal"}  # UF e cargo da claim
+    assert tool["kwargs"]["input"] == {"nome_busca": "Fulano"}
     assert trace_recorder.merged_updates("tool.resolve_politician")["output"] == {"ideCadastro": 1}
 
 
@@ -111,9 +111,13 @@ def test_tool_error_is_recorded_and_flow_continues(trace_recorder):
 
 
 def test_output_rail_override_is_recorded(trace_recorder):
+    no_ids = {"ideCadastro": None, "cod_senador": None, "sq_candidato": None, "ambiguous": False}
     with patch.object(router_service, "llm_client") as llm, \
-         patch.object(router_service, "_call_judge", return_value={**JUDGE_OK, "veredito": "FALSO"}):
-        llm.chat.return_value = _router_chat([])  # sem tool
+         patch.object(router_service, "execute_tool", return_value=no_ids), \
+         patch.object(router_service, "_call_judge",
+                      return_value={**JUDGE_OK, "veredito": "FALSO", "fontes_primarias": []}):
+        # tool escolhida, mas sem evidência nem fonte atribuível: o juiz diz FALSO e o rail de saída barra
+        llm.chat.return_value = _router_chat([{"name": "resolve_politician", "arguments": {"nome_busca": "Fulano"}}])
         resp = router_client.post("/check", json={"claim": CLAIM})
 
     assert resp.json()["veredito"] == "INCONCLUSIVO"
@@ -377,3 +381,16 @@ def test_service_shutdown_survives_langfuse_failure(service):
     with patch("src.observability.tracing._get_client", side_effect=Exception("sem rede")):
         with TestClient(service.app):
             pass
+
+
+def test_check_trace_is_tagged_with_the_llm_strategy_and_provider_chain(trace_recorder):
+    with patch.object(router_service, "llm_client") as llm, \
+         patch.object(router_service, "_call_judge", return_value=JUDGE_OK):
+        llm.strategy = "round_robin"
+        llm.providers = ["ollama", "groq", "deepseek"]
+        llm.chat.return_value = _router_chat([])
+        router_client.post("/check", json={"claim": CLAIM})
+
+    attrs = trace_recorder.trace_attrs[-1]
+    assert attrs["tags"] == ["llm_strategy:round_robin"]
+    assert attrs["metadata"] == {"llm_providers": "ollama,groq,deepseek"}

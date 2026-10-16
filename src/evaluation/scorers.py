@@ -21,11 +21,13 @@ INCONCLUSIVE = "INCONCLUSIVO"
 _INSTITUTIONAL = {"check_institutional_rule", "check_data_source_coverage"}
 ALLOWED_TOOLS: Dict[str, FrozenSet[str]] = {
     "GASTOS": frozenset(
-        {"get_top_ceap_spender", "list_expense_categories", "check_parliamentary_expenses", "resolve_politician"}
+        {"get_top_ceap_spender", "list_expense_categories", "check_parliamentary_expenses", "get_member_expenses",
+         "resolve_politician"}
         | _INSTITUTIONAL
     ),
     "VOTACOES": frozenset(
-        {"resolve_proposition", "get_proposition_vote_result", "resolve_politician"} | _INSTITUTIONAL
+        {"resolve_proposition", "get_proposition_vote_result", "get_proposition_tramitation_history",
+         "check_bill_apensamentos", "resolve_politician"} | _INSTITUTIONAL
     ),
 }
 
