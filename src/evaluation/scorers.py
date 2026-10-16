@@ -94,7 +94,11 @@ def inconclusive_without_tool(output: Dict[str, Any], expected: Dict[str, Any]) 
     tool_allowed = expected.get("inconclusive_reason") == "evidencia_vazia" and evidence_failed(
         output.get("evidencia_coletada")
     )
-    if output.get("tool_usada") and not tool_allowed:
+    if expected.get("inconclusive_reason") == "pergunta_de_valor":
+        # Pergunta de valor ("Quanto ... gastou?"): não há o que checar, mas a tool tem de rodar com evidência utilizável.
+        if not output.get("tool_usada") or evidence_failed(output.get("evidencia_coletada")):
+            problems.append("pergunta de valor sem tool ou sem evidência utilizável")
+    elif output.get("tool_usada") and not tool_allowed:
         problems.append(f"tool chamada: {output['tool_usada']}")
     return Score("inconclusive_without_tool", 0.0 if problems else 1.0, "; ".join(problems))
 

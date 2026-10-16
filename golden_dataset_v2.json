@@ -528,5 +528,63 @@
     "target_entity": "Tribunal Superior Eleitoral (TSE)",
     "expected_tools": [],
     "inconclusive_reason": "subespecificada"
+  },
+  {
+    "id": 62,
+    "claim": "Em 2023, o deputado Fraga, do DF, gastou mais de R$ 400 mil da cota parlamentar.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados",
+    "expected_tools": [
+      "check_parliamentary_expenses",
+      "resolve_politician"
+    ]
+  },
+  {
+    "id": 63,
+    "claim": "Em 2023, o deputado Fraga, do DF, gastou mais de R$ 500 mil da cota parlamentar.",
+    "expected_verdict": "FALSO",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados",
+    "expected_tools": [
+      "check_parliamentary_expenses",
+      "resolve_politician"
+    ]
+  },
+  {
+    "id": 64,
+    "claim": "Em 2023, o deputado Fraga gastou mais de R$ 400 mil da cota parlamentar.",
+    "expected_verdict": "INCONCLUSIVO",
+    "inconclusive_reason": "evidencia_vazia",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados",
+    "expected_tools": [
+      "check_parliamentary_expenses",
+      "resolve_politician"
+    ]
+  },
+  {
+    "id": 65,
+    "claim": "Quanto o deputado Fraga, do DF, gastou da cota parlamentar em 2023?",
+    "expected_verdict": "INCONCLUSIVO",
+    "inconclusive_reason": "pergunta_de_valor",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados",
+    "expected_tools": [
+      "check_parliamentary_expenses",
+      "resolve_politician"
+    ]
+  },
+  {
+    "id": 66,
+    "claim": "Quanto o deputado Alberto Fraga, do DF, gastou da cota parlamentar em 2022?",
+    "expected_verdict": "INCONCLUSIVO",
+    "inconclusive_reason": "pergunta_de_valor",
+    "category": "GASTOS",
+    "target_entity": "Câmara dos Deputados",
+    "expected_tools": [
+      "check_parliamentary_expenses",
+      "resolve_politician"
+    ]
   }
 ]

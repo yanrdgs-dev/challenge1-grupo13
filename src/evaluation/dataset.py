@@ -12,7 +12,7 @@ VALID_VERDICTS = ("VERDADEIRO", "FALSO", "INCONCLUSIVO")
 VALID_CATEGORIES = ("GASTOS", "VOTACOES", "ELEICOES")
 # Por que uma claim esperada INCONCLUSIVO o é: sem ponto de ancoragem (nenhuma tool deve rodar) ou porque a tool
 # rodou e não trouxe evidência (candidato ambíguo ou inexistente, dado ainda não publicado).
-VALID_INCONCLUSIVE_REASONS = ("subespecificada", "evidencia_vazia")
+VALID_INCONCLUSIVE_REASONS = ("subespecificada", "evidencia_vazia", "pergunta_de_valor")
 
 
 class DatasetSyncError(RuntimeError):
