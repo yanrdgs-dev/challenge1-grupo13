@@ -73,7 +73,7 @@ def test_v2_covers_the_duplicate_record_house_senator_and_descriptive_question_f
     assert len(pec) == 2 and len(senadora) == 2 and len(pergunta) == 1
     for group in (pec, senadora):  # regra 6: um VERDADEIRO e um FALSO de cada
         assert sorted(c["expected_verdict"] for c in group) == ["FALSO", "VERDADEIRO"]
-    assert all("na Câmara" in c["claim"] for c in pec)  # a Casa dita o caminho do registro duplicado
+    assert all("na câmara" in c["claim"].lower() for c in pec)  # a Casa dita o caminho do registro duplicado
     assert all(c["expected_tools"] == ["get_member_expenses"] for c in senadora)
     assert "resolve_proposition" in pergunta[0]["expected_tools"]
 

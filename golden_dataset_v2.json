@@ -668,5 +668,59 @@
     "expected_tools": [
       "get_member_expenses"
     ]
+  },
+  {
+    "id": 76,
+    "claim": "Na Câmara, a PEC 45/2019 foi aprovada em segundo turno com 375 votos favoráveis.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "VOTACOES",
+    "target_entity": "Câmara dos Deputados",
+    "expected_tools": [
+      "resolve_proposition",
+      "get_proposition_vote_result"
+    ]
+  },
+  {
+    "id": 77,
+    "claim": "Na Câmara, a PEC 45/2019 foi aprovada em segundo turno com apenas 300 votos favoráveis.",
+    "expected_verdict": "FALSO",
+    "category": "VOTACOES",
+    "target_entity": "Câmara dos Deputados",
+    "expected_tools": [
+      "resolve_proposition",
+      "get_proposition_vote_result"
+    ]
+  },
+  {
+    "id": 78,
+    "claim": "Em 2023, a senadora Damares Alves, do DF, gastou mais de R$ 200 mil da cota parlamentar (CEAPS).",
+    "expected_verdict": "VERDADEIRO",
+    "category": "GASTOS",
+    "target_entity": "Senado Federal",
+    "expected_tools": [
+      "get_member_expenses"
+    ]
+  },
+  {
+    "id": 79,
+    "claim": "Em 2023, a senadora Damares Alves, do DF, gastou mais de R$ 300 mil da cota parlamentar (CEAPS).",
+    "expected_verdict": "FALSO",
+    "category": "GASTOS",
+    "target_entity": "Senado Federal",
+    "expected_tools": [
+      "get_member_expenses"
+    ]
+  },
+  {
+    "id": 80,
+    "claim": "O que é o PL 2630/2020?",
+    "expected_verdict": "INCONCLUSIVO",
+    "inconclusive_reason": "pergunta_de_valor",
+    "category": "VOTACOES",
+    "target_entity": "Congresso Nacional",
+    "expected_tools": [
+      "resolve_proposition",
+      "get_proposition_vote_result"
+    ]
   }
 ]
