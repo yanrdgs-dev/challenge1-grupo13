@@ -254,3 +254,30 @@ def test_rules_category_hints_the_normative_tool(claim, tool):
 def test_popular_proposition_name_alone_decides_the_proposicoes_category():
     assert rule_category("O fim da escala 6x1 foi aprovado pelo Senado?") == "PROPOSICOES"
     assert rule_category("A escala de plantão dos médicos mudou?") is None
+
+
+# ---- gasto da cota de um parlamentar nomeado: a redação decide a tool, não o modelo da rodada ----
+
+@pytest.mark.parametrize("claim", [
+    "Quanto o deputado Fraga, do DF, gastou da cota parlamentar em 2023?",
+    "Quanto o deputado Nikolas Ferreira gastou da cota parlamentar em 2023?",
+    "Em 2023, o deputado Fraga, do DF, gastou mais de R$ 400 mil da cota parlamentar.",
+    "Em 2023, a senadora Damares Alves, do DF, gastou mais de R$ 200 mil da cota parlamentar (CEAPS).",
+    "Quanto o deputado federal Silva gastou em 2023?",
+    "Quanto o deputado Tiririca gastou em 2024 com combustível?",
+    "Quanto o deputado Fraga gastou da cota parlamentar?",   # sem ano: a tool devolve "ano ausente", melhor que só identificar
+])
+def test_named_member_expense_wording_hints_get_member_expenses(claim):
+    assert hinted_tool(claim) == "get_member_expenses"
+    assert "get_member_expenses" in (tool_hint(claim) or "")
+
+
+@pytest.mark.parametrize("claim", [
+    "Em 2023, o deputado que mais gastou a cota parlamentar (CEAP) foi Pompeo de Mattos (PDT-RS).",   # ranking
+    "O deputado Fraga gastou R$ 1 milhão na campanha de 2022.",                                       # TSE
+    "Todo deputado federal tem um teto fixo de R$ 500,00 por ano para gastar com combustível pela cota parlamentar.",
+    "Os deputados gastaram R$ 4 bilhões em 2023.",                                                    # ninguém nomeado
+    "O deputado Fraga votou a favor do PL 2630/2020 em 2023.",                                        # não é gasto
+])
+def test_expense_hint_does_not_fire_for_rankings_campaigns_general_claims_or_other_subjects(claim):
+    assert hinted_tool(claim) != "get_member_expenses"
