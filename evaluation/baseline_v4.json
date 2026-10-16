@@ -1,0 +1,84 @@
+{
+  "descricao": "Baseline do golden_dataset_v2 com 80 claims (as 70 do remoto mais 10 de gasto individual com homônimo, pergunta de valor, PEC 45/2019 na Câmara, cota de senadora e pergunta descritiva). Uma rodada.",
+  "data": "2026-10-16",
+  "modelos": {
+    "router": "DeepSeek (deepseek-flash)",
+    "judge": "DeepSeek (deepseek-flash)"
+  },
+  "observacao": "Primeira baseline com DeepSeek; as anteriores usaram Groq, então não se comparam. Nenhum veredito definitivo errado (no_wrong_definitive 100%).",
+  "erros_conhecidos": [
+    {
+      "id": 15,
+      "obtido": "INCONCLUSIVO",
+      "origem": "v1, Marco Temporal na Câmara (nome popular sem apelido na base)"
+    },
+    {
+      "id": 67,
+      "obtido": "INCONCLUSIVO",
+      "origem": "claim de existência de PL sobre imposto de renda: a API da Câmara casa a frase exata em keywords (0 resultados para 'isenção do imposto de renda') e vários candidatos viram 'ambiguous'; fica para outro PR"
+    }
+  ],
+  "summary": {
+    "run_name": "completo-r1",
+    "dataset_run_url": null,
+    "total": 80,
+    "scores": {
+      "verdict_match": {
+        "mean": 0.975,
+        "n": 80
+      },
+      "no_wrong_definitive": {
+        "mean": 1.0,
+        "n": 80
+      },
+      "has_traceable_evidence": {
+        "mean": 1.0,
+        "n": 80
+      },
+      "tool_category_match": {
+        "mean": 1.0,
+        "n": 58
+      },
+      "inconclusive_without_tool": {
+        "mean": 1.0,
+        "n": 22
+      }
+    },
+    "matrix": {
+      "VERDADEIRO": {
+        "VERDADEIRO": 29,
+        "FALSO": 0,
+        "INCONCLUSIVO": 1,
+        "ERRO": 0
+      },
+      "FALSO": {
+        "VERDADEIRO": 0,
+        "FALSO": 27,
+        "INCONCLUSIVO": 1,
+        "ERRO": 0
+      },
+      "INCONCLUSIVO": {
+        "VERDADEIRO": 0,
+        "FALSO": 0,
+        "INCONCLUSIVO": 22,
+        "ERRO": 0
+      }
+    },
+    "failures": [
+      {
+        "golden_id": 15,
+        "expected": "FALSO",
+        "got": "INCONCLUSIVO",
+        "trace_id": "1d74cd1d3f7f0be71dadc1ee45f6df16",
+        "erro": null
+      },
+      {
+        "golden_id": 67,
+        "expected": "VERDADEIRO",
+        "got": "INCONCLUSIVO",
+        "trace_id": "688e02e3277b62a5a73351a2e961a8e9",
+        "erro": null
+      }
+    ]
+  }
+}
