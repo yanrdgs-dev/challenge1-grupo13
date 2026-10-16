@@ -131,6 +131,7 @@ def test_resolve_proposition_contract_keys(mock_camara_pl2630):
         "ambiguous",
         "candidatos",
         "match_score",
+        "registros_equivalentes",
     }
     assert set(result.keys()) == expected_keys
     assert isinstance(result["ambiguous"], bool)
