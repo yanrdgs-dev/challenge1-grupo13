@@ -282,6 +282,39 @@ TOOLS_CATALOG: List[Dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_member_vote",
+            "description": (
+                "Voto INDIVIDUAL de um deputado ou senador numa proposição (PL, PEC, MPV...): como ele votou "
+                "(Sim, Não, abstenção...) em cada votação nominal. Usar para 'o deputado X votou contra/a favor da PEC Y', "
+                "'como o senador Z votou'. O sistema resolve o parlamentar e a proposição antes de consultar o voto; "
+                "para o placar geral de uma votação, sem citar um parlamentar, use resolve_proposition."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "parlamentar": {
+                        "type": "string",
+                        "description": "Nome do parlamentar como escrito na frase (o sistema resolve o ID).",
+                    },
+                    "sigla_tipo": {"type": "string", "description": "Sigla da proposição (ex: 'PEC', 'PL')."},
+                    "numero": {"type": "integer", "description": "Número oficial da proposição, se a frase cita."},
+                    "ano": {"type": "integer", "description": "Ano da proposição (não o ano da votação), se a frase cita."},
+                    "termo_busca": {
+                        "type": "string",
+                        "description": "Nome popular da proposição quando não há número (ex: 'Marco Temporal').",
+                    },
+                    "uf": {
+                        "type": "string",
+                        "description": "UF do parlamentar (2 letras), só se a frase a cita, para desambiguar homônimos.",
+                    },
+                },
+                "required": ["parlamentar"],
+            },
+        },
+    },
 ]
 
 _TOPIC_HINTS = (
