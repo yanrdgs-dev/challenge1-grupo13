@@ -57,3 +57,27 @@ def test_new_expense_claims_use_the_expenses_tool_and_pass_the_input_guard(v2):
         assert claim["category"] == "GASTOS"
         assert claim["expected_tools"] == ["get_member_expenses"]
         assert check_input_specificity(claim["claim"])["is_valid"] is True
+
+
+# ------------------------------------------------------------ cobertura das correções de proposição e senado
+
+def _claim(v2, id_):
+    return next(c for c in v2 if c["id"] == id_)
+
+
+def test_v2_covers_the_duplicate_record_house_senator_and_descriptive_question_fixes(v2):
+    new = [_claim(v2, i) for i in range(76, 81)]
+    pec = [c for c in new if "PEC 45/2019" in c["claim"]]
+    senadora = [c for c in new if "Damares" in c["claim"]]
+    pergunta = [c for c in new if c.get("inconclusive_reason") == "pergunta_de_valor"]
+    assert len(pec) == 2 and len(senadora) == 2 and len(pergunta) == 1
+    for group in (pec, senadora):  # regra 6: um VERDADEIRO e um FALSO de cada
+        assert sorted(c["expected_verdict"] for c in group) == ["FALSO", "VERDADEIRO"]
+    assert all("na Câmara" in c["claim"] for c in pec)  # a Casa dita o caminho do registro duplicado
+    assert all(c["expected_tools"] == ["get_member_expenses"] for c in senadora)
+    assert "resolve_proposition" in pergunta[0]["expected_tools"]
+
+
+def test_new_proposition_and_senator_claims_pass_the_input_guard(v2):
+    for i in range(76, 81):
+        assert check_input_specificity(_claim(v2, i)["claim"])["is_valid"] is True
