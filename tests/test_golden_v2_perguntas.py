@@ -55,5 +55,5 @@ def test_v2_has_individual_expense_claims_for_a_homonym(v2):
 def test_new_expense_claims_use_the_expenses_tool_and_pass_the_input_guard(v2):
     for claim in (c for c in v2 if "Fraga" in c["claim"]):
         assert claim["category"] == "GASTOS"
-        assert "check_parliamentary_expenses" in claim["expected_tools"]
+        assert claim["expected_tools"] == ["get_member_expenses"]
         assert check_input_specificity(claim["claim"])["is_valid"] is True
