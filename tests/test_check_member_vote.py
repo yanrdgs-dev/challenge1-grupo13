@@ -172,3 +172,30 @@ def test_uf_disambiguates_a_homonym_member():
     with Tools() as t:
         execute_tool("check_member_vote", {**ARGS, "uf": "MG"})
     assert t.politician_mock.call_args.kwargs["uf"] == "MG"
+
+
+# ------------------------------------------------------------ apelido citado na alegação (elo para o juiz)
+
+ALIAS_CLAIM = "Nikolas Ferreira votou contra a PEC da escala 6x1."
+
+
+def test_alias_cited_in_the_claim_is_linked_to_the_resolved_proposition_in_the_evidence():
+    """O juiz só via a ementa ("jornada de 36 horas") e dizia que não havia registro da "PEC da escala 6x1"."""
+    with Tools():
+        evidence = router_service._check_member_vote(ARGS, ALIAS_CLAIM)
+    prop = evidence["proposicao"]
+    assert prop["apelido_citado_na_alegacao"] == "PEC da escala 6x1"
+    assert "PEC 221/2019" in prop["equivalencia"] and "PEC da escala 6x1" in prop["equivalencia"]
+
+
+def test_no_alias_link_when_the_claim_does_not_cite_one():
+    with Tools():
+        evidence = router_service._check_member_vote(ARGS, CLAIM)
+    assert "apelido_citado_na_alegacao" not in evidence["proposicao"]
+
+
+def test_no_alias_link_when_the_alias_points_to_another_proposition():
+    other = {**PEC, "numero": 45, "ano": 2019}      # o apelido é da 221/2019, mas a resolvida é a 45/2019
+    with Tools(proposition=other):
+        evidence = router_service._check_member_vote({**ARGS, "numero": 45}, ALIAS_CLAIM)
+    assert "apelido_citado_na_alegacao" not in evidence["proposicao"]
