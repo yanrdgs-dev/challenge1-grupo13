@@ -134,7 +134,7 @@ def _route(arguments, resolver_result, tool_name="resolve_politician", claim=CLA
 
 
 def test_router_resolves_the_homonym_with_the_uf_from_the_claim():
-    outcome, resolver, _ = _route({"nome_busca": "Fraga", "ano": 2022}, FRAGA)
+    outcome, resolver, _ = _route({"nome_busca": "Fraga"}, FRAGA, claim="O deputado Fraga, do DF, é do PL?")
     assert resolver.call_args.kwargs["uf"] == "DF"
     assert resolver.call_args.kwargs["cargo"] == "Deputado Federal"
     assert outcome.tool_args["uf"] == "DF"

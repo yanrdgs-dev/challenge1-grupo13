@@ -27,7 +27,12 @@ from src.api.routes.ingestion import router as ingestion_router
 from src.services import frontend_api
 from src.observability.prompts import get_prompt
 from src.prompts.defaults import PROMPT_ROUTER_SYSTEM
-from src.services.tool_args import ground_candidate_args, validate_tool_args
+from src.services.tool_args import (
+    complete_parliamentarian_args,
+    expense_question_year,
+    ground_candidate_args,
+    validate_tool_args,
+)
 from src.services.data_freshness import data_date, ensure_data_date_cited, load_ingestion_info
 from src.services.sources import TSE as TSE_SOURCE, derive_sources, ensure_source_cited, evidence_failed, merge_sources
 from src.tools.gastos_tools import (
@@ -161,17 +166,17 @@ def _unresolved(**extra: Any) -> Dict[str, Any]:
     return {"status": "entidade_nao_resolvida", "ambiguous": False, **extra}
 
 
-def _resolve_parlamentar_id(casa: str, valor: str) -> Dict[str, Any]:
+def _resolve_parlamentar_id(casa: str, valor: str, uf: Optional[str] = None) -> Dict[str, Any]:
     """Converte nome de parlamentar em ID canônico (regra 2). Se já for ID numérico, repassa."""
     valor = str(valor).strip()
     if valor.isdigit():
         return {"id": valor}
 
     with tracing.observation(
-        "resolve_politician", input={"nome_busca": valor, "casa": casa}
+        "resolve_politician", input={"nome_busca": valor, "casa": casa, "uf": uf}
     ) as span:
         res = _resolve_politician_with_fallback(
-            {"nome_busca": valor, "cargo": _CARGO_POR_CASA.get(casa)}
+            {"nome_busca": valor, "cargo": _CARGO_POR_CASA.get(casa), "uf": uf}
         )
         span.update(output=res)
 
@@ -279,7 +284,7 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
         casa = str(args["casa"]).strip().lower()
         parlamentar_id = args.get("parlamentar_id")
         if parlamentar_id not in (None, ""):
-            resolved = _resolve_parlamentar_id(casa, parlamentar_id)
+            resolved = _resolve_parlamentar_id(casa, parlamentar_id, args.get("uf"))
             if "unresolved" in resolved:
                 return resolved["unresolved"]
             parlamentar_id = resolved["id"]
@@ -508,6 +513,7 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
                                   (time.perf_counter() - start) * 1000)
         tool_name, tool_args = "resolve_proposition", resolver_call["arguments"]
 
+    tool_args = complete_parliamentarian_args(tool_name, tool_args, claim_text)
     grounded_args = ground_candidate_args(tool_name, tool_args, claim_text)
     if grounded_args != tool_args:
         dropped = sorted(set(tool_args) - set(grounded_args))
@@ -537,7 +543,31 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
         outcome.evidence = {**(vote_evidence or {}), "entidade_resolvida": resolution}
         outcome.tools_used.append("get_proposition_vote_result")
         outcome.tools_used.extend(_attach_vote_breakdowns(outcome.evidence, resolved_casa))
+
+    _chain_expenses_after_resolution(outcome, claim_text)
     return outcome
+
+
+def _chain_expenses_after_resolution(outcome: RoutingOutcome, claim_text: str) -> None:
+    """Pergunta de gasto que o LLM roteou só para o resolver: com o parlamentar único, consulta a cota (regra 2).
+
+    O ID da cota vem sempre do ``resolve_politician``; sem ano na claim ou sem entidade única, não encadeia.
+    """
+    evidence = outcome.evidence or {}
+    if outcome.tool_name != "resolve_politician" or evidence_failed(evidence) or evidence.get("ambiguous"):
+        return
+    casa = {"Deputado Federal": "camara", "Senador": "senado"}.get(evidence.get("cargo"))
+    canonical = evidence.get("ideCadastro") if casa == "camara" else evidence.get("cod_senador")
+    ano = expense_question_year(claim_text)
+    if casa is None or canonical is None or ano is None:
+        return
+    expense_args = {"casa": casa, "ano": ano, "parlamentar_id": str(canonical)}
+    expenses = _run_tool("check_parliamentary_expenses", expense_args)
+    resolution = {k: evidence.get(k) for k in ("ideCadastro", "cod_senador", "nome_civil", "nome_urna", "casa", "cargo", "uf", "partido")}
+    outcome.tool_name = "check_parliamentary_expenses"
+    outcome.tool_args = expense_args
+    outcome.evidence = {**(expenses or {}), "entidade_resolvida": resolution}
+    outcome.tools_used.append("check_parliamentary_expenses")
 
 
 # Placar só das votações mais recentes: cada consulta nominal da Câmara baixa ~500 votos.

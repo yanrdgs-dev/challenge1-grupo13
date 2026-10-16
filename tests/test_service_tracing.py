@@ -83,7 +83,7 @@ def test_tool_span_records_arguments_and_evidence(trace_recorder):
         router_client.post("/check", json={"claim": CLAIM})
 
     tool = trace_recorder.get("tool.resolve_politician")
-    assert tool["kwargs"]["input"] == {"nome_busca": "Fulano"}
+    assert tool["kwargs"]["input"] == {"nome_busca": "Fulano", "uf": "SP", "cargo": "Deputado Federal"}  # UF e cargo da claim
     assert trace_recorder.merged_updates("tool.resolve_politician")["output"] == {"ideCadastro": 1}
 
 

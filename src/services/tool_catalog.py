@@ -147,6 +147,10 @@ TOOLS_CATALOG: List[Dict[str, Any]] = [
                         "type": "string",
                         "description": "ID ou nome do parlamentar se restrito a um indivíduo.",
                     },
+                    "uf": {
+                        "type": "string",
+                        "description": "Sigla da UF com 2 letras do parlamentar citado (ex: 'DF'), para desambiguar homônimos quando a frase a informa.",
+                    },
                 },
                 "required": ["casa", "ano"],
             },
