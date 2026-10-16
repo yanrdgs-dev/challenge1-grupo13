@@ -115,3 +115,26 @@ def test_every_catalog_tool_has_its_required_params_checked():
         required = fn["parameters"].get("required", [])
         if required:
             assert bad(fn["name"], {}), fn["name"]
+
+
+# --------------------------- pergunta x alegação --------------------------- #
+
+import pytest as _pytest  # noqa: E402
+
+from src.services.tool_args import is_question  # noqa: E402
+
+
+@_pytest.mark.parametrize("text", [
+    "O que é o PL 2630/2020?", "Quantos votos teve a PEC 45", "Qual foi o placar?", "quem votou contra a PEC 221/2019",
+    "Como votou o deputado X?", "A PEC foi aprovada?",
+])
+def test_questions_are_recognized(text):
+    assert is_question(text)
+
+
+@_pytest.mark.parametrize("text", [
+    "A PEC 221/2019 teve apenas um voto contra.", "O deputado Fraga gastou mais de R$ 400 mil em 2023.",
+    "Como o PL 2630 é de 2020, ele foi votado em 2021.",
+])
+def test_statements_are_not_questions(text):
+    assert not is_question(text)
