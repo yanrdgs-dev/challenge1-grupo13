@@ -288,6 +288,87 @@ def get_proposition_vote_breakdown(id_votacao: str, casa: str) -> Dict[str, Any]
 
 
 # ============================================================================
+# 5.2b get_member_vote
+# ============================================================================
+
+
+def _senado_votos(id_votacao: str) -> List[Dict[str, Any]]:
+    """Votos nominais de uma votação do Senado ('{id_materia}_{cod_votacao}' ou o código já conhecido)."""
+    if "_" in id_votacao:
+        id_materia, cod_vot = id_votacao.split("_", 1)
+    elif id_votacao in _senado_votacao_para_materia:
+        id_materia, cod_vot = _senado_votacao_para_materia[id_votacao], id_votacao
+    else:
+        id_materia, cod_vot = id_votacao, id_votacao
+    payload = http_client.get_json(f"https://legis.senado.leg.br/dadosabertos/materia/votacoes/{id_materia}")
+    votacoes = payload.get("VotacaoMateria", {}).get("Materia", {}).get("Votacoes", {}).get("Votacao", [])
+    if isinstance(votacoes, dict):
+        votacoes = [votacoes]
+    target = next((v for v in votacoes if str(v.get("CodigoSessaoVotacao")) == str(cod_vot) or len(votacoes) == 1), None)
+    raw = (target or {}).get("Votos", {}).get("VotoParlamentar", [])
+    return [raw] if isinstance(raw, dict) else list(raw or [])
+
+
+def get_member_vote(id_votacao: str, casa: str, id_parlamentar: Any) -> Dict[str, Any]:
+    """Voto de UM parlamentar numa votação nominal.
+
+    Args:
+        id_votacao: ID obtido via get_proposition_vote_result (no Senado, '{id_materia}_{id_votacao}' também vale).
+        casa: 'camara' ou 'senado'.
+        id_parlamentar: ID canônico do resolve_politician (ideCadastro na Câmara; cod_senador no Senado). Nunca o nome.
+
+    Returns:
+        {'registrado': bool, 'voto': rótulo da API ou None, 'opcao': sim|nao|abstencao|obstrucao|ausente|outros ou None,
+        'nome', 'partido', 'uf', 'total_votos': int, 'votacao_nominal': bool}. Quem não consta na lista não votou
+        nominalmente (a API só lista quem votou): 'registrado' False, nunca "ausente" nem "contra".
+    """
+    casa_norm = casa.lower().strip()
+    if casa_norm not in ("camara", "senado"):
+        raise ValueError(f"Casa inválida: '{casa}'. Valores permitidos: 'camara' ou 'senado'.")
+    wanted = str(id_parlamentar if id_parlamentar is not None else "").strip()
+    if not wanted:
+        raise ValueError("id_parlamentar é obrigatório (ID canônico do resolve_politician).")
+
+    try:
+        if casa_norm == "camara":
+            votos = http_client.get_json(
+                f"https://dadosabertos.camara.leg.br/api/v2/votacoes/{id_votacao}/votos"
+            ).get("dados", [])
+        else:
+            votos = _senado_votos(str(id_votacao))
+    except HttpNetworkError as exc:
+        if "404" in str(exc):
+            votos = []
+        else:
+            raise
+
+    found = None
+    for item in votos:
+        if casa_norm == "camara":
+            who = item.get("deputado_") or {}
+            if str(who.get("id")) == wanted:
+                found = (item.get("tipoVoto"), who.get("nome"), who.get("siglaPartido"), who.get("siglaUf"))
+                break
+        else:
+            who = item.get("IdentificacaoParlamentar") or {}
+            if str(who.get("CodigoParlamentar")) == wanted:
+                found = (
+                    item.get("SiglaVoto"), who.get("NomeParlamentar"), who.get("SiglaPartidoParlamentar"),
+                    who.get("SiglaUFParlamentar"),
+                )
+                break
+
+    result: Dict[str, Any] = {
+        "registrado": found is not None, "voto": None, "opcao": None, "nome": None, "partido": None, "uf": None,
+        "total_votos": len(votos), "votacao_nominal": bool(votos),
+    }
+    if found:
+        rotulo = str(found[0] or "").strip()
+        result.update(voto=rotulo or None, opcao=_classificar_voto(rotulo), nome=found[1], partido=found[2], uf=found[3])
+    return result
+
+
+# ============================================================================
 # 5.3 get_congress_veto_sessions
 # ============================================================================
 

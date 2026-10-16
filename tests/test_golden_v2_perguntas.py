@@ -81,3 +81,11 @@ def test_v2_covers_the_duplicate_record_house_senator_and_descriptive_question_f
 def test_new_proposition_and_senator_claims_pass_the_input_guard(v2):
     for i in range(76, 81):
         assert check_input_specificity(_claim(v2, i)["claim"])["is_valid"] is True
+
+
+def test_v2_covers_the_individual_vote_with_a_true_and_a_false_claim(v2):
+    votes = [c for c in v2 if "Nikolas Ferreira" in c["claim"] and "votou" in c["claim"]]
+    assert sorted(c["expected_verdict"] for c in votes) == ["FALSO", "VERDADEIRO"]     # regra 6
+    for claim in votes:
+        assert claim["category"] == "VOTACOES" and claim["expected_tools"] == ["check_member_vote"]
+        assert check_input_specificity(claim["claim"])["is_valid"] is True

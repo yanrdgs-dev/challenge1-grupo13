@@ -722,5 +722,25 @@
       "resolve_proposition",
       "get_proposition_vote_result"
     ]
+  },
+  {
+    "id": 81,
+    "claim": "Nikolas Ferreira votou a favor da PEC da escala 6x1.",
+    "expected_verdict": "VERDADEIRO",
+    "category": "VOTACOES",
+    "target_entity": "Câmara dos Deputados",
+    "expected_tools": [
+      "check_member_vote"
+    ]
+  },
+  {
+    "id": 82,
+    "claim": "Nikolas Ferreira votou contra a PEC da escala 6x1.",
+    "expected_verdict": "FALSO",
+    "category": "VOTACOES",
+    "target_entity": "Câmara dos Deputados",
+    "expected_tools": [
+      "check_member_vote"
+    ]
   }
 ]

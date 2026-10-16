@@ -62,7 +62,12 @@ from src.tools.tse_tools import (
     results_unavailable,
 )
 from src.tools.proposition_aliases import find_alias
-from src.tools.votacoes_api import focus_votacoes, get_proposition_vote_breakdown, get_proposition_vote_result
+from src.tools.votacoes_api import (
+    focus_votacoes,
+    get_member_vote,
+    get_proposition_vote_breakdown,
+    get_proposition_vote_result,
+)
 from src.services.tool_catalog import ROUTER_SYSTEM_PROMPT, TOOLS_CATALOG
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -291,6 +296,84 @@ def _candidate_votes(args: Dict[str, Any]) -> Dict[str, Any]:
     return _with_resolved_candidate(args, votes, with_resolution=True)
 
 
+# Votações lidas por parlamentar: cada uma é uma consulta (a lista nominal da Câmara tem ~500 votos).
+MAX_MEMBER_VOTES = 6
+
+
+def _check_member_vote(args: Dict[str, Any], claim_text: str = "") -> Dict[str, Any]:
+    """Voto de um parlamentar numa proposição: resolve os dois (regras 2 e 3) e só então lê o voto nominal.
+
+    A Casa vem do cargo do parlamentar resolvido; o ID de votação vem só do ``get_proposition_vote_result``.
+    """
+    nome = str(args["parlamentar"]).strip()
+    sigla, numero = args.get("sigla_tipo"), args.get("numero")
+    termo = str(args.get("termo_busca") or "").strip()
+    if not ((sigla and numero) or termo):
+        return _unresolved(
+            parlamentar_informado=nome,
+            motivo="A alegação não identifica a proposição (sigla e número, ou nome popular); nada foi consultado.",
+        )
+
+    with tracing.observation("resolve_politician", input={"nome_busca": nome, "uf": args.get("uf")}) as span:
+        member = _resolve_politician_with_fallback({"nome_busca": nome, "uf": args.get("uf")})
+        span.update(output=member)
+    cargo = member.get("cargo")
+    casa = {"Deputado Federal": "camara", "Senador": "senado"}.get(cargo)
+    canonical = member.get("ideCadastro") if casa == "camara" else member.get("cod_senador")
+    if member.get("ambiguous") or casa is None or canonical is None:
+        return _unresolved(
+            ambiguous=bool(member.get("ambiguous")), parlamentar_informado=nome, resolucao=member,
+            motivo="O parlamentar não foi resolvido de forma única.",
+        )
+    parlamentar = {
+        "id": str(canonical), "nome_urna": member.get("nome_urna"), "nome_civil": member.get("nome_civil"),
+        "partido": member.get("partido"), "uf": member.get("uf"), "cargo": cargo, "casa": casa,
+    }
+
+    with tracing.observation(
+        "resolve_proposition", input={"casa": casa, "sigla_tipo": sigla, "numero": numero, "ano": args.get("ano"), "termo_busca": termo}
+    ) as span:
+        proposition = resolve_proposition(
+            casa=casa, sigla_tipo=sigla, numero=numero, ano=args.get("ano"), termo_busca=termo or None
+        )
+        span.update(output=proposition)
+    if proposition.get("ambiguous") or proposition.get("id_proposicao") is None:
+        return _unresolved(
+            ambiguous=bool(proposition.get("ambiguous")), parlamentar=parlamentar, resolucao_proposicao=proposition,
+            motivo="A proposição não foi resolvida de forma única na " + _HOUSE_NAMES[casa] + ".",
+        )
+    proposicao = {k: proposition.get(k) for k in ("id_proposicao", "sigla_tipo", "numero", "ano", "casa", "ementa")}
+
+    votacoes = get_proposition_vote_result(id_proposicao=str(proposition["id_proposicao"]), casa=casa)
+    focused, omitted = focus_votacoes(votacoes, claim_text, limit=MAX_MEMBER_VOTES)
+    rows = []
+    for votacao in focused:
+        row = {k: votacao.get(k) for k in ("id_votacao", "data", "tipo_votacao", "aprovado")}
+        try:
+            with tracing.observation("get_member_vote", input={"id_votacao": row["id_votacao"], "casa": casa}) as span:
+                vote = get_member_vote(id_votacao=row["id_votacao"], casa=casa, id_parlamentar=parlamentar["id"])
+                span.update(output=vote)
+            row.update({k: vote.get(k) for k in ("registrado", "voto", "opcao", "votacao_nominal", "total_votos")})
+        except Exception as exc:
+            logger.warning("Voto de %s na votação %s indisponível: %s", nome, row["id_votacao"], exc)
+            row["erro"] = str(exc)
+        rows.append(row)
+    return {
+        "casa": casa, "parlamentar": parlamentar, "proposicao": proposicao, "votos": rows,
+        "total_votacoes": len(votacoes), "votacoes_omitidas": len(votacoes) - len(rows),
+    }
+
+
+def _member_vote_runner(claim_text: str) -> Callable[[Dict[str, Any]], Dict[str, Any]]:
+    """Executa check_member_vote com a alegação em mãos (ela decide quais votações interessam), validando antes."""
+    def run(args: Dict[str, Any]) -> Dict[str, Any]:
+        checked, problem = validate_tool_args("check_member_vote", args)
+        if problem:
+            return {"status": "parametros_invalidos", "erro": problem, "tool": "check_member_vote"}
+        return _check_member_vote(checked, claim_text)
+    return run
+
+
 def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Executa a tool Python real mapeada pelo Roteador.
 
@@ -362,6 +445,8 @@ def execute_tool(tool_name: str, args: Dict[str, Any]) -> Optional[Dict[str, Any
         return _with_resolved_proposition(
             args, lambda house, pid: check_bill_apensamentos(id_proposicao=pid, casa=house)
         )
+    if tool_name == "check_member_vote":
+        return _check_member_vote(args)
     if tool_name == "get_proposition_vote_result":
         casa = str(args["casa"]).strip().lower()
         prop_id = str(args.get("id_proposicao") or "").strip()
@@ -526,7 +611,7 @@ _CITED_PROPOSITION_RE = re.compile(
 # Tools com que uma proposição citada convive sem ser desviada para o resolvedor.
 _PROPOSITION_COMPATIBLE_TOOLS = {
     "resolve_proposition", "get_proposition_vote_result", "check_institutional_rule", "check_data_source_coverage",
-    "get_proposition_tramitation_history", "check_bill_apensamentos",
+    "get_proposition_tramitation_history", "check_bill_apensamentos", "check_member_vote",
 }
 _APENSAMENTO_CUE_RE = re.compile(r"apens|anexad|apensad", re.IGNORECASE)
 _TRAMITACAO_CUE_RE = re.compile(r"tramit|comiss[aã]o|comiss[oõ]es|em que fase|em que p[eé]|situa[cç][aã]o atual|status|andamento|parad[ao]", re.IGNORECASE)
@@ -611,7 +696,7 @@ def _with_house(args: Dict[str, Any], claim_text: str) -> Dict[str, Any]:
     return {**args, "casa": _house_in_claim(claim_text) or "congresso"}
 
 
-_ALIAS_TOOLS = {"resolve_proposition", "get_proposition_tramitation_history", "check_bill_apensamentos"}
+_ALIAS_TOOLS = {"resolve_proposition", "get_proposition_tramitation_history", "check_bill_apensamentos", "check_member_vote"}
 
 
 def _with_alias(args: Dict[str, Any], claim_text: str) -> Dict[str, Any]:
@@ -866,6 +951,14 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
         )
         return RoutingOutcome(tool_name, tool_args, evidence, [], (time.perf_counter() - start) * 1000)
 
+    if tool_name == "check_member_vote" and not _name_in_claim(tool_args.get("parlamentar"), claim_text):
+        logger.warning("LLM usou o parlamentar %r, que não consta na alegação; consulta descartada.", tool_args.get("parlamentar"))
+        evidence = _unresolved(
+            parlamentar_informado=tool_args.get("parlamentar"),
+            motivo="A alegação não cita o parlamentar informado pelo roteador; a consulta foi descartada.",
+        )
+        return RoutingOutcome(tool_name, tool_args, evidence, [], (time.perf_counter() - start) * 1000)
+
     if tool_name == "get_member_expenses" and not tool_args.get("uf"):
         inferred_uf = _uf_in_claim(claim_text)
         if inferred_uf:
@@ -879,7 +972,8 @@ def _route_and_execute(claim_text: str, on_step: Optional[Callable[[str], None]]
     routing_ms = (time.perf_counter() - start) * 1000
     if on_step:
         on_step("search")
-    evidence = _run_tool(tool_name, tool_args)
+    runner = _member_vote_runner(claim_text) if tool_name == "check_member_vote" else None
+    evidence = _run_tool(tool_name, tool_args, runner=runner)
     outcome = RoutingOutcome(tool_name, tool_args, evidence, [tool_name], routing_ms)
 
     # Etapa 2: com a proposição resolvida, consulta a votação usando o ID do resolver.
