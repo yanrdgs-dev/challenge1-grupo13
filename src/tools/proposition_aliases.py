@@ -39,3 +39,21 @@ def find_alias(text: str) -> Optional[Dict[str, Any]]:
                 hits[entry["id"]] = entry
                 break
     return next(iter(hits.values())) if len(hits) == 1 else None
+
+
+def cited_alias(text: str) -> Optional[Dict[str, Any]]:
+    """O apelido citado no texto e a proposição a que ele aponta: ``{"apelido", "sigla_tipo", "numero", "ano"}``.
+
+    Mesma regra de ``find_alias`` (None se não há apelido, ou se há de duas proposições diferentes); devolve também o
+    apelido como escrito na base, para a evidência mostrar ao juiz o elo entre o que a alegação diz e a proposição.
+    """
+    entry = find_alias(text)
+    if not entry:
+        return None
+    normalized = _normalize(text)
+    apelido = next(
+        (a for a in entry["apelidos"] if re.search(rf"(?<!\w){re.escape(_normalize(a))}(?!\w)", normalized)), None
+    )
+    if apelido is None:
+        return None
+    return {"apelido": apelido, "sigla_tipo": entry["sigla_tipo"], "numero": entry["numero"], "ano": entry["ano"]}

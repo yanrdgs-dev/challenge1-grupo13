@@ -61,7 +61,7 @@ from src.tools.tse_tools import (
     resolve_candidate,
     results_unavailable,
 )
-from src.tools.proposition_aliases import find_alias
+from src.tools.proposition_aliases import cited_alias, find_alias
 from src.tools.votacoes_api import (
     focus_votacoes,
     get_member_vote,
@@ -343,6 +343,16 @@ def _check_member_vote(args: Dict[str, Any], claim_text: str = "") -> Dict[str, 
             motivo="A proposição não foi resolvida de forma única na " + _HOUSE_NAMES[casa] + ".",
         )
     proposicao = {k: proposition.get(k) for k in ("id_proposicao", "sigla_tipo", "numero", "ano", "casa", "ementa")}
+    alias = cited_alias(claim_text)
+    if alias and (alias["sigla_tipo"], alias["numero"], alias["ano"]) == (
+        proposicao["sigla_tipo"], proposicao["numero"], proposicao["ano"]
+    ):
+        # A ementa quase nunca traz o apelido ("jornada de 36 horas"): sem este elo o juiz diz que não há registro dele.
+        proposicao["apelido_citado_na_alegacao"] = alias["apelido"]
+        proposicao["equivalencia"] = (
+            f"'{alias['apelido']}', como a alegação chama a matéria, é a {alias['sigla_tipo']} "
+            f"{alias['numero']}/{alias['ano']}."
+        )
 
     votacoes = get_proposition_vote_result(id_proposicao=str(proposition["id_proposicao"]), casa=casa)
     focused, omitted = focus_votacoes(votacoes, claim_text, limit=MAX_MEMBER_VOTES)
