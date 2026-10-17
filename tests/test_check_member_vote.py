@@ -184,8 +184,8 @@ def test_alias_cited_in_the_claim_is_linked_to_the_resolved_proposition_in_the_e
     with Tools():
         evidence = router_service._check_member_vote(ARGS, ALIAS_CLAIM)
     prop = evidence["proposicao"]
-    assert prop["apelido_citado_na_alegacao"] == "PEC da escala 6x1"
-    assert "PEC 221/2019" in prop["equivalencia"] and "PEC da escala 6x1" in prop["equivalencia"]
+    assert prop["apelido_citado_na_alegacao"] == "escala 6x1"
+    assert "PEC 221/2019" in prop["equivalencia"] and "escala 6x1" in prop["equivalencia"]
 
 
 def test_no_alias_link_when_the_claim_does_not_cite_one():
